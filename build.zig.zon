@@ -1,0 +1,25 @@
+.{
+    .name = .nupsx,
+    .version = "0.0.1",
+    .fingerprint = 0xb2fcd5f4f801ce80,
+    .minimum_zig_version = "0.14.0",
+    .dependencies = .{
+        .zgui = .{
+            .url = "git+https://github.com/zig-gamedev/zgui#ec1372b6ca7ca0cfd187fc93c5d64878271ba608",
+            .hash = "zgui-0.6.0-dev--L6sZIWbaADnz0Nsywh4rzg-H2ZqWn6m_1mNWjaKLlBQ",
+        },
+        .zglfw = .{
+            .url = "git+https://github.com/zig-gamedev/zglfw#c337cb3d3f984468ea7a386335937a5d555fc024",
+            .hash = "zglfw-0.10.0-dev-zgVDNMacIQA-k7kNSfwUc9Lfzx-bb_wklVm25K-p8Tr7",
+        },
+        .zopengl = .{
+            .url = "git+https://github.com/zig-gamedev/zopengl#27f5f228bc1f6da4a4f6acaca07d1cc5ad135171",
+            .hash = "zopengl-0.6.0-dev-5-tnz59jCAB6WpFFql6YdVtwBLlOcReCYVOnxQTPD-xC",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
