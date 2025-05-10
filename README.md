@@ -6,6 +6,14 @@ Still in early development with no intention of becoming usable by the general b
 
 > Made possible thanks to [zig-gamedev](https://github.com/zig-gamedev)—a collection of high quality idiomatic wrappers for graphics and audio APIs like WebGPU, OpenGL, SDL, ImGui, and more.
 
+## Running
+
+```
+git clone https://github.com/maxpoletaev/nupsx.git
+cd nupsx
+zig build run -- --bios SCPH1001.bin
+```
+
 ## References
  
  * [PSX-SPX Playstation Specifications](https://problemkaputt.de/psx-spx.htm) by Martin "nocash" Korth 
