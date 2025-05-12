@@ -5,9 +5,11 @@ const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
 const Disasm = @import("disasm.zig").Disasm;
 const UI = @import("ui.zig").UI;
+const exe = @import("exe.zig");
 
 const Args = struct {
     bios_path: []const u8,
+    exe_path: ?[]const u8,
     step_execute: bool = false,
     no_ui: bool = false,
     disasm: bool = false,
@@ -19,10 +21,6 @@ const Args = struct {
         var args = std.mem.zeroInit(Args, .{ .iter = &iter });
 
         while (iter.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--bios")) {
-                const bios_path = iter.next() orelse return error.InvalidArgument;
-                args.bios_path = bios_path;
-            }
             if (std.mem.eql(u8, arg, "--step")) {
                 args.step_execute = true;
             }
@@ -36,6 +34,12 @@ const Args = struct {
                 const addr_str = iter.next() orelse return error.InvalidArgument;
                 args.breakpoint = try std.fmt.parseUnsigned(u32, addr_str, 16);
             }
+            if (std.mem.eql(u8, arg, "--bios")) {
+                args.bios_path = iter.next() orelse return error.InvalidArgument;
+            }
+            if (std.mem.eql(u8, arg, "--exe")) {
+                args.exe_path = iter.next() orelse return error.InvalidArgument;
+            }
         }
 
         return args;
@@ -48,10 +52,11 @@ const Args = struct {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
     defer if (gpa.deinit() == .leak) {
         std.log.warn("leak detected", .{});
     };
+
+    const allocator = gpa.allocator();
 
     var args = try Args.parse(allocator);
     defer args.deinit();
@@ -74,7 +79,7 @@ pub fn main() !void {
     }
 
     const stdin = std.io.getStdIn();
-    var buf: [1]u8 = undefined;
+    var stdin_buf: [1]u8 = undefined;
 
     const disasm = try Disasm.init(allocator);
     defer disasm.deinit();
@@ -89,7 +94,7 @@ pub fn main() !void {
             }
 
             if (cpu.stall) {
-                _ = try stdin.read(&buf);
+                _ = try stdin.read(&stdin_buf);
                 args.disasm = true;
                 cpu.step();
             }
@@ -102,11 +107,31 @@ pub fn main() !void {
         cpu.stall = true;
     }
 
+    if (args.exe_path) |path| {
+        while (cpu.pc != 0x80030000) {
+            cpu.execute();
+        }
+        std.log.info("loading exe file: {s}", .{path});
+        try exe.loadExe(allocator, path, cpu, bus);
+    }
+
     const ui = try UI.init(allocator, cpu, bus, disasm);
     defer ui.deinit();
 
     while (!ui.shouldClose()) {
         cpu.execute();
         ui.update();
+
+        if (captureTtyOutput(cpu)) |ch| {
+            ui.tty_view.writeChar(ch) catch unreachable;
+        }
     }
+}
+
+fn captureTtyOutput(cpu: *const CPU) ?u8 {
+    const pc = cpu.pc & 0x1fffffff;
+    if ((pc == 0xa0 and cpu.gpr[9] == 0x3c) or (pc == 0xb0 and cpu.gpr[9] == 0x3d)) {
+        return @as(u8, @truncate(cpu.gpr[4]));
+    }
+    return null;
 }

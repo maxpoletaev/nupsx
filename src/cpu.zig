@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = @import("mem.zig");
 
 const log = std.log.scoped(.cpu);
-const reset_addr = 0xBFC00000; // start of the BIOS
+const reset_addr = 0xbfc00000; // start of the BIOS
 
 // zig fmt: off
 pub const Reg = enum(u8) {
@@ -43,6 +43,7 @@ pub const Opcode = enum(u8) {
     cop3 = 0x13,
     lb = 0x20,
     lh = 0x21,
+    lwl = 0x22,
     lw = 0x23,
     lbu = 0x24,
     lhu = 0x25,
@@ -108,21 +109,15 @@ pub const CopOpcode = enum(u8) {
 pub const BranchCond = enum(u8) {
     bltz = 0b00000,
     bltzal = 0b10000,
-    bltzall = 0b10010,
     bltzl = 0b00010,
     bgez = 0b00001,
     bgezal = 0b10001,
-    bgezall = 0b10011,
     bgezl = 0b00011,
     _,
 };
 
 pub const Instr = struct {
     code: u32,
-
-    pub inline fn is_nop(self: Instr) bool {
-        return self.code == 0;
-    }
 
     pub inline fn opcode(self: Instr) Opcode {
         return @enumFromInt(@as(u8, @truncate(self.code >> 26))); // 6 bits
@@ -149,24 +144,24 @@ pub const Instr = struct {
     }
 
     pub inline fn imm(self: Instr) u32 {
-        return @truncate(self.code & 0xFFFF); // 32 bits
+        return @truncate(self.code & 0xFFFF); // 16 bits
     }
 
-    pub inline fn immSigned(self: Instr) u32 {
-        return signExtend(u16, @as(u16, @truncate(self.code))); // 32 bits
+    pub inline fn imm_s(self: Instr) u32 {
+        return signExtend(u16, @as(u16, @truncate(self.code))); // 16 bits
     }
 
     pub inline fn addr(self: Instr) u32 {
-        return @truncate(self.code & 0x03FFFFFF); // 26 bits
+        return @truncate(self.code & 0x03ffffff); // 26 bits
     }
 
     pub inline fn special(self: Instr) SpecialOpcode {
-        const v: u8 = @truncate(self.code & 0x3F); // 6 bits
+        const v: u8 = @truncate(self.code & 0x3f); // 6 bits
         return @enumFromInt(v);
     }
 
     pub inline fn bcond(self: Instr) BranchCond {
-        return @enumFromInt((self.code >> 16) & 0x1F); // 5 bits
+        return @enumFromInt((self.code >> 16) & 0x1f); // 5 bits
     }
 };
 
@@ -184,6 +179,7 @@ pub const ExcCode = enum(u5) {
     reserved_instr = 0xA,
     cop_unusable = 0xB,
     overflow = 0xC,
+    _,
 };
 
 const COP0 = struct {
@@ -248,6 +244,7 @@ const COP0 = struct {
     const reg_epc: u8 = 14;
 
     r: [16]u32,
+    depth: u8 = 0,
 
     pub inline fn mtc(self: *@This(), reg: u8, v: u32) void {
         const mask = write_mask_table[reg];
@@ -272,6 +269,7 @@ const COP0 = struct {
         sr &= ~@as(u32, 0x3F); // clear mode bits on the SR register
         sr |= (mode << 2) & 0x3F; // shift mode stack 2 bits to the left
         self.r[reg_sr] = sr; // store it back
+        self.depth += 1;
     }
 
     pub fn pop(self: *@This()) void {
@@ -280,15 +278,16 @@ const COP0 = struct {
         sr &= ~@as(u32, 0x3F); // clear mode bits on the SR register
         sr |= (mode >> 2) & 0x3F; // shift mode stack 2 bits to the right
         self.r[reg_sr] = sr; // store it back
+        self.depth -= 1;
     }
 };
 
 const LoadSlot = struct {
-    gpr: u8 = 0,
+    r: u8 = 0,
     v: u32 = 0,
 
     pub fn clear(self: *LoadSlot) void {
-        self.* = .{ .gpr = 0, .v = 0 };
+        self.* = .{ .r = 0, .v = 0 };
     }
 };
 
@@ -307,6 +306,7 @@ pub const CPU = struct {
     delay_load_next: LoadSlot,
     branch_taken: bool,
     in_delay_slot: bool,
+    in_exception: bool,
     in_branch: bool,
     lo: u32,
     hi: u32,
@@ -328,6 +328,7 @@ pub const CPU = struct {
             .breakpoint = 0,
             .in_branch = false,
             .in_delay_slot = false,
+            .in_exception = false,
             .branch_taken = false,
             .lo = 0,
             .hi = 0,
@@ -352,6 +353,9 @@ pub const CPU = struct {
     }
 
     fn unhandled(self: *@This(), code: u32) void {
+        if (code == 0 or code == 1) {
+            return;
+        }
         log.err("unhandled instruction: {x}", .{code});
         self.stall = true;
     }
@@ -379,8 +383,9 @@ pub const CPU = struct {
         if (exc_code != .syscall) {
             const exc_name = std.enums.tagName(ExcCode, exc_code).?;
             log.debug("cpu exception: {s}", .{exc_name});
-            self.stall = true;
         }
+
+        self.in_exception = true;
     }
 
     inline fn jump(self: *@This(), addr: u32) void {
@@ -396,7 +401,7 @@ pub const CPU = struct {
 
     inline fn branchIf(self: *@This(), cond: bool, offset: u32) void {
         self.in_branch = true;
-        self.branch_taken = cond;
+        self.branch_taken = false;
 
         if (cond) {
             const addr, _ = @addWithOverflow(self.pc, offset << 2);
@@ -406,15 +411,12 @@ pub const CPU = struct {
                 return;
             }
             self.next_pc = addr;
+            self.branch_taken = true;
         }
     }
 
     inline fn writeGpr(self: *@This(), r: u8, v: u32) void {
-        if (r == 0) {
-            return;
-        }
-
-        if (self.delay_load.gpr == r) {
+        if (self.delay_load.r == r) {
             self.delay_load.clear();
         }
 
@@ -422,22 +424,25 @@ pub const CPU = struct {
     }
 
     inline fn writeGprDelay(self: *@This(), r: u8, v: u32) void {
-        if (r == 0) {
-            return;
-        }
-
-        if (self.delay_load.gpr == r) {
+        if (self.delay_load.r == r) {
             @branchHint(.unlikely);
             self.delay_load.clear();
         }
 
         self.delay_load_next = .{
-            .gpr = r,
+            .r = r,
             .v = v,
         };
     }
 
+    pub fn forceSetPC(self: *@This(), pc: u32) void {
+        self.pc = pc;
+        self.next_pc, _ = @addWithOverflow(pc, 4);
+    }
+
     pub fn step(self: *@This()) void {
+        self.gpr[0] = 0;
+
         // Fetch the instruction
         const instr_code = self.mem.readWord(self.pc);
         const instr = Instr{ .code = instr_code };
@@ -479,6 +484,10 @@ pub const CPU = struct {
                 .srav => self.srav(instr),
                 .srlv => self.srlv(instr),
                 .multu => self.multu(instr),
+                .xor => self.xor(instr),
+                .break_ => self.break_(instr),
+                .mult => self.mult(instr),
+                .sub => self.sub(instr),
                 else => self.unhandled(instr_code),
             },
             .cop0 => switch (instr.copOpcode()) {
@@ -490,7 +499,14 @@ pub const CPU = struct {
             .bcondz => switch (instr.bcond()) {
                 .bltz => self.bltz(instr),
                 .bgez => self.bgez(instr),
-                else => self.unhandled(instr_code),
+                .bltzal => self.bltzal(instr),
+                .bgezal => self.bgezal(instr),
+                // The rest are just bltz/bgez dupes
+                else => switch ((instr.code >> 16) & 0x1) {
+                    0 => self.bltz(instr),
+                    1 => self.bgez(instr),
+                    else => unreachable,
+                },
             },
             .lui => self.lui(instr),
             .ori => self.ori(instr),
@@ -513,11 +529,18 @@ pub const CPU = struct {
             .sltiu => self.sltiu(instr),
             .lhu => self.lhu(instr),
             .lh => self.lh(instr),
+            .xori => self.xori(instr),
+            .lwl => self.lwl(instr),
+            .lwr => self.lwr(instr),
+            .swl => self.swl(instr),
+            .swr => self.swr(instr),
+            .cop1 => self.exception(.cop_unusable),
+            .cop3 => self.exception(.cop_unusable),
             else => self.unhandled(instr_code),
         }
 
         // Handle delayed loads
-        self.gpr[self.delay_load.gpr] = self.delay_load.v;
+        self.gpr[self.delay_load.r] = self.delay_load.v;
         self.delay_load = self.delay_load_next;
         self.delay_load_next.clear();
     }
@@ -562,7 +585,7 @@ pub const CPU = struct {
         }
 
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -574,14 +597,14 @@ pub const CPU = struct {
     }
 
     fn addiu(self: *@This(), instr: Instr) void {
-        const sum, _ = addAsSigned(self.gpr[instr.rs()], instr.immSigned());
+        const sum, _ = addAsSigned(self.gpr[instr.rs()], instr.imm_s());
         self.writeGpr(instr.rt(), sum);
     }
 
     fn addi(self: *@This(), instr: Instr) void {
         const sum, const ov = addAsSigned(
             self.gpr[instr.rs()],
-            instr.immSigned(),
+            instr.imm_s(),
         );
 
         if (ov != 0) {
@@ -607,7 +630,10 @@ pub const CPU = struct {
     }
 
     fn addu(self: *@This(), instr: Instr) void {
-        const sum, _ = @addWithOverflow(self.gpr[instr.rs()], self.gpr[instr.rt()]);
+        const sum, _ = @addWithOverflow(
+            self.gpr[instr.rs()],
+            self.gpr[instr.rt()],
+        );
         self.writeGpr(instr.rd(), sum);
     }
 
@@ -618,25 +644,20 @@ pub const CPU = struct {
     fn bne(self: *@This(), instr: Instr) void {
         self.branchIf(
             self.gpr[instr.rs()] != self.gpr[instr.rt()],
-            instr.immSigned(),
+            instr.imm_s(),
         );
     }
 
     fn beq(self: *@This(), instr: Instr) void {
         self.branchIf(
             self.gpr[instr.rs()] == self.gpr[instr.rt()],
-            instr.immSigned(),
+            instr.imm_s(),
         );
     }
 
     fn lw(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isc == 1) {
-            log.debug("ignoring write while cache is isolated", .{});
-            return;
-        }
-
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -648,26 +669,16 @@ pub const CPU = struct {
     }
 
     fn lb(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isc == 1) {
-            log.debug("ignoring write while cache is isolated", .{});
-            return;
-        }
-
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
         const v = signExtend(u8, self.mem.readByte(addr));
 
         self.writeGprDelay(instr.rt(), v);
     }
 
     fn lbu(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isc == 1) {
-            log.debug("ignoring write while cache is isolated", .{});
-            return;
-        }
-
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
         const v = self.mem.readByte(addr);
 
         self.writeGprDelay(instr.rt(), v);
@@ -695,7 +706,7 @@ pub const CPU = struct {
 
     fn sh(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -709,7 +720,7 @@ pub const CPU = struct {
 
     fn sb(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
         const v = self.gpr[instr.rt()];
 
         self.mem.writeByte(addr, @truncate(v));
@@ -729,7 +740,7 @@ pub const CPU = struct {
         const v = self.gpr[instr.rs()];
         self.branchIf(
             @as(i32, @bitCast(v)) > 0,
-            instr.immSigned(),
+            instr.imm_s(),
         );
     }
 
@@ -737,7 +748,7 @@ pub const CPU = struct {
         const v = self.gpr[instr.rs()];
         self.branchIf(
             @as(i32, @bitCast(v)) <= 0,
-            instr.immSigned(),
+            instr.imm_s(),
         );
     }
 
@@ -750,7 +761,7 @@ pub const CPU = struct {
         const v = self.gpr[instr.rs()];
         self.branchIf(
             @as(i32, @bitCast(v)) < 0,
-            instr.immSigned(),
+            instr.imm_s(),
         );
     }
 
@@ -758,13 +769,13 @@ pub const CPU = struct {
         const v = self.gpr[instr.rs()];
         self.branchIf(
             @as(i32, @bitCast(v)) >= 0,
-            instr.immSigned(),
+            instr.imm_s(),
         );
     }
 
     fn slti(self: *@This(), instr: Instr) void {
         const rs = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const imm = @as(i32, @bitCast(instr.immSigned()));
+        const imm = @as(i32, @bitCast(instr.imm_s()));
         const less = @intFromBool(rs < imm);
         self.writeGpr(instr.rt(), less);
     }
@@ -781,15 +792,36 @@ pub const CPU = struct {
 
     fn div(self: *@This(), instr: Instr) void {
         const num = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const denum = @as(i32, @bitCast(self.gpr[instr.rt()]));
+        const denom = @as(i32, @bitCast(self.gpr[instr.rt()]));
 
-        if (denum == 0) {
+        if (std.math.divTrunc(i32, num, denom)) |v| {
+            self.lo = @bitCast(v);
+            self.hi = @bitCast(@mod(num, denom));
+        } else |err| switch (err) {
+            error.DivisionByZero => {
+                self.lo = if (num >= 0) 0xffffffff else 0x00000001;
+                self.hi = @bitCast(denom);
+            },
+            error.Overflow => {
+                self.lo = 0x80000000;
+                self.hi = 0;
+            },
+        }
+    }
+
+    fn divu(self: *@This(), instr: Instr) void {
+        const num = self.gpr[instr.rs()];
+        const denom = self.gpr[instr.rt()];
+
+        if (denom == 0) {
             @branchHint(.unlikely);
-            std.debug.panic("cpu: division by zero", .{});
+            self.lo = 0xffffffff;
+            self.hi = num;
+            return;
         }
 
-        self.hi = @bitCast(@mod(num, denum));
-        self.lo = @bitCast(@divTrunc(num, denum));
+        self.lo = @divTrunc(num, denom);
+        self.hi = @mod(num, denom);
     }
 
     fn mflo(self: *@This(), instr: Instr) void {
@@ -806,27 +838,14 @@ pub const CPU = struct {
     }
 
     fn sltiu(self: *@This(), instr: Instr) void {
-        const less = self.gpr[instr.rs()] < instr.imm();
+        const less = self.gpr[instr.rs()] < instr.imm_s();
         self.writeGpr(instr.rt(), @intFromBool(less));
     }
 
-    fn divu(self: *@This(), instr: Instr) void {
-        const num = self.gpr[instr.rs()];
-        const denum = self.gpr[instr.rt()];
-
-        if (denum == 0) {
-            @branchHint(.unlikely);
-            std.debug.panic("cpu: division by zero", .{});
-        }
-
-        self.hi = @mod(num, denum);
-        self.lo = @divTrunc(num, denum);
-    }
-
     fn slt(self: *@This(), instr: Instr) void {
-        const rs = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const rt = @as(i32, @bitCast(self.gpr[instr.rt()]));
-        self.writeGpr(instr.rd(), @intFromBool(rs < rt));
+        const a = @as(i32, @bitCast(self.gpr[instr.rs()]));
+        const b = @as(i32, @bitCast(self.gpr[instr.rt()]));
+        self.writeGpr(instr.rd(), @intFromBool(a < b));
     }
 
     fn syscall(self: *@This(), _: Instr) void {
@@ -852,6 +871,10 @@ pub const CPU = struct {
 
     fn rfe(self: *@This(), _: Instr) void {
         self.cop0.pop();
+
+        if (self.cop0.depth == 0) {
+            self.in_exception = false;
+        }
     }
 
     fn lhu(self: *@This(), instr: Instr) void {
@@ -861,7 +884,7 @@ pub const CPU = struct {
         }
 
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -886,7 +909,7 @@ pub const CPU = struct {
         }
 
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.immSigned());
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -916,9 +939,167 @@ pub const CPU = struct {
     }
 
     fn multu(self: *@This(), instr: Instr) void {
-        const v = @as(u64, self.gpr[instr.rs()]) * @as(u64, self.gpr[instr.rt()]);
+        const a = @as(u64, self.gpr[instr.rs()]);
+        const b = @as(u64, self.gpr[instr.rt()]);
+        const v, _ = @mulWithOverflow(a, b);
+
         self.lo = @truncate(v);
         self.hi = @truncate(v >> 32);
+    }
+
+    fn xor(self: *@This(), instr: Instr) void {
+        const v = self.gpr[instr.rs()] ^ self.gpr[instr.rt()];
+        self.writeGpr(instr.rd(), v);
+    }
+
+    fn xori(self: *@This(), instr: Instr) void {
+        const v = self.gpr[instr.rs()] ^ instr.imm();
+        self.writeGpr(instr.rt(), v);
+    }
+
+    fn break_(self: *@This(), _: Instr) void {
+        self.exception(.breakpoint);
+    }
+
+    fn mult(self: *@This(), instr: Instr) void {
+        const a = @as(i64, @as(i32, @bitCast(self.gpr[instr.rs()])));
+        const b = @as(i64, @as(i32, @bitCast(self.gpr[instr.rt()])));
+        const m, _ = @mulWithOverflow(a, b);
+        const v = @as(u64, @bitCast(m));
+
+        self.lo = @truncate(v);
+        self.hi = @truncate(v >> 32);
+    }
+
+    fn sub(self: *@This(), instr: Instr) void {
+        const a = @as(i32, @bitCast(self.gpr[instr.rs()]));
+        const b = @as(i32, @bitCast(self.gpr[instr.rt()]));
+
+        const v, const ov = @subWithOverflow(a, b);
+        if (ov != 0) {
+            self.exception(.overflow);
+            return;
+        }
+
+        self.writeGpr(instr.rd(), @bitCast(v));
+    }
+
+    fn bltzal(self: *@This(), instr: Instr) void {
+        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
+        const v = self.gpr[instr.rs()];
+
+        self.branchIf(
+            @as(i32, @bitCast(v)) < 0,
+            instr.imm_s(),
+        );
+    }
+
+    fn bgezal(self: *@This(), instr: Instr) void {
+        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
+        const v = self.gpr[instr.rs()];
+
+        self.branchIf(
+            @as(i32, @bitCast(v)) >= 0,
+            instr.imm_s(),
+        );
+    }
+
+    fn bltzl(self: *@This(), instr: Instr) void {
+        const v = self.gpr[instr.rs()];
+
+        self.branchIf(
+            @as(i32, @bitCast(v)) < 0,
+            instr.imm_s(),
+        );
+
+        if (!self.branch_taken) {
+            self.pc = self.next_pc;
+            self.next_pc += 4;
+        }
+    }
+
+    fn lwl(self: *@This(), instr: Instr) void {
+        const base = self.gpr[instr.rs()];
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const aligned_addr = addr & ~@as(u32, 0x3);
+
+        const load_v = self.mem.readWord(aligned_addr);
+        var curr_v = self.gpr[instr.rt()];
+
+        if (self.delay_load.r == instr.rt()) {
+            curr_v = self.delay_load.v;
+        }
+
+        const v = switch (addr & 0x3) {
+            0 => (curr_v & 0x00ffffff) | (load_v << 24),
+            1 => (curr_v & 0x0000ffff) | (load_v << 16),
+            2 => (curr_v & 0x000000ff) | (load_v << 8),
+            3 => (curr_v & 0x00000000) | (load_v << 0),
+            else => undefined,
+        };
+
+        self.writeGprDelay(instr.rt(), v);
+    }
+
+    fn lwr(self: *@This(), instr: Instr) void {
+        const base = self.gpr[instr.rs()];
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const aligned_addr = addr & ~@as(u32, 0x3);
+
+        const load_v = self.mem.readWord(aligned_addr);
+        var curr_v = self.gpr[instr.rt()];
+
+        if (self.delay_load.r == instr.rt()) {
+            curr_v = self.delay_load.v;
+        }
+
+        const v = switch (addr & 0x3) {
+            0 => (curr_v & 0x00000000) | (load_v >> 0),
+            1 => (curr_v & 0xff000000) | (load_v >> 8),
+            2 => (curr_v & 0xffff0000) | (load_v >> 16),
+            3 => (curr_v & 0xffffff00) | (load_v >> 24),
+            else => undefined,
+        };
+
+        self.writeGprDelay(instr.rt(), v);
+    }
+
+    fn swl(self: *@This(), instr: Instr) void {
+        const base = self.gpr[instr.rs()];
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const aligned_addr = addr & ~@as(u32, 0x3);
+
+        const curr_v = self.mem.readWord(aligned_addr);
+        const store_v = self.gpr[instr.rt()];
+
+        const v = switch (addr & 0x3) {
+            0 => (curr_v & 0xffffff00) | (store_v >> 24),
+            1 => (curr_v & 0xffff0000) | (store_v >> 16),
+            2 => (curr_v & 0xff000000) | (store_v >> 8),
+            3 => (curr_v & 0x00000000) | (store_v >> 0),
+            else => unreachable,
+        };
+
+        self.mem.writeWord(aligned_addr, v);
+    }
+
+    fn swr(self: *@This(), instr: Instr) void {
+        const base = self.gpr[instr.rs()];
+        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const aligned_addr = addr & ~@as(u32, 0x3);
+
+        const curr_v = self.mem.readWord(aligned_addr);
+        const store_v = self.gpr[instr.rt()];
+
+        const v = switch (addr & 0x03) {
+            0 => (curr_v & 0x00000000) | (store_v << 0),
+            1 => (curr_v & 0x000000ff) | (store_v << 8),
+            2 => (curr_v & 0x0000ffff) | (store_v << 16),
+            3 => (curr_v & 0x00ffffff) | (store_v << 24),
+            else => unreachable,
+        };
+
+        self.mem.writeWord(aligned_addr, v);
     }
 };
 

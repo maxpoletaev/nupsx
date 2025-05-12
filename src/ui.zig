@@ -8,13 +8,77 @@ const mem = @import("mem.zig");
 const disasm = @import("disasm.zig");
 const RegName = cpu.RegName;
 
-const frame_time: f64 = 1.0 / 60.0;
 const default_font = @embedFile("assets/freepixel.ttf");
+const default_font_size = 16.0;
+
+const frame_time: f64 = 1.0 / 60.0;
 const window_title = "nuPSX";
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
 const logger = std.log.scoped(.nupsx);
+
+const addr_space_000 = mem.AddrRange.init(0x00000000, 0x800000);
+const addr_space_800 = mem.AddrRange.init(0x80000000, 0x800000);
+const addr_space_bfc = mem.AddrRange.init(0xbfc00000, 0x800000);
+
+pub const TTYView = struct {
+    lines: std.ArrayList([]u8),
+    allocator: std.mem.Allocator,
+    line_buf: std.ArrayList(u8),
+    new_line_added: bool,
+
+    pub fn init(allocator: std.mem.Allocator) !*@This() {
+        const self = try allocator.create(@This());
+        self.* = .{
+            .allocator = allocator,
+            .lines = .init(allocator),
+            .line_buf = .init(allocator),
+            .new_line_added = false,
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        for (self.lines.items) |line| {
+            self.allocator.free(line);
+        }
+        self.lines.deinit();
+        self.line_buf.deinit();
+        self.allocator.destroy(self);
+    }
+
+    pub fn writeLine(self: *@This(), line: []const u8) !void {
+        const buf = try self.allocator.alloc(u8, line.len);
+        @memcpy(buf, line);
+
+        try self.lines.append(buf);
+        self.new_line_added = true;
+    }
+
+    pub fn writeChar(self: *@This(), char: u8) !void {
+        try self.line_buf.append(char);
+        if (char == '\n') {
+            try self.writeLine(self.line_buf.items);
+            self.line_buf.clearRetainingCapacity();
+        }
+    }
+
+    pub fn update(self: *@This()) void {
+        if (zgui.begin("TTY", .{})) {
+            for (self.lines.items) |line| {
+                zgui.textUnformatted(line);
+            }
+        }
+
+        if (self.new_line_added) {
+            zgui.setScrollHereY(.{});
+            self.new_line_added = false;
+        }
+
+        zgui.end();
+    }
+};
 
 const AssemblyView = struct {
     allocator: std.mem.Allocator,
@@ -51,14 +115,17 @@ const AssemblyView = struct {
     }
 
     pub fn update(self: *@This()) void {
-        const addr_range = mem.AddrRange.init(0xBFC00000, 0xFFFFF);
-        const items_count = @as(i32, @intCast(addr_range.size / 4));
+        const pc_addr = self.cpu.instr_addr;
+        if (self.follow_pc) self.custom_addr = pc_addr;
+
+        const addr_range = if (addr_space_000.match(pc_addr)) addr_space_000 //
+            else if (addr_space_800.match(pc_addr)) addr_space_800 //
+            else addr_space_bfc;
 
         const col1_offset = 300;
         const col2_offset = col1_offset + 300;
 
-        const pc_addr = self.cpu.instr_addr;
-        if (self.follow_pc) self.custom_addr = pc_addr;
+        const items_count = @as(i32, @intCast(addr_range.size / 4));
 
         if (zgui.begin("Assembly", .{})) {
             _ = zgui.checkbox("[F]ollow PC", .{ .v = &self.follow_pc });
@@ -112,7 +179,7 @@ const AssemblyView = struct {
                                 const fill_width = zgui.getContentRegionAvail()[0];
 
                                 dl.addRectFilled(.{
-                                    .col = 0x888888FF,
+                                    .col = 0x888888ff,
                                     .pmin = cursor_screen_pos,
                                     .pmax = .{ cursor_screen_pos[0] + fill_width, cursor_screen_pos[1] + self.lc.ItemsHeight },
                                 });
@@ -173,8 +240,39 @@ const CPUView = struct {
         allocator.destroy(self);
     }
 
-    fn drawGPRTab(self: *@This()) void {
+    fn drawCop0Tab(self: *@This()) void {
+        if (zgui.beginTabItem("COP0", .{})) {
+            defer zgui.endTabItem();
+
+            const exc_code = @as(cpu.ExcCode, @enumFromInt(self.cpu.cop0.cause().exc_code));
+            const exc_tag = std.enums.tagName(cpu.ExcCode, exc_code);
+
+            _ = zgui.text("in exception: {d}", .{@intFromBool(self.cpu.in_exception)});
+            _ = zgui.text("exc code: {s}", .{if (exc_tag) |t| t else "-"});
+        }
+    }
+
+    fn drawGprTab(self: *@This()) void {
         if (zgui.beginTabItem("GPR", .{})) {
+            defer zgui.endTabItem();
+
+            zgui.pushItemWidth(300.0);
+
+            for (self.cpu.gpr, 0..) |_, i| {
+                const reg_name = cpu.RegName[i];
+                _ = zgui.inputInt(reg_name, .{
+                    .step = 0,
+                    .flags = hex_field_flags,
+                    .v = @ptrCast(&self.cpu.gpr[i]),
+                });
+            }
+
+            zgui.popItemWidth();
+        }
+    }
+
+    pub fn update(self: *@This()) void {
+        if (zgui.begin("CPU", .{})) {
             _ = zgui.checkbox("Stall", .{
                 .v = &self.cpu.stall,
             });
@@ -208,26 +306,9 @@ const CPUView = struct {
                 .v = @ptrCast(&self.cpu.instr.code),
             });
 
-            zgui.separatorText("GPR");
-            zgui.pushItemWidth(300.0);
-
-            for (self.cpu.gpr, 0..) |_, i| {
-                const reg_name = cpu.RegName[i];
-                _ = zgui.inputInt(reg_name, .{
-                    .step = 0,
-                    .flags = hex_field_flags,
-                    .v = @ptrCast(&self.cpu.gpr[i]),
-                });
-            }
-            zgui.popItemWidth();
-            zgui.endTabItem();
-        }
-    }
-
-    pub fn update(self: *@This()) void {
-        if (zgui.begin("CPU", .{})) {
-            if (zgui.beginTabBar("", .{})) {
-                self.drawGPRTab();
+            if (zgui.beginTabBar("##", .{})) {
+                self.drawGprTab();
+                self.drawCop0Tab();
             }
             zgui.endTabBar();
         }
@@ -241,6 +322,7 @@ pub const UI = struct {
     window: *glfw.Window,
     cpu_view: *CPUView,
     assembly_view: *AssemblyView,
+    tty_view: *TTYView,
     last_update_time: f64 = 0,
 
     pub fn init(allocator: std.mem.Allocator, cpu_: *cpu.CPU, bus: *mem.Bus, dasm: *disasm.Disasm) !*@This() {
@@ -262,7 +344,7 @@ pub const UI = struct {
             null,
         );
         glfw.makeContextCurrent(window);
-        glfw.swapInterval(1);
+        glfw.swapInterval(0);
 
         try zopengl.loadCoreProfile(
             glfw.getProcAddress,
@@ -273,10 +355,12 @@ pub const UI = struct {
         zgui.init(allocator);
         const scale_factor = window.getContentScale()[0];
 
-        _ = zgui.io.addFontFromMemory(default_font, std.math.floor(16.0 * scale_factor));
+        const font_size = std.math.floor(default_font_size * scale_factor);
+        _ = zgui.io.addFontFromMemory(default_font, font_size);
         zgui.getStyle().scaleAllSizes(scale_factor);
         zgui.backend.init(window);
 
+        const tty_view = try TTYView.init(allocator);
         const cpu_view = try CPUView.init(allocator, cpu_);
         const assembly_view = try AssemblyView.init(allocator, cpu_, bus, dasm);
 
@@ -285,6 +369,7 @@ pub const UI = struct {
             .allocator = allocator,
             .cpu_view = cpu_view,
             .assembly_view = assembly_view,
+            .tty_view = tty_view,
             .window = window,
         };
 
@@ -292,8 +377,9 @@ pub const UI = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        self.cpu_view.deinit();
         self.assembly_view.deinit();
+        self.cpu_view.deinit();
+        self.tty_view.deinit();
 
         zgui.backend.deinit();
         zgui.deinit();
@@ -308,12 +394,16 @@ pub const UI = struct {
         return self.window.shouldClose();
     }
 
-    pub fn update(self: *@This()) void {
+    pub inline fn update(self: *@This()) void {
         const now = glfw.getTime();
         if ((now - self.last_update_time) < frame_time) {
             return;
         }
 
+        self.updateInternal(now);
+    }
+
+    fn updateInternal(self: *@This(), now: f64) void {
         const fb_size = self.window.getFramebufferSize();
         zgui.backend.newFrame(@intCast(fb_size[0]), @intCast(fb_size[1]));
         glfw.pollEvents();
@@ -324,6 +414,7 @@ pub const UI = struct {
 
         self.cpu_view.update();
         self.assembly_view.update();
+        self.tty_view.update();
 
         zgui.backend.draw();
         self.window.swapBuffers();

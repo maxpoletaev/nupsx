@@ -1,4 +1,6 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
 const bios = @import("bios.zig");
 
 const log = std.log.scoped(.mem);
@@ -19,15 +21,24 @@ pub const AddrRange = struct {
     pub inline fn match(self: AddrRange, addr: u32) bool {
         return (addr >= self.start and addr <= self.end);
     }
+
+    pub inline fn matchWithOffset(self: AddrRange, addr: u32) ?u32 {
+        if (addr >= self.start and addr <= self.end) {
+            return addr - self.start;
+        }
+        return null;
+    }
 };
 
-pub const ram_size = 0x200000;
 pub const ram_range = AddrRange.init(0x00000000, 0x200000); // 2048K
-pub const exp1_range = AddrRange.init(0x1F000000, 0x800000); // 8192K
-pub const exp2_range = AddrRange.init(0x1F802000, 0x2000); // 8K
-pub const bios_range = AddrRange.init(0x1FC00000, 0x80000); // 512K
+pub const exp1_range = AddrRange.init(0x1f000000, 0x800000); // 8192K
+pub const scratchpad_range = AddrRange.init(0x1f800000, 0x400); // 1K
+pub const exp2_range = AddrRange.init(0x1f802000, 0x2000); // 8K
+pub const bios_range = AddrRange.init(0x1fc00000, 0x80000); // 512K
 
 const RAM = struct {
+    const ram_size = 0x200000;
+
     allocator: std.mem.Allocator,
     buf: [0x200000]u8,
 
@@ -50,6 +61,7 @@ const RAM = struct {
         if (addr % size != 0) {
             std.debug.panic("unaligned address: {x}", .{addr});
         }
+
         const idx = addr % ram_size;
         const buf = self.buf[idx .. idx + size][0..size];
         return std.mem.readInt(T, buf, .little);
@@ -60,6 +72,7 @@ const RAM = struct {
         if (addr % size != 0) {
             std.debug.panic("unaligned address: {x}", .{addr});
         }
+
         const idx = addr % ram_size;
         const buf = self.buf[idx .. idx + size][0..size];
         return std.mem.writeInt(T, buf, v, .little);
@@ -67,14 +80,10 @@ const RAM = struct {
 };
 
 const mem_region_mask_table = [_]u32{
-    // KUSEG (2048MB)
-    0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-    // KSEG0 (512MB)
-    0x7FFFFFFF,
-    // KSEG1 (512MB)
-    0x1FFFFFFF,
-    // KSEG2 (1024MB)
-    0xFFFFFFFF, 0xFFFFFFFF,
+    0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, // KUSEG (2048MB)
+    0x7fffffff, // KSEG0 (512MB)
+    0x1fffffff, // KSEG1 (512MB)
+    0xffffffff, 0xffffffff, // KSEG2 (1024MB)
 };
 
 inline fn resolveAddr(addr: u32) u32 {
@@ -85,107 +94,173 @@ inline fn resolveAddr(addr: u32) u32 {
 pub const Bus = struct {
     allocator: std.mem.Allocator,
     bios: *bios.BIOS,
-    ram: *RAM,
+    ram: [0x200000]u8,
+    scratchpad: [0x400]u8,
 
     pub fn init(allocator: std.mem.Allocator, bios_: *bios.BIOS) !*@This() {
-        const ram = try RAM.init(allocator);
-
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
             .bios = bios_,
-            .ram = ram,
+            .ram = undefined,
+            .scratchpad = undefined,
         };
+
+        @memset(&self.ram, 0);
+        @memset(&self.scratchpad, 0);
 
         return self;
     }
 
-    pub fn deinit(self: *const @This()) void {
-        self.ram.deinit();
-
-        const allocator = self.allocator;
-        allocator.destroy(self);
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
     }
 
-    pub fn readByte(self: *const @This(), addr: u32) u8 {
+    pub fn readByte(self: *@This(), addr: u32) u8 {
         const real_addr = resolveAddr(addr);
 
-        if (ram_range.match(real_addr)) {
-            return self.ram.read(u8, real_addr);
-        } else if (bios_range.match(real_addr)) {
+        if (ram_range.matchWithOffset(real_addr)) |offset| {
+            return read(u8, &self.ram, offset);
+        }
+
+        if (scratchpad_range.matchWithOffset(real_addr)) |offset| {
+            return read(u8, &self.scratchpad, offset);
+        }
+
+        if (bios_range.match(real_addr)) {
             return self.bios.readByte(real_addr);
-        } else if (exp1_range.match(addr)) {
-            return 0xFF;
+        }
+        if (exp1_range.match(addr)) {
+            return 0xff;
         }
 
-        // logger.warn("readByte: out of bounds: {x}", .{addr});
-        return 0;
+        log.warn("readByte: out of bounds: {x}", .{addr});
+        return 0xAC;
     }
 
-    pub fn readHalf(self: *const @This(), addr: u32) u16 {
-        if (addr % 2 != 0) log.warn("readHalf: unaligned read: {x}", .{addr});
+    pub fn readHalf(self: *@This(), addr: u32) u16 {
         const real_addr = resolveAddr(addr);
 
-        if (ram_range.match(real_addr)) {
-            return self.ram.read(u16, real_addr);
-        } else if (bios_range.match(real_addr)) {
+        if (ram_range.matchWithOffset(real_addr)) |offset| {
+            return read(u16, &self.ram, offset);
+        }
+
+        if (scratchpad_range.matchWithOffset(real_addr)) |offset| {
+            return read(u16, &self.scratchpad, offset);
+        }
+
+        if (bios_range.match(real_addr)) {
             return self.bios.readHalf(real_addr);
-        } else if (exp1_range.match(addr)) {
-            return 0xFFFF;
+        }
+        if (exp1_range.match(addr)) {
+            return 0xffff;
         }
 
-        //logger.warn("readHalf: out of bounds: {x}", .{addr});
-        return 0;
+        log.warn("readHalf: out of bounds: {x}", .{addr});
+        return 0xACAB;
     }
 
-    pub fn readWord(self: *const @This(), addr: u32) u32 {
-        if (addr % 4 != 0) log.warn("readWord: unaligned read: {x}", .{addr});
+    pub fn readWord(self: *@This(), addr: u32) u32 {
         const real_addr = resolveAddr(addr);
 
-        if (ram_range.match(real_addr)) {
-            return self.ram.read(u32, real_addr);
-        } else if (bios_range.match(real_addr)) {
-            return self.bios.readWord(real_addr);
-        } else if (exp1_range.match(addr)) {
-            return 0xFFFFFFFF;
+        // gpustat mock
+        if (real_addr == 0x1f801814) {
+            return 0xffffffff;
         }
 
-        //logger.warn("readWord: out of bounds: {x}", .{addr});
-        return 0;
+        if (ram_range.matchWithOffset(real_addr)) |offset| {
+            return read(u32, &self.ram, offset);
+        }
+
+        if (scratchpad_range.matchWithOffset(real_addr)) |offset| {
+            return read(u32, &self.scratchpad, offset);
+        }
+
+        if (bios_range.match(real_addr)) {
+            return self.bios.readWord(real_addr);
+        }
+
+        if (exp1_range.match(addr)) {
+            return 0xffffffff;
+        }
+
+        log.warn("readWord: out of bounds: {x}", .{addr});
+        return 0xACABACAB;
     }
 
     pub fn writeByte(self: *@This(), addr: u32, value: u8) void {
         const real_addr = resolveAddr(addr);
 
-        if (ram_range.match(real_addr)) {
-            self.ram.write(u8, real_addr, value);
+        if (ram_range.matchWithOffset(real_addr)) |offset| {
+            write(u8, &self.ram, offset, value);
             return;
         }
 
-        //logger.warn("writeByte out of bounds: {x}", .{addr});
+        if (scratchpad_range.matchWithOffset(real_addr)) |offset| {
+            write(u8, &self.scratchpad, offset, value);
+            return;
+        }
+
+        log.warn("writeByte: out of bounds: {x}", .{addr});
     }
 
     pub fn writeHalf(self: *@This(), addr: u32, value: u16) void {
-        if (addr % 2 != 0) log.warn("writeHalf: unaligned write: {x}", .{addr});
         const real_addr = resolveAddr(addr);
 
-        if (ram_range.match(real_addr)) {
-            self.ram.write(u16, real_addr, value);
+        if (ram_range.matchWithOffset(real_addr)) |offset| {
+            write(u16, &self.ram, offset, value);
             return;
         }
 
-        //logger.warn("writeHalf: out of bounds: {x}", .{addr});
+        if (scratchpad_range.matchWithOffset(real_addr)) |offset| {
+            write(u16, &self.scratchpad, offset, value);
+            return;
+        }
+
+        log.warn("writeHalf: out of bounds: {x}", .{addr});
     }
 
     pub fn writeWord(self: *@This(), addr: u32, value: u32) void {
-        if (addr % 4 != 0) log.warn("writeWord: unaligned write: {x}", .{addr});
         const real_addr = resolveAddr(addr);
 
-        if (ram_range.match(real_addr)) {
-            self.ram.write(u32, real_addr, value);
+        if (ram_range.matchWithOffset(real_addr)) |offset| {
+            write(u32, &self.ram, offset, value);
             return;
         }
 
-        //logger.warn("writeWord: out of bounds: {x}", .{addr});
+        if (scratchpad_range.matchWithOffset(real_addr)) |offset| {
+            write(u32, &self.scratchpad, offset, value);
+            return;
+        }
+
+        log.warn("writeWord: out of bounds: {x}", .{addr});
     }
 };
+
+pub inline fn read(comptime T: type, buf: []u8, offset: u32) T {
+    const t_size = @sizeOf(T);
+
+    if (comptime builtin.mode == .Debug) {
+        if (offset % t_size != 0) {
+            @branchHint(.unlikely);
+            log.warn("unaligned read: {x}", .{offset});
+        }
+    }
+
+    const sl = buf[offset .. offset + t_size][0..t_size];
+    return std.mem.readInt(T, sl, .little);
+}
+
+pub inline fn write(comptime T: type, buf: []u8, offset: u32, v: T) void {
+    const t_size = @sizeOf(T);
+
+    if (comptime builtin.mode == .Debug) {
+        if (offset % t_size != 0) {
+            @branchHint(.unlikely);
+            log.warn("unaligned write: {x}", .{offset});
+        }
+    }
+
+    const sl = buf[offset .. offset + t_size][0..t_size];
+    std.mem.writeInt(T, sl, v, .little);
+}

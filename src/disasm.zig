@@ -34,7 +34,7 @@ pub const Disasm = struct {
         return self.buf.items;
     }
 
-    fn fallback(comptime T: type, v: T, w: Writer, base: []const u8) !void {
+    fn fallback(_: *@This(), comptime T: type, v: T, w: Writer, base: []const u8) !void {
         if (std.enums.tagName(T, v)) |tag| {
             try w.print("{s} ???", .{tag});
         } else {
@@ -42,10 +42,10 @@ pub const Disasm = struct {
         }
     }
 
-    pub fn disassembleToBuffer(_: *@This(), instr: Instr, buf: *std.ArrayList(u8)) !void {
+    pub fn disassembleToBuffer(self: *@This(), instr: Instr, buf: *std.ArrayList(u8)) !void {
         const w = buf.writer();
 
-        if (instr.is_nop()) {
+        if (instr.code == 0) {
             try w.writeAll("nop");
             return;
         }
@@ -60,24 +60,28 @@ pub const Disasm = struct {
         const rd = instr.rd();
         const imm = instr.imm();
         const addr = instr.addr();
-        const imm_s = @as(i32, @bitCast(instr.immSigned()));
+        const imm_s = @as(i32, @bitCast(instr.imm_s()));
 
         try switch (op) {
             .special => switch (special) {
                 .syscall => w.writeAll("syscall"),
+                .jr => w.print("jr ${s}", .{RegName[rs]}),
                 .jalr => w.print("jalr ${s}, ${s}", .{ RegName[rs], RegName[rd] }),
                 .addu => w.print("addu ${s}, ${s}, ${s}", .{ RegName[rd], RegName[rs], RegName[rt] }),
-                .and_ => w.print("and ${s} ${s} ${s}", .{ RegName[rd], RegName[rs], RegName[rt] }),
-                else => @This().fallback(SpecialOpcode, special, w, "special - ???"),
+                .and_ => w.print("and ${s}, ${s}, ${s}", .{ RegName[rd], RegName[rs], RegName[rt] }),
+                .xor => w.print("xor ${s}, ${s}, ${s}", .{ RegName[rd], RegName[rs], RegName[rt] }),
+                .sub => w.print("sub ${s}, ${s}, ${s}", .{ RegName[rd], RegName[rs], RegName[rt] }),
+                .break_ => w.writeAll("break"),
+                else => self.fallback(SpecialOpcode, special, w, "special - ???"),
             },
             .cop0 => switch (cop_opcode) {
                 .rfe => w.writeAll("rfe"),
                 .mfc => w.print("mfc0 ???", .{}),
                 .mtc => w.print("mtc0 ???", .{}),
-                else => @This().fallback(CopOpCode, cop_opcode, w, "cop0 - ???"),
+                else => self.fallback(CopOpCode, cop_opcode, w, "cop0 - ???"),
             },
             .bcondz => switch (bcond) {
-                else => @This().fallback(BranchCond, bcond, w, "bcondz - ???"),
+                else => self.fallback(BranchCond, bcond, w, "bcondz - ???"),
             },
             .j => w.print("j {x}", .{addr}),
             .lui => w.print("lui ${s}, {x}", .{ RegName[rt], imm }),
@@ -91,7 +95,11 @@ pub const Disasm = struct {
             .addiu => w.print("addiu ${s}, ${s}, {x}", .{ RegName[rt], RegName[rs], imm }),
             .blez => w.print("blez ${s}, {x}", .{ RegName[rs], imm_s }),
             .bne => w.print("bne ${s}, ${s}, {x}", .{ RegName[rs], RegName[rt], imm_s }),
-            else => @This().fallback(Opcode, op, w, "???"),
+            .sw => w.print("sw ${s}, {x}(${s})", .{ RegName[rt], imm_s, RegName[rs] }),
+            .lwl => w.print("lwl ${s}, {x}(${s})", .{ RegName[rt], imm_s, RegName[rs] }),
+            .lwr => w.print("lwr ${s}, {x}(${s})", .{ RegName[rt], imm_s, RegName[rs] }),
+            .jal => w.print("jal {x}", .{addr}),
+            else => self.fallback(Opcode, op, w, "???"),
         };
     }
 };
