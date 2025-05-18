@@ -4,6 +4,7 @@ const mem = @import("mem.zig");
 const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
 const Disasm = @import("disasm.zig").Disasm;
+const GPU = @import("gpu.zig").GPU;
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
 
@@ -61,13 +62,13 @@ pub fn main() !void {
     var args = try Args.parse(allocator);
     defer args.deinit();
 
-    const bios = BIOS.loadFromFile(allocator, args.bios_path) catch |err| {
-        std.log.err("failed to load BIOS: {}", .{err});
-        std.process.exit(1);
-    };
+    const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
 
-    const bus = try mem.Bus.init(allocator, bios);
+    const gpu = try GPU.init(allocator);
+    defer gpu.deinit();
+
+    const bus = try mem.Bus.init(allocator, bios, gpu);
     defer bus.deinit();
 
     const cpu = try CPU.init(allocator, bus);
@@ -83,6 +84,19 @@ pub fn main() !void {
 
     const disasm = try Disasm.init(allocator);
     defer disasm.deinit();
+
+    if (args.step_execute) {
+        cpu.stall = true;
+    }
+
+    if (args.exe_path) |path| {
+        while (cpu.pc != 0x80030000) {
+            cpu.execute();
+        }
+
+        std.log.info("loading exe file: {s}", .{path});
+        try exe.loadExe(allocator, path, cpu, bus);
+    }
 
     if (args.no_ui) {
         while (true) {
@@ -101,18 +115,6 @@ pub fn main() !void {
         }
 
         return;
-    }
-
-    if (args.step_execute) {
-        cpu.stall = true;
-    }
-
-    if (args.exe_path) |path| {
-        while (cpu.pc != 0x80030000) {
-            cpu.execute();
-        }
-        std.log.info("loading exe file: {s}", .{path});
-        try exe.loadExe(allocator, path, cpu, bus);
     }
 
     const ui = try UI.init(allocator, cpu, bus, disasm);

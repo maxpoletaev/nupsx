@@ -246,12 +246,12 @@ const COP0 = struct {
     r: [16]u32,
     depth: u8 = 0,
 
-    pub inline fn mtc(self: *@This(), reg: u8, v: u32) void {
+    pub inline fn read(self: *@This(), reg: u8, v: u32) void {
         const mask = write_mask_table[reg];
         self.r[reg] = v & mask;
     }
 
-    pub inline fn mfc(self: *@This(), reg: u8) u32 {
+    pub inline fn write(self: *@This(), reg: u8) u32 {
         return self.r[reg];
     }
 
@@ -501,7 +501,6 @@ pub const CPU = struct {
                 .bgez => self.bgez(instr),
                 .bltzal => self.bltzal(instr),
                 .bgezal => self.bgezal(instr),
-                // The rest are just bltz/bgez dupes
                 else => switch ((instr.code >> 16) & 0x1) {
                     0 => self.bltz(instr),
                     1 => self.bgez(instr),
@@ -861,12 +860,12 @@ pub const CPU = struct {
     }
 
     fn mfc0(self: *@This(), instr: Instr) void {
-        const v = self.cop0.mfc(instr.rd());
+        const v = self.cop0.write(instr.rd());
         self.writeGprDelay(instr.rt(), v);
     }
 
     fn mtc0(self: *@This(), instr: Instr) void {
-        self.cop0.mtc(instr.rd(), self.gpr[instr.rt()]);
+        self.cop0.read(instr.rd(), self.gpr[instr.rt()]);
     }
 
     fn rfe(self: *@This(), _: Instr) void {

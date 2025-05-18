@@ -3,6 +3,7 @@ const zgui = @import("zgui");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
+const gpu = @import("gpu.zig");
 const cpu = @import("cpu.zig");
 const mem = @import("mem.zig");
 const disasm = @import("disasm.zig");
@@ -21,6 +22,70 @@ const logger = std.log.scoped(.nupsx);
 const addr_space_000 = mem.AddrRange.init(0x00000000, 0x800000);
 const addr_space_800 = mem.AddrRange.init(0x80000000, 0x800000);
 const addr_space_bfc = mem.AddrRange.init(0xbfc00000, 0x800000);
+
+pub const VramView = struct {
+    texture_id: gl.Uint,
+    _vram: *gpu.Vram,
+    _allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, vram: *gpu.Vram) !*@This() {
+        var texture_id: gl.Uint = undefined;
+        gl.genTextures(1, &texture_id);
+
+        const self = try allocator.create(@This());
+        self.* = .{
+            .texture_id = texture_id,
+            ._vram = vram,
+            ._allocator = allocator,
+        };
+
+        return self;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        gl.deleteTextures(1, &self.texture_id);
+        self._allocator.destroy(self);
+    }
+
+    pub fn update(self: *@This()) void {
+        if (zgui.begin("VRAM", .{})) {
+            gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+
+            gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGB5_A1,
+                1024,
+                512,
+                0,
+                gl.RGBA,
+                gl.UNSIGNED_SHORT_1_5_5_5_REV,
+                self._vram.buf,
+            );
+
+            const aspect_ratio = 1024.0 / 512.0; // 2:1 aspect ratio
+            const available_width = zgui.getContentRegionAvail()[0];
+            const available_height = zgui.getContentRegionAvail()[1];
+
+            var display_width = available_width;
+            var display_height = display_width / aspect_ratio;
+
+            if (display_height > available_height) {
+                display_height = available_height;
+                display_width = display_height * aspect_ratio;
+            }
+
+            zgui.image(@ptrFromInt(self.texture_id), .{
+                .w = display_width,
+                .h = display_height,
+            });
+        }
+        zgui.end();
+    }
+};
 
 pub const TTYView = struct {
     lines: std.ArrayList([]u8),
@@ -43,6 +108,7 @@ pub const TTYView = struct {
         for (self.lines.items) |line| {
             self.allocator.free(line);
         }
+
         self.lines.deinit();
         self.line_buf.deinit();
         self.allocator.destroy(self);
@@ -322,6 +388,7 @@ pub const UI = struct {
     window: *glfw.Window,
     cpu_view: *CPUView,
     assembly_view: *AssemblyView,
+    vram_view: *VramView,
     tty_view: *TTYView,
     last_update_time: f64 = 0,
 
@@ -363,6 +430,7 @@ pub const UI = struct {
         const tty_view = try TTYView.init(allocator);
         const cpu_view = try CPUView.init(allocator, cpu_);
         const assembly_view = try AssemblyView.init(allocator, cpu_, bus, dasm);
+        const vram_view = try VramView.init(allocator, &bus._gpu.vram);
 
         const self = try allocator.create(@This());
         self.* = .{
@@ -370,6 +438,7 @@ pub const UI = struct {
             .cpu_view = cpu_view,
             .assembly_view = assembly_view,
             .tty_view = tty_view,
+            .vram_view = vram_view,
             .window = window,
         };
 
@@ -380,6 +449,7 @@ pub const UI = struct {
         self.assembly_view.deinit();
         self.cpu_view.deinit();
         self.tty_view.deinit();
+        self.vram_view.deinit();
 
         zgui.backend.deinit();
         zgui.deinit();
@@ -415,6 +485,7 @@ pub const UI = struct {
         self.cpu_view.update();
         self.assembly_view.update();
         self.tty_view.update();
+        self.vram_view.update();
 
         zgui.backend.draw();
         self.window.swapBuffers();
