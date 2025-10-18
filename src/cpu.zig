@@ -182,64 +182,64 @@ pub const ExcCode = enum(u5) {
     _,
 };
 
-const COP0 = struct {
+const Cop0 = struct {
     const write_mask_table = [16]u32{
-        0x00000000, // cop0r0   - N/A
-        0x00000000, // cop0r1   - N/A
-        0x00000000, // cop0r2   - N/A
-        0xffffffff, // BPC      - Breakpoint on execute (R/W)
-        0x00000000, // cop0r4   - N/A
-        0xffffffff, // BDA      - Breakpoint on data access (R/W)
-        0x00000000, // JUMPDEST - Randomly memorized jump address (R)
-        0xffc0f03f, // DCIC     - Breakpoint control (R/W)
-        0x00000000, // BadVaddr - Bad Virtual Address (R)
-        0xffffffff, // BDAM     - Data Access breakpoint mask (R/W)
-        0x00000000, // cop0r10  - N/A
-        0xffffffff, // BPCM     - Execute breakpoint mask (R/W)
-        0xffffffff, // SR       - System status register (R/W)
-        0x00000300, // CAUSE    - Describes the most recently recognised exception (R)
-        0x00000000, // EPC      - Return Address from Trap (R)
-        0x00000000, // PRID     - Processor ID (R)
+        0x00000000,
+        0x00000000,
+        0x00000000,
+        0xffffffff,
+        0x00000000,
+        0xffffffff,
+        0x00000000,
+        0xffc0f03f,
+        0x00000000,
+        0xffffffff,
+        0x00000000,
+        0xffffffff,
+        0xffffffff,
+        0x00000300,
+        0x00000000,
+        0x00000000,
     };
 
     const Status = packed struct(u32) {
-        iec: u1, // Current Interrupt Enable (0=Disable, 1=Enable)
-        kuc: u1, // Current Kernel/User Mode (0=Kernel, 1=User)
-        iep: u1, // Previous Interrupt Enable
-        kup: u1, // Previous Kernel/User Mode
-        ieo: u1, // Old Interrupt Enable
-        kuo: u1, // Old Kernel/User Mode
-        _pad0: u2, // Not used (zero)
-        im: u8, // 8 bit interrupt mask fields
-        isc: u1, // Isolate Cache (0=No, 1=Isolate)
-        swc: u1, // Swapped cache mode (0=Normal, 1=Swapped)
-        pz: u1, // When set cache parity bits are written as 0
-        cm: u1, // Result of last load with D-cache isolated
-        pe: u1, // Cache parity error
-        ts: u1, // TLB shutdown
-        bev: u1, // Boot exception vectors (0=RAM/KSEG0, 1=ROM/KSEG1)
-        _pad1: u2, // Not used (zero)
-        re: u1, // Reverse endianness
-        _pad2: u2, // Not used (zero)
-        cu0: u1, // COP0 Enable
-        cu1: u1, // COP1 Enable (none in PSX)
-        cu2: u1, // COP2 Enable (GTE in PSX)
-        cu3: u1, // COP3 Enable (none in PSX)
+        curr_int_enable: u1,
+        curr_user_mode: u1,
+        prev_int_enable: u1,
+        prev_user_mode: u1,
+        old_int_enable: u1,
+        old_user_mode: u1,
+        _pad0: u2,
+        interrupt_mask: u8,
+        isolate_cache: u1,
+        swap_caches: u1,
+        force_parity_zero: u1,
+        cache_miss: u1,
+        parity_error: u1,
+        tlb_shutdown: u1,
+        boot_vectors: u1,
+        _pad1: u2,
+        reverse_endianness: u1,
+        _pad2: u2,
+        cop0_enable: u1,
+        cop1_enable: u1,
+        cop2_enable: u1, // GTE
+        cop3_enable: u1,
     };
 
     const Cause = packed struct(u32) {
-        _pad0: u2, // Not used (zero)
-        exc_code: u5, // Exception code
-        _pad1: u1, // Not used (zero)
-        sw: u2, // Software interrupt
-        ip: u6, // Interrupt pending
-        _pad2: u12, // Not used (zero)
-        ce: u2, // Coprocessor number
-        bt: u1, // Branch taken
-        bd: u1, // EPC points to the branch instuction instead of the instruction in the branch delay slot
+        _pad0: u2,
+        exc_code: u5,
+        _pad1: u1,
+        software_interrupt: u2,
+        interrupt_pending: u6,
+        _pad2: u12,
+        cop_number: u2,
+        branch_taken: u1,
+        epc_at_branch: u1,
     };
 
-    const reg_sr: u8 = 12;
+    const reg_status: u8 = 12;
     const reg_cause: u8 = 13;
     const reg_epc: u8 = 14;
 
@@ -256,7 +256,7 @@ const COP0 = struct {
     }
 
     pub inline fn status(self: *@This()) *Status {
-        return @ptrCast(&self.r[reg_sr]);
+        return @ptrCast(&self.r[reg_status]);
     }
 
     pub inline fn cause(self: *@This()) *Cause {
@@ -264,20 +264,20 @@ const COP0 = struct {
     }
 
     pub fn push(self: *@This()) void {
-        var sr = self.r[reg_sr];
+        var sr = self.r[reg_status];
         const mode = sr & 0x3F; // extract mode stack (6 bits)
         sr &= ~@as(u32, 0x3F); // clear mode bits on the SR register
         sr |= (mode << 2) & 0x3F; // shift mode stack 2 bits to the left
-        self.r[reg_sr] = sr; // store it back
+        self.r[reg_status] = sr; // store it back
         self.depth += 1;
     }
 
     pub fn pop(self: *@This()) void {
-        var sr = self.r[reg_sr];
+        var sr = self.r[reg_status];
         const mode = sr & 0x3F; // extract mode stack (6 bits)
         sr &= ~@as(u32, 0x3F); // clear mode bits on the SR register
         sr |= (mode >> 2) & 0x3F; // shift mode stack 2 bits to the right
-        self.r[reg_sr] = sr; // store it back
+        self.r[reg_status] = sr; // store it back
         self.depth -= 1;
     }
 };
@@ -297,7 +297,7 @@ pub const CPU = struct {
     pc: u32,
     next_pc: u32,
     gpr: [32]u32,
-    cop0: COP0,
+    cop0: Cop0,
     instr: Instr,
     instr_addr: u32,
     stall: bool,
@@ -366,25 +366,19 @@ pub const CPU = struct {
 
     fn exception(self: *@This(), exc_code: ExcCode) void {
         self.cop0.cause().exc_code = @intFromEnum(exc_code);
-        self.cop0.r[COP0.reg_epc] = self.instr_addr;
+        self.cop0.r[Cop0.reg_epc] = self.instr_addr;
         self.cop0.push();
 
         // If we are in delay slot, EPC should point to the branch instruction
         if (self.in_delay_slot) {
             const branch_addr, _ = @subWithOverflow(self.instr_addr, 4);
-            self.cop0.r[COP0.reg_epc] = branch_addr;
-            self.cop0.cause().bd = 1;
+            self.cop0.r[Cop0.reg_epc] = branch_addr;
+            self.cop0.cause().epc_at_branch = 1;
         }
 
         // Jump to exception handler (no delay slot)
-        self.pc = if (self.cop0.status().bev != 0) 0xBFC00180 else 0x80000080;
+        self.pc = if (self.cop0.status().boot_vectors != 0) 0xBFC00180 else 0x80000080;
         self.next_pc, _ = @addWithOverflow(self.pc, 4);
-
-        if (exc_code != .syscall) {
-            const exc_name = std.enums.tagName(ExcCode, exc_code).?;
-            log.debug("cpu exception: {s}", .{exc_name});
-        }
-
         self.in_exception = true;
     }
 
@@ -578,8 +572,8 @@ pub const CPU = struct {
     }
 
     fn sw(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isc == 1) {
-            log.debug("ignoring write while cache is isolated", .{});
+        if (self.cop0.status().isolate_cache == 1) {
+            // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
 
@@ -877,8 +871,8 @@ pub const CPU = struct {
     }
 
     fn lhu(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isc == 1) {
-            log.debug("ignoring write while cache is isolated", .{});
+        if (self.cop0.status().isolate_cache == 1) {
+            // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
 
@@ -902,8 +896,8 @@ pub const CPU = struct {
     }
 
     fn lh(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isc == 1) {
-            log.debug("ignoring write while cache is isolated", .{});
+        if (self.cop0.status().isolate_cache == 1) {
+            // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
 

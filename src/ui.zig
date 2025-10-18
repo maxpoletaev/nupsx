@@ -3,11 +3,14 @@ const zgui = @import("zgui");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
-const gpu = @import("gpu.zig");
-const cpu = @import("cpu.zig");
 const mem = @import("mem.zig");
-const disasm = @import("disasm.zig");
-const RegName = cpu.RegName;
+const gpu_mod = @import("gpu.zig");
+const cpu_mod = @import("cpu.zig");
+const Disasm = @import("disasm.zig").Disasm;
+
+const Bus = mem.Bus;
+const CPU = cpu_mod.CPU;
+const GPU = gpu_mod.GPU;
 
 const default_font = @embedFile("assets/freepixel.ttf");
 const default_font_size = 16.0;
@@ -19,24 +22,25 @@ const gl = zopengl.bindings;
 
 const logger = std.log.scoped(.nupsx);
 
-const addr_space_000 = mem.AddrRange.init(0x00000000, 0x800000);
-const addr_space_800 = mem.AddrRange.init(0x80000000, 0x800000);
-const addr_space_bfc = mem.AddrRange.init(0xbfc00000, 0x800000);
+const addr_space_000 = mem.AddrRange.init(.none, 0x00000000, 0x800000);
+const addr_space_800 = mem.AddrRange.init(.none, 0x80000000, 0x800000);
+const addr_space_bfc = mem.AddrRange.init(.none, 0xbfc00000, 0x800000);
 
 pub const VramView = struct {
+    allocator: std.mem.Allocator,
     texture_id: gl.Uint,
-    _vram: *gpu.Vram,
-    _allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, vram: *gpu.Vram) !*@This() {
+    vram: *align(16) GPU.VramArray,
+
+    pub fn init(allocator: std.mem.Allocator, vram: *align(16) GPU.VramArray) !*@This() {
         var texture_id: gl.Uint = undefined;
         gl.genTextures(1, &texture_id);
 
         const self = try allocator.create(@This());
         self.* = .{
+            .allocator = allocator,
             .texture_id = texture_id,
-            ._vram = vram,
-            ._allocator = allocator,
+            .vram = vram,
         };
 
         return self;
@@ -44,7 +48,7 @@ pub const VramView = struct {
 
     pub fn deinit(self: *@This()) void {
         gl.deleteTextures(1, &self.texture_id);
-        self._allocator.destroy(self);
+        self.allocator.destroy(self);
     }
 
     pub fn update(self: *@This()) void {
@@ -57,13 +61,13 @@ pub const VramView = struct {
             gl.texImage2D(
                 gl.TEXTURE_2D,
                 0,
-                gl.RGB5_A1,
+                gl.RGB5,
                 1024,
                 512,
                 0,
                 gl.RGBA,
                 gl.UNSIGNED_SHORT_1_5_5_5_REV,
-                self._vram.buf,
+                self.vram,
             );
 
             const aspect_ratio = 1024.0 / 512.0; // 2:1 aspect ratio
@@ -78,7 +82,12 @@ pub const VramView = struct {
                 display_width = display_height * aspect_ratio;
             }
 
-            zgui.image(@ptrFromInt(self.texture_id), .{
+            const textureRef = zgui.TextureRef{
+                .tex_id = @enumFromInt(self.texture_id),
+                .tex_data = null,
+            };
+
+            zgui.image(textureRef, .{
                 .w = display_width,
                 .h = display_height,
             });
@@ -88,17 +97,17 @@ pub const VramView = struct {
 };
 
 pub const TTYView = struct {
-    lines: std.ArrayList([]u8),
     allocator: std.mem.Allocator,
-    line_buf: std.ArrayList(u8),
+    lines: std.array_list.Aligned([]u8, null),
+    line_buf: std.array_list.Aligned(u8, null),
     new_line_added: bool,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
-            .lines = .init(allocator),
-            .line_buf = .init(allocator),
+            .lines = .empty,
+            .line_buf = .empty,
             .new_line_added = false,
         };
         return self;
@@ -109,8 +118,8 @@ pub const TTYView = struct {
             self.allocator.free(line);
         }
 
-        self.lines.deinit();
-        self.line_buf.deinit();
+        self.line_buf.deinit(self.allocator);
+        self.lines.deinit(self.allocator);
         self.allocator.destroy(self);
     }
 
@@ -118,12 +127,12 @@ pub const TTYView = struct {
         const buf = try self.allocator.alloc(u8, line.len);
         @memcpy(buf, line);
 
-        try self.lines.append(buf);
+        try self.lines.append(self.allocator, buf);
         self.new_line_added = true;
     }
 
     pub fn writeChar(self: *@This(), char: u8) !void {
-        try self.line_buf.append(char);
+        try self.line_buf.append(self.allocator, char);
         if (char == '\n') {
             try self.writeLine(self.line_buf.items);
             self.line_buf.clearRetainingCapacity();
@@ -148,16 +157,16 @@ pub const TTYView = struct {
 
 const AssemblyView = struct {
     allocator: std.mem.Allocator,
-    tmp_buf: std.ArrayList(u8),
+    tmp_buf: std.Io.Writer.Allocating,
     lc: zgui.ListClipper,
-    dasm: *disasm.Disasm,
-    bus: *mem.Bus,
-    cpu: *cpu.CPU,
+    dasm: *Disasm,
+    bus: *Bus,
+    cpu: *CPU,
 
     follow_pc: bool,
     custom_addr: u32,
 
-    pub fn init(allocator: std.mem.Allocator, cpu_: *cpu.CPU, bus: *mem.Bus, dasm: *disasm.Disasm) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, cpu_: *CPU, bus: *Bus, dasm: *Disasm) !*@This() {
         const list_clipper = zgui.ListClipper.init();
 
         const self = try allocator.create(@This());
@@ -188,8 +197,8 @@ const AssemblyView = struct {
             else if (addr_space_800.match(pc_addr)) addr_space_800 //
             else addr_space_bfc;
 
-        const col1_offset = 300;
-        const col2_offset = col1_offset + 300;
+        const col1_offset = 150;
+        const col2_offset = col1_offset + 150;
 
         const items_count = @as(i32, @intCast(addr_range.size / 4));
 
@@ -231,11 +240,11 @@ const AssemblyView = struct {
 
                     for (start..end) |i| {
                         const addr = @as(u32, @truncate(addr_range.start + i * 4));
-                        const instr = cpu.Instr{ .code = self.bus.readWord(addr) };
+                        const instr = cpu_mod.Instr{ .code = self.bus.readWord(addr) };
 
                         self.tmp_buf.clearRetainingCapacity();
-                        self.dasm.disassembleToBuffer(instr, &self.tmp_buf) catch unreachable;
-                        const instr_text = self.tmp_buf.items;
+                        self.dasm.disassembleToBuffer(instr, &self.tmp_buf.writer) catch unreachable;
+                        const instr_text = self.tmp_buf.written();
 
                         {
                             if (pc_addr == addr) {
@@ -268,7 +277,7 @@ const AssemblyView = struct {
 
                 if (self.follow_pc and addr_range.match(self.custom_addr)) {
                     const item_idx = @divTrunc((self.custom_addr - addr_range.start), 4);
-                    const item_pos_y = self.lc.StartPosY + self.lc.ItemsHeight * @as(f32, @floatFromInt(item_idx));
+                    const item_pos_y = @as(f32, @floatCast(self.lc.StartPosY)) + self.lc.ItemsHeight * @as(f32, @floatFromInt(item_idx));
                     zgui.setScrollFromPosY(.{ .local_y = item_pos_y - zgui.getWindowPos()[1] });
                 }
             }
@@ -290,9 +299,9 @@ const CPUView = struct {
     };
 
     allocator: std.mem.Allocator,
-    cpu: *cpu.CPU,
+    cpu: *CPU,
 
-    pub fn init(allocator: std.mem.Allocator, cpu_: *cpu.CPU) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, cpu_: *CPU) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
@@ -310,8 +319,8 @@ const CPUView = struct {
         if (zgui.beginTabItem("COP0", .{})) {
             defer zgui.endTabItem();
 
-            const exc_code = @as(cpu.ExcCode, @enumFromInt(self.cpu.cop0.cause().exc_code));
-            const exc_tag = std.enums.tagName(cpu.ExcCode, exc_code);
+            const exc_code = @as(cpu_mod.ExcCode, @enumFromInt(self.cpu.cop0.cause().exc_code));
+            const exc_tag = std.enums.tagName(cpu_mod.ExcCode, exc_code);
 
             _ = zgui.text("in exception: {d}", .{@intFromBool(self.cpu.in_exception)});
             _ = zgui.text("exc code: {s}", .{if (exc_tag) |t| t else "-"});
@@ -325,8 +334,7 @@ const CPUView = struct {
             zgui.pushItemWidth(300.0);
 
             for (self.cpu.gpr, 0..) |_, i| {
-                const reg_name = cpu.RegName[i];
-                _ = zgui.inputInt(reg_name, .{
+                _ = zgui.inputInt(cpu_mod.RegName[i], .{
                     .step = 0,
                     .flags = hex_field_flags,
                     .v = @ptrCast(&self.cpu.gpr[i]),
@@ -391,13 +399,15 @@ pub const UI = struct {
     vram_view: *VramView,
     tty_view: *TTYView,
     last_update_time: f64 = 0,
+    is_running: bool = true,
 
-    pub fn init(allocator: std.mem.Allocator, cpu_: *cpu.CPU, bus: *mem.Bus, dasm: *disasm.Disasm) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus, dasm: *Disasm) !*@This() {
         try glfw.init();
         glfw.windowHint(.context_version_major, gl_version[0]);
         glfw.windowHint(.context_version_minor, gl_version[1]);
         glfw.windowHint(.opengl_profile, .opengl_core_profile);
         glfw.windowHint(.opengl_forward_compat, true);
+        glfw.windowHint(.scale_framebuffer, false);
         glfw.windowHint(.client_api, .opengl_api);
         glfw.windowHint(.doublebuffer, true);
 
@@ -420,17 +430,15 @@ pub const UI = struct {
         );
 
         zgui.init(allocator);
-        const scale_factor = window.getContentScale()[0];
 
-        const font_size = std.math.floor(default_font_size * scale_factor);
-        _ = zgui.io.addFontFromMemory(default_font, font_size);
-        zgui.getStyle().scaleAllSizes(scale_factor);
+        _ = zgui.io.addFontFromMemory(default_font, default_font_size);
+
         zgui.backend.init(window);
 
         const tty_view = try TTYView.init(allocator);
-        const cpu_view = try CPUView.init(allocator, cpu_);
-        const assembly_view = try AssemblyView.init(allocator, cpu_, bus, dasm);
-        const vram_view = try VramView.init(allocator, &bus._gpu.vram);
+        const cpu_view = try CPUView.init(allocator, cpu);
+        const assembly_view = try AssemblyView.init(allocator, cpu, bus, dasm);
+        const vram_view = try VramView.init(allocator, bus.dev.gpu.vram);
 
         const self = try allocator.create(@This());
         self.* = .{
@@ -458,10 +466,6 @@ pub const UI = struct {
 
         const allocator = self.allocator;
         allocator.destroy(self);
-    }
-
-    pub fn shouldClose(self: *@This()) bool {
-        return self.window.shouldClose();
     }
 
     pub inline fn update(self: *@This()) void {
@@ -494,6 +498,10 @@ pub const UI = struct {
         // Close on ESC
         if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
             glfw.setWindowShouldClose(self.window, true);
+        }
+
+        if (self.window.shouldClose()) {
+            self.is_running = false;
         }
     }
 };

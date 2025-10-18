@@ -5,6 +5,7 @@ const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
 const Disasm = @import("disasm.zig").Disasm;
 const GPU = @import("gpu.zig").GPU;
+const DMA = @import("dma.zig").DMA;
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
 
@@ -62,24 +63,33 @@ pub fn main() !void {
     var args = try Args.parse(allocator);
     defer args.deinit();
 
+    const bus = try mem.Bus.init(allocator);
+    defer bus.deinit();
+
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
 
     const gpu = try GPU.init(allocator);
     defer gpu.deinit();
 
-    const bus = try mem.Bus.init(allocator, bios, gpu);
-    defer bus.deinit();
-
     const cpu = try CPU.init(allocator, bus);
     defer cpu.deinit();
+
+    const dma = try DMA.init(allocator, bus);
+    defer dma.deinit();
+
+    bus.initDevices(.{
+        .gpu = gpu,
+        .dma = dma,
+        .bios = bios,
+    });
 
     if (args.breakpoint != 0) {
         cpu.setBreakpoint(args.breakpoint);
         std.log.info("breakpoint is set to {x}", .{args.breakpoint});
     }
 
-    const stdin = std.io.getStdIn();
+    const stdin = std.fs.File.stdin();
     var stdin_buf: [1]u8 = undefined;
 
     const disasm = try Disasm.init(allocator);
@@ -120,7 +130,7 @@ pub fn main() !void {
     const ui = try UI.init(allocator, cpu, bus, disasm);
     defer ui.deinit();
 
-    while (!ui.shouldClose()) {
+    while (ui.is_running) {
         cpu.execute();
         ui.update();
 

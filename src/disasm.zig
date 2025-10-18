@@ -8,17 +8,18 @@ const RegName = cpu.RegName;
 const BranchCond = cpu.BranchCond;
 const SpecialOpcode = cpu.SpecialOpcode;
 
-const Writer = std.ArrayList(u8).Writer;
+const DisasmBuf = std.array_list.Aligned(u8, null);
+const Writer = DisasmBuf.Writer;
 
 pub const Disasm = struct {
     allocator: std.mem.Allocator,
-    buf: std.ArrayList(u8),
+    buf: std.Io.Writer.Allocating,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
-            .buf = .init(allocator),
             .allocator = allocator,
+            .buf = .init(allocator),
         };
         return self;
     }
@@ -30,11 +31,11 @@ pub const Disasm = struct {
 
     pub fn disassemble(self: *@This(), instr: Instr) []const u8 {
         self.buf.clearRetainingCapacity();
-        self.disassembleToBuffer(instr, &self.buf) catch unreachable;
-        return self.buf.items;
+        self.disassembleToBuffer(instr, &self.buf.writer) catch unreachable;
+        return self.buf.written();
     }
 
-    fn fallback(_: *@This(), comptime T: type, v: T, w: Writer, base: []const u8) !void {
+    fn fallback(_: *@This(), comptime T: type, v: T, w: *std.Io.Writer, base: []const u8) !void {
         if (std.enums.tagName(T, v)) |tag| {
             try w.print("{s} ???", .{tag});
         } else {
@@ -42,9 +43,7 @@ pub const Disasm = struct {
         }
     }
 
-    pub fn disassembleToBuffer(self: *@This(), instr: Instr, buf: *std.ArrayList(u8)) !void {
-        const w = buf.writer();
-
+    pub fn disassembleToBuffer(self: *@This(), instr: Instr, w: *std.Io.Writer) !void {
         if (instr.code == 0) {
             try w.writeAll("nop");
             return;
