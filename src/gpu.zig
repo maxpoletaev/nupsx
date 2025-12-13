@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = @import("mem.zig");
+const builtin = @import("builtin");
 
 const log = std.log.scoped(.gpu);
 
@@ -17,6 +18,8 @@ pub const GP0Command = enum {
     rect_1x1,
 
     poly4_mono_opaque,
+    poly4_shaded_opaque,
+    poly3_shaded_opaque,
 
     pub fn decode(v: u32) GP0Command {
         const cmd = @as(u8, @truncate(v >> 24));
@@ -32,8 +35,9 @@ pub const GP0Command = enum {
             0x68 => .rect_1x1,
             0x01 => .clear_cache,
             0x28 => .poly4_mono_opaque,
+            0x30 => .poly3_shaded_opaque,
+            0x38 => .poly4_shaded_opaque,
             0x00, 0x04...0x1E, 0xE0, 0xE7...0xEF => .nop,
-            // else => .nop,
             else => std.debug.panic("unknown gp0 command: {x}", .{cmd}),
         };
     }
@@ -202,13 +206,17 @@ pub const Rasterizer = struct {
     }
 };
 
-const CommandBuffer = struct {
+const Fifo = struct {
     buf: [16]u32,
     len: u32,
 
     inline fn add(self: *@This(), v: u32) void {
         self.buf[self.len] = v;
         self.len += 1;
+    }
+
+    inline fn reset(self: *@This()) void {
+        self.len = 0;
     }
 };
 
@@ -220,7 +228,7 @@ pub const GPU = struct {
     vram: *align(16) VramArray,
     rasterizer: Rasterizer,
     gp0_state: State,
-    gp0_fifo: CommandBuffer,
+    gp0_fifo: Fifo,
     gp0_command: ?GP0Command,
     gp0_xcur: u16,
     gp0_ycur: u16,
@@ -238,7 +246,7 @@ pub const GPU = struct {
         self.* = .{
             .vram = vram[0..vram_size],
             .rasterizer = Rasterizer.init(vram[0..vram_size]),
-            .gp0_fifo = std.mem.zeroes(CommandBuffer),
+            .gp0_fifo = std.mem.zeroes(Fifo),
             .gp0_state = .recv_command,
             .gp0_command = null,
             .gp0_xcur = 0,
@@ -251,24 +259,20 @@ pub const GPU = struct {
             .allocator = allocator,
         };
 
-        self.rasterizer.fill(.{
-            .r = 8,
-            .g = 8,
-            .b = 8,
-        });
+        self.rasterizer.fill(.{ .r = 8, .g = 8, .b = 8 });
 
-        self.rasterizer.drawTriangleFlat(
-            .{ .x = 0, .y = 20 },
-            .{ .x = 100, .y = 20 },
-            .{ .x = 50, .y = 120 },
-            Color24.init(255, 0, 0),
-        );
+        // self.rasterizer.drawTriangleFlat(
+        //     .{ .x = 0, .y = 20 },
+        //     .{ .x = 100, .y = 20 },
+        //     .{ .x = 50, .y = 120 },
+        //     Color24.init(255, 0, 0),
+        // );
 
-        self.rasterizer.drawTriangleShaded(
-            .{ .x = 0, .y = 0, .color = Color24.init(255, 0, 0) },
-            .{ .x = 480, .y = 0, .color = Color24.init(0, 255, 0) },
-            .{ .x = 0, .y = 480, .color = Color24.init(0, 0, 255) },
-        );
+        // self.rasterizer.drawTriangleShaded(
+        //     .{ .x = 0, .y = 0, .color = Color24.init(255, 0, 0) },
+        //     .{ .x = 480, .y = 0, .color = Color24.init(0, 255, 0) },
+        //     .{ .x = 0, .y = 480, .color = Color24.init(0, 0, 255) },
+        // );
 
         return self;
     }
@@ -304,7 +308,7 @@ pub const GPU = struct {
     }
 
     pub fn readGpustat(self: *@This()) u32 {
-        return self.gpustat;
+        return self.gpustat | 0x1c000000;
     }
 
     // -------------------------
@@ -335,7 +339,9 @@ pub const GPU = struct {
             .bit_mask => {},
             .clear_cache => {},
             .rect_1x1 => self.drawRect(v),
-            .poly4_mono_opaque => self.drawPoly(v),
+            .poly3_shaded_opaque => self.drawPoly3Shaded(v),
+            .poly4_mono_opaque => self.drawPoly4(v),
+            .poly4_shaded_opaque => self.drawPoly4Shaded(v),
         }
     }
 
@@ -371,7 +377,7 @@ pub const GPU = struct {
                     const y = @as(u32, (arg_ypos + self.gp0_ycur) & 0x1ff);
 
                     const addr = 2 * (1024 * y + x);
-                    mem.write(u16, self.vram, addr, halfword);
+                    mem.writeToBuf(u16, self.vram, addr, halfword);
 
                     self.gp0_xcur += 1;
 
@@ -464,7 +470,17 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly(self: *@This(), v: u32) void {
+    inline fn argColor24(v: u32) Color24 {
+        return @bitCast(@as(u24, @truncate(v)));
+    }
+
+    inline fn argCoords(v: u32) [2]i16 {
+        const x = @as(i16, @bitCast(@as(u16, @truncate(v >> 0))));
+        const y = @as(i16, @bitCast(@as(u16, @truncate(v >> 16))));
+        return .{ x, y };
+    }
+
+    fn drawPoly4(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.add(v);
@@ -473,35 +489,84 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 5) {
-                    const color = Color24.fromU32(self.gp0_fifo.buf[0]);
-                    const v0_x = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[1] >> 0))));
-                    const v0_y = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[1] >> 16))));
-                    const v1_x = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[2] >> 0))));
-                    const v1_y = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[2] >> 16))));
-                    const v2_x = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[3] >> 0))));
-                    const v2_y = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[3] >> 16))));
-                    const v3_x = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[4] >> 0))));
-                    const v3_y = @as(i16, @bitCast(@as(u16, @truncate(self.gp0_fifo.buf[4] >> 16))));
-
-                    // log.debug(
-                    //     "v0=({d},{d}) v1=({d},{d}), v2=({d},{d}), v3=({d},{d})",
-                    //     .{ v0_x, v0_y, v1_x, v1_y, v2_x, v2_y, v3_x, v3_y },
-                    // );
-
+                    const color = argColor24(self.gp0_fifo.buf[0]);
+                    const v0_x, const v0_y = argCoords(self.gp0_fifo.buf[1]);
+                    const v1_x, const v1_y = argCoords(self.gp0_fifo.buf[2]);
+                    const v2_x, const v2_y = argCoords(self.gp0_fifo.buf[3]);
+                    const v3_x, const v3_y = argCoords(self.gp0_fifo.buf[4]);
                     self.rasterizer.drawTriangleFlat(
                         .{ .x = @intCast(v0_x), .y = @intCast(v0_y) },
                         .{ .x = @intCast(v1_x), .y = @intCast(v1_y) },
                         .{ .x = @intCast(v2_x), .y = @intCast(v2_y) },
                         color,
                     );
-
                     self.rasterizer.drawTriangleFlat(
                         .{ .x = @intCast(v1_x), .y = @intCast(v1_y) },
                         .{ .x = @intCast(v3_x), .y = @intCast(v3_y) },
                         .{ .x = @intCast(v2_x), .y = @intCast(v2_y) },
                         color,
                     );
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
+        }
+    }
 
+    fn drawPoly4Shaded(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.add(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.add(v);
+                if (self.gp0_fifo.len == 8) {
+                    const v0_color = argColor24(self.gp0_fifo.buf[0]);
+                    const v0_x, const v0_y = argCoords(self.gp0_fifo.buf[1]);
+                    const v1_color = argColor24(self.gp0_fifo.buf[2]);
+                    const v1_x, const v1_y = argCoords(self.gp0_fifo.buf[3]);
+                    const v2_color = argColor24(self.gp0_fifo.buf[4]);
+                    const v2_x, const v2_y = argCoords(self.gp0_fifo.buf[5]);
+                    const v3_color = argColor24(self.gp0_fifo.buf[6]);
+                    const v3_x, const v3_y = argCoords(self.gp0_fifo.buf[7]);
+                    self.rasterizer.drawTriangleShaded(
+                        .{ .x = @intCast(v0_x), .y = @intCast(v0_y), .color = v0_color },
+                        .{ .x = @intCast(v1_x), .y = @intCast(v1_y), .color = v1_color },
+                        .{ .x = @intCast(v2_x), .y = @intCast(v2_y), .color = v2_color },
+                    );
+                    self.rasterizer.drawTriangleShaded(
+                        .{ .x = @intCast(v1_x), .y = @intCast(v1_y), .color = v1_color },
+                        .{ .x = @intCast(v3_x), .y = @intCast(v3_y), .color = v3_color },
+                        .{ .x = @intCast(v2_x), .y = @intCast(v2_y), .color = v2_color },
+                    );
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    fn drawPoly3Shaded(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.add(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.add(v);
+                if (self.gp0_fifo.len == 6) {
+                    const v0_color = argColor24(self.gp0_fifo.buf[0]);
+                    const v0_x, const v0_y = argCoords(self.gp0_fifo.buf[1]);
+                    const v1_color = argColor24(self.gp0_fifo.buf[2]);
+                    const v1_x, const v1_y = argCoords(self.gp0_fifo.buf[3]);
+                    const v2_color = argColor24(self.gp0_fifo.buf[4]);
+                    const v2_x, const v2_y = argCoords(self.gp0_fifo.buf[5]);
+                    self.rasterizer.drawTriangleShaded(
+                        .{ .x = @intCast(v0_x), .y = @intCast(v0_y), .color = v0_color },
+                        .{ .x = @intCast(v1_x), .y = @intCast(v1_y), .color = v1_color },
+                        .{ .x = @intCast(v2_x), .y = @intCast(v2_y), .color = v2_color },
+                    );
                     self.gp0_state = .recv_command;
                 }
             },

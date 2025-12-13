@@ -1,56 +1,14 @@
 const std = @import("std");
 const mem = @import("mem.zig");
 
+const Args = @import("Args.zig");
 const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
-const Disasm = @import("disasm.zig").Disasm;
+const Disasm = @import("Disasm.zig");
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
-
-const Args = struct {
-    bios_path: []const u8,
-    exe_path: ?[]const u8,
-    step_execute: bool = false,
-    no_ui: bool = false,
-    disasm: bool = false,
-    breakpoint: u32 = 0,
-    iter: *std.process.ArgIterator,
-
-    fn parse(allocator: std.mem.Allocator) !Args {
-        var iter = try std.process.argsWithAllocator(allocator);
-        var args = std.mem.zeroInit(Args, .{ .iter = &iter });
-
-        while (iter.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--step")) {
-                args.step_execute = true;
-            }
-            if (std.mem.eql(u8, arg, "--no-ui")) {
-                args.no_ui = true;
-            }
-            if (std.mem.eql(u8, arg, "--disasm")) {
-                args.disasm = true;
-            }
-            if (std.mem.eql(u8, arg, "--breakpoint")) {
-                const addr_str = iter.next() orelse return error.InvalidArgument;
-                args.breakpoint = try std.fmt.parseUnsigned(u32, addr_str, 16);
-            }
-            if (std.mem.eql(u8, arg, "--bios")) {
-                args.bios_path = iter.next() orelse return error.InvalidArgument;
-            }
-            if (std.mem.eql(u8, arg, "--exe")) {
-                args.exe_path = iter.next() orelse return error.InvalidArgument;
-            }
-        }
-
-        return args;
-    }
-
-    pub fn deinit(self: *Args) void {
-        self.iter.deinit();
-    }
-};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -66,6 +24,10 @@ pub fn main() !void {
     const bus = try mem.Bus.init(allocator);
     defer bus.deinit();
 
+    if (args.bios_path.len == 0) {
+        std.log.err("--bios argument is required", .{});
+        std.process.exit(1);
+    }
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
 

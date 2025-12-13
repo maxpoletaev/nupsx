@@ -6,7 +6,7 @@ const zopengl = @import("zopengl");
 const mem = @import("mem.zig");
 const gpu_mod = @import("gpu.zig");
 const cpu_mod = @import("cpu.zig");
-const Disasm = @import("disasm.zig").Disasm;
+const Disasm = @import("Disasm.zig");
 
 const Bus = mem.Bus;
 const CPU = cpu_mod.CPU;
@@ -57,18 +57,7 @@ pub const VramView = struct {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-
-            gl.texImage2D(
-                gl.TEXTURE_2D,
-                0,
-                gl.RGB5,
-                1024,
-                512,
-                0,
-                gl.RGBA,
-                gl.UNSIGNED_SHORT_1_5_5_5_REV,
-                self.vram,
-            );
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.vram);
 
             const aspect_ratio = 1024.0 / 512.0; // 2:1 aspect ratio
             const available_width = zgui.getContentRegionAvail()[0];
@@ -414,26 +403,17 @@ pub const UI = struct {
         const monitor = glfw.getPrimaryMonitor();
         const video_mode = try glfw.getVideoMode(monitor.?);
 
-        const window = try glfw.Window.create(
-            video_mode.width,
-            video_mode.height,
-            window_title,
-            null,
-        );
+        const window = try glfw.Window.create(video_mode.width, video_mode.height, window_title, null);
         glfw.makeContextCurrent(window);
         glfw.swapInterval(0);
 
-        try zopengl.loadCoreProfile(
-            glfw.getProcAddress,
-            gl_version[0],
-            gl_version[1],
-        );
+        try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
 
         zgui.init(allocator);
+        zgui.backend.init(window);
+        zgui.styleColorsClassic(zgui.getStyle());
 
         _ = zgui.io.addFontFromMemory(default_font, default_font_size);
-
-        zgui.backend.init(window);
 
         const tty_view = try TTYView.init(allocator);
         const cpu_view = try CPUView.init(allocator, cpu);
@@ -468,16 +448,25 @@ pub const UI = struct {
         allocator.destroy(self);
     }
 
-    pub inline fn update(self: *@This()) void {
+    pub fn update(self: *@This()) void {
         const now = glfw.getTime();
         if ((now - self.last_update_time) < frame_time) {
             return;
         }
-
         self.updateInternal(now);
+        self.handleInput();
     }
 
-    fn updateInternal(self: *@This(), now: f64) void {
+    inline fn handleInput(self: *@This()) void {
+        if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
+            glfw.setWindowShouldClose(self.window, true);
+        }
+        if (self.window.shouldClose()) {
+            self.is_running = false;
+        }
+    }
+
+    inline fn updateInternal(self: *@This(), now: f64) void {
         const fb_size = self.window.getFramebufferSize();
         zgui.backend.newFrame(@intCast(fb_size[0]), @intCast(fb_size[1]));
         glfw.pollEvents();
@@ -494,14 +483,5 @@ pub const UI = struct {
         zgui.backend.draw();
         self.window.swapBuffers();
         self.last_update_time = now;
-
-        // Close on ESC
-        if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
-            glfw.setWindowShouldClose(self.window, true);
-        }
-
-        if (self.window.shouldClose()) {
-            self.is_running = false;
-        }
     }
 };

@@ -89,8 +89,8 @@ pub const Devices = struct {
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {
     allocator: std.mem.Allocator,
-    ram: [0x200000]u8,
     scratchpad: [0x400]u8,
+    ram: [0x200000]u8,
     dev: Devices,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
@@ -167,8 +167,8 @@ pub const Bus = struct {
         const device, const offset = lookupDevice(resolved_addr);
 
         switch (device) {
-            .ram => return write(u8, &self.ram, offset, value),
-            .scratchpad => return write(u8, &self.scratchpad, offset, value),
+            .ram => return writeToBuf(u8, &self.ram, offset, value),
+            .scratchpad => return writeToBuf(u8, &self.scratchpad, offset, value),
             else => {},
         }
 
@@ -180,8 +180,8 @@ pub const Bus = struct {
         const device, const offset = lookupDevice(resolved_addr);
 
         switch (device) {
-            .ram => return write(u16, &self.ram, offset, value),
-            .scratchpad => return write(u16, &self.scratchpad, offset, value),
+            .ram => return writeToBuf(u16, &self.ram, offset, value),
+            .scratchpad => return writeToBuf(u16, &self.scratchpad, offset, value),
             else => {},
         }
 
@@ -193,8 +193,8 @@ pub const Bus = struct {
         const device, const offset = lookupDevice(resolved_addr);
 
         switch (device) {
-            .ram => return write(u32, &self.ram, offset, v),
-            .scratchpad => return write(u32, &self.scratchpad, offset, v),
+            .ram => return writeToBuf(u32, &self.ram, offset, v),
+            .scratchpad => return writeToBuf(u32, &self.scratchpad, offset, v),
             .gpu => return self.dev.gpu.writeWord(offset, v),
             .dma => return self.dev.dma.writeWord(offset, v),
             else => {},
@@ -218,7 +218,7 @@ pub inline fn read(comptime T: type, buf: []u8, offset: u32) T {
     return std.mem.readInt(T, sl, .little);
 }
 
-pub inline fn write(comptime T: type, buf: []u8, offset: u32, v: T) void {
+pub inline fn writeToBuf(comptime T: type, buf: []u8, offset: u32, v: T) void {
     const t_size = @sizeOf(T);
 
     if (comptime builtin.mode == .Debug) {
