@@ -5,40 +5,40 @@ const log = std.log.scoped(.dma);
 
 const gpu_gp0_addr = 0x1f801810;
 
+const ChanCtrl = packed struct(u32) {
+    to_device: u1, // transfer direction: 0=to ram, 1=to device
+    addr_inc: u1, // maddr increment: 0=+4, 1=-4
+    _pad0: u6,
+    something: u1,
+    sync_mode: u2, // 0=burst, 1=slice, 2=linked-list, 3=reserved
+    _pad1: u5,
+    chopping_dma: u3,
+    _pad2: u1,
+    chopping_cpu: u3,
+    _pad3: u1,
+    start: u1,
+    _pad4: u3,
+    force_start: u1,
+    pause: u1,
+    snooping: u1,
+    _pad5: u1,
+};
+
+const BlockCtrl = packed struct(u32) {
+    block_size: u16,
+    block_count: u16,
+};
+
 const Channel = struct {
-    const ChanCtrlFields = packed struct(u32) {
-        to_device: u1, // transfer direction: 0 = to ram, 1 = to device
-        addr_inc: u1, // maddr increment: 0 = +4, 1 = -4
-        _pad0: u6, // unused
-        something: u1,
-        sync_mode: u2, // 0=burst, 1=slice, 2=linked-list, 3=reserved
-        _pad1: u5, // unused
-        chopping_dma: u3,
-        _pad2: u1,
-        chopping_cpu: u3,
-        _pad3: u1,
-        start: u1,
-        _pad4: u3,
-        force_start: u1,
-        pause: u1,
-        snooping: u1,
-        _pad5: u1,
-    };
-
-    const BlockCtrlFields = packed struct(u32) {
-        block_size: u16,
-        block_count: u16,
-    };
-
     maddr: u32,
-    block_ctrl: packed union { bits: u32, fields: BlockCtrlFields },
-    chan_ctrl: packed union { bits: u32, fields: ChanCtrlFields },
+    chan_ctrl: ChanCtrl,
+    block_ctrl: BlockCtrl,
 
     pub fn init() Channel {
         return .{
             .maddr = 0,
-            .block_ctrl = .{ .bits = 0 },
-            .chan_ctrl = .{ .bits = 0 },
+            .chan_ctrl = std.mem.zeroes(ChanCtrl),
+            .block_ctrl = std.mem.zeroes(BlockCtrl),
         };
     }
 };
@@ -110,8 +110,8 @@ pub const DMA = struct {
 
         switch (reg_id) {
             0 => chan.maddr = v,
-            1 => chan.block_ctrl.bits = v,
-            2 => chan.chan_ctrl.bits = v,
+            1 => chan.block_ctrl = @bitCast(v),
+            2 => chan.chan_ctrl = @bitCast(v),
             else => unreachable,
         }
 
@@ -125,7 +125,7 @@ pub const DMA = struct {
     }
 
     fn doGpu(self: *@This()) void {
-        const ctrl = &self.ch_gpu.chan_ctrl.fields;
+        const ctrl = &self.ch_gpu.chan_ctrl;
 
         if (ctrl.start == 1) {
             switch (ctrl.sync_mode) {
@@ -138,8 +138,8 @@ pub const DMA = struct {
     }
 
     fn doGpuSyncModeSlice(self: *@This()) void {
-        const ctrl = &self.ch_gpu.chan_ctrl.fields;
-        const blk = &self.ch_gpu.block_ctrl.fields;
+        const ctrl = &self.ch_gpu.chan_ctrl;
+        const blk = &self.ch_gpu.block_ctrl;
         const len = blk.block_size * blk.block_count;
         const addr_inc = @as(u32, @bitCast(@as(i32, if (ctrl.addr_inc == 1) -4 else 4)));
 
@@ -176,12 +176,12 @@ pub const DMA = struct {
     }
 
     fn doOtc(self: *@This()) void {
-        const chan_ctrl = &self.ch_otc.chan_ctrl.fields;
-        const block_ctrl = &self.ch_otc.block_ctrl.fields;
+        const ctrl = &self.ch_otc.chan_ctrl;
+        const blk = &self.ch_otc.block_ctrl;
 
-        if (chan_ctrl.start == 1) {
+        if (ctrl.start == 1) {
             var addr = self.ch_otc.maddr;
-            const len = block_ctrl.block_size;
+            const len = blk.block_size;
 
             for (0..len) |i| {
                 const next_addr = (addr - 4) & 0xffffff;
@@ -190,7 +190,7 @@ pub const DMA = struct {
                 addr = next_addr;
             }
 
-            chan_ctrl.start = 0;
+            ctrl.start = 0;
         }
     }
 };

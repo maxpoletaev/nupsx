@@ -380,7 +380,7 @@ const CPUView = struct {
     }
 };
 
-pub const UI = struct {
+pub const DebugUI = struct {
     allocator: std.mem.Allocator,
     window: *glfw.Window,
     cpu_view: *CPUView,
@@ -475,6 +475,7 @@ pub const UI = struct {
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.flush();
 
+        self.updateFrameRate(now);
         self.cpu_view.update();
         self.assembly_view.update();
         self.tty_view.update();
@@ -483,5 +484,28 @@ pub const UI = struct {
         zgui.backend.draw();
         self.window.swapBuffers();
         self.last_update_time = now;
+    }
+
+    fn updateFrameRate(self: *@This(), now: f64) void {
+        const delta = now - self.last_update_time;
+        const fps = 1.0 / delta;
+        const cur_frame_time = delta * 1000.0;
+
+        zgui.setNextWindowPos(.{ .x = 10, .y = 10 });
+        const flags = zgui.WindowFlags{
+            .no_title_bar = true,
+            .no_resize = true,
+            .no_move = true,
+            .no_scrollbar = true,
+            .no_collapse = true,
+            .no_background = true,
+            .always_auto_resize = true,
+        };
+
+        if (zgui.begin("Frame Rate", .{ .flags = flags })) {
+            zgui.text("FPS: {:.2}", .{fps});
+            zgui.text("Frame Time: {:.4} ms", .{cur_frame_time});
+        }
+        zgui.end();
     }
 };

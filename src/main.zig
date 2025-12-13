@@ -7,7 +7,7 @@ const BIOS = @import("bios.zig").BIOS;
 const Disasm = @import("Disasm.zig");
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
-const UI = @import("ui.zig").UI;
+const DebugUI = @import("debug_ui.zig").DebugUI;
 const exe = @import("exe.zig");
 
 pub fn main() !void {
@@ -89,15 +89,14 @@ pub fn main() !void {
         return;
     }
 
-    const ui = try UI.init(allocator, cpu, bus, disasm);
-    defer ui.deinit();
+    const debug_ui = try DebugUI.init(allocator, cpu, bus, disasm);
+    defer debug_ui.deinit();
 
-    while (ui.is_running) {
+    while (debug_ui.is_running) {
         cpu.execute();
-        ui.update();
-
+        debug_ui.update();
         if (captureTtyOutput(cpu)) |ch| {
-            ui.tty_view.writeChar(ch) catch unreachable;
+            debug_ui.tty_view.writeChar(ch) catch unreachable;
         }
     }
 }
