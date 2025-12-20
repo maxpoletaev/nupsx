@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = @import("mem.zig");
+const bits = @import("bits.zig");
 
 const log = std.log.scoped(.cpu);
 const reset_addr = 0xbfc00000; // start of the BIOS
@@ -120,69 +121,52 @@ pub const Instr = struct {
     code: u32,
 
     pub inline fn opcode(self: Instr) Opcode {
-        return @enumFromInt(@as(u8, @truncate(self.code >> 26))); // 6 bits
+        return @enumFromInt(bits.field(self.code, 26, u6));
     }
 
     pub inline fn copOpcode(self: Instr) CopOpcode {
-        return @enumFromInt(@as(u8, @truncate(self.code >> 21))); // 5 bits
+        return @enumFromInt(bits.field(self.code, 21, u5));
     }
 
     pub inline fn rs(self: Instr) u5 {
-        return @truncate(self.code >> 21); // 5 bits
+        return bits.field(self.code, 21, u5);
     }
 
     pub inline fn rt(self: Instr) u5 {
-        return @truncate(self.code >> 16); // 5 bits
+        return bits.field(self.code, 16, u5);
     }
 
     pub inline fn rd(self: Instr) u5 {
-        return @truncate(self.code >> 11); // 5 bits
+        return bits.field(self.code, 11, u5);
     }
 
     pub inline fn shift(self: Instr) u5 {
-        return @truncate(self.code >> 6); // 5 bits
+        return bits.field(self.code, 6, u5);
     }
 
     pub inline fn imm(self: Instr) u32 {
-        return @truncate(self.code & 0xFFFF); // 16 bits
+        return bits.field(self.code, 0, u16);
     }
 
-    pub inline fn imm_s(self: Instr) u32 {
-        return signExtend(u16, @as(u16, @truncate(self.code))); // 16 bits
+    pub inline fn imm_s(self: Instr) i32 {
+        const v = bits.field(self.code, 0, u16);
+        return @as(i32, @as(i16, @bitCast(v)));
     }
 
     pub inline fn addr(self: Instr) u32 {
-        return @truncate(self.code & 0x03ffffff); // 26 bits
+        return bits.field(self.code, 0, u26);
     }
 
     pub inline fn special(self: Instr) SpecialOpcode {
-        const v: u8 = @truncate(self.code & 0x3f); // 6 bits
-        return @enumFromInt(v);
+        return @enumFromInt(bits.field(self.code, 0, u6));
     }
 
     pub inline fn bcond(self: Instr) BranchCond {
-        return @enumFromInt((self.code >> 16) & 0x1f); // 5 bits
+        return @enumFromInt(bits.field(self.code, 16, u5));
     }
 };
 
-pub const ExcCode = enum(u5) {
-    interrupt = 0x0,
-    tlb_mod = 0x1,
-    tlb_load = 0x2,
-    tlb_store = 0x3,
-    addr_load = 0x4,
-    addr_store = 0x5,
-    bus_fetch = 0x6,
-    bus_data = 0x7,
-    syscall = 0x8,
-    breakpoint = 0x9,
-    reserved_instr = 0xA,
-    cop_unusable = 0xB,
-    overflow = 0xC,
-    _,
-};
-
-const Cop0 = struct {
+pub const Cop0 = struct {
     const write_mask_table = [16]u32{
         0x00000000,
         0x00000000,
@@ -227,9 +211,26 @@ const Cop0 = struct {
         cop3_enable: u1,
     };
 
+    pub const ExcCode = enum(u5) {
+        interrupt = 0x0,
+        tlb_mod = 0x1,
+        tlb_load = 0x2,
+        tlb_store = 0x3,
+        addr_load = 0x4,
+        addr_store = 0x5,
+        bus_fetch = 0x6,
+        bus_data = 0x7,
+        syscall = 0x8,
+        breakpoint = 0x9,
+        reserved_instr = 0xA,
+        cop_unusable = 0xB,
+        overflow = 0xC,
+        _,
+    };
+
     const Cause = packed struct(u32) {
         _pad0: u2,
-        exc_code: u5,
+        exc_code: ExcCode,
         _pad1: u1,
         software_interrupt: u2,
         interrupt_pending: u6,
@@ -246,13 +247,12 @@ const Cop0 = struct {
     r: [16]u32,
     depth: u8 = 0,
 
-    pub inline fn read(self: *@This(), reg: u8, v: u32) void {
-        const mask = write_mask_table[reg];
-        self.r[reg] = v & mask;
+    pub inline fn getReg(self: *@This(), reg: u8) u32 {
+        return self.r[reg];
     }
 
-    pub inline fn write(self: *@This(), reg: u8) u32 {
-        return self.r[reg];
+    pub inline fn setReg(self: *@This(), reg: u8, v: u32) void {
+        self.r[reg] = v & write_mask_table[reg];
     }
 
     pub inline fn status(self: *@This()) *Status {
@@ -264,20 +264,16 @@ const Cop0 = struct {
     }
 
     pub fn push(self: *@This()) void {
-        var sr = self.r[reg_status];
-        const mode = sr & 0x3F; // extract mode stack (6 bits)
-        sr &= ~@as(u32, 0x3F); // clear mode bits on the SR register
-        sr |= (mode << 2) & 0x3F; // shift mode stack 2 bits to the left
-        self.r[reg_status] = sr; // store it back
+        const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
+        self.r[reg_status] &= ~@as(u32, 0x3f); // clear mode bits on the SR register
+        self.r[reg_status] |= (mode << 2) & 0x3f; // shift mode stack 2 bits to the left
         self.depth += 1;
     }
 
     pub fn pop(self: *@This()) void {
-        var sr = self.r[reg_status];
-        const mode = sr & 0x3F; // extract mode stack (6 bits)
-        sr &= ~@as(u32, 0x3F); // clear mode bits on the SR register
-        sr |= (mode >> 2) & 0x3F; // shift mode stack 2 bits to the right
-        self.r[reg_status] = sr; // store it back
+        const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
+        self.r[reg_status] &= ~@as(u32, 0x0f); // clear mode bits on the SR register
+        self.r[reg_status] |= (mode >> 2); // shift mode stack 2 bits to the right
         self.depth -= 1;
     }
 };
@@ -364,9 +360,9 @@ pub const CPU = struct {
         self.breakpoint = addr;
     }
 
-    fn exception(self: *@This(), exc_code: ExcCode) void {
-        self.cop0.cause().exc_code = @intFromEnum(exc_code);
+    fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
         self.cop0.r[Cop0.reg_epc] = self.instr_addr;
+        self.cop0.cause().exc_code = exc_code;
         self.cop0.push();
 
         // If we are in delay slot, EPC should point to the branch instruction
@@ -377,7 +373,7 @@ pub const CPU = struct {
         }
 
         // Jump to exception handler (no delay slot)
-        self.pc = if (self.cop0.status().boot_vectors != 0) 0xBFC00180 else 0x80000080;
+        self.pc = if (self.cop0.status().boot_vectors != 0) 0xbfc00180 else 0x80000080;
         self.next_pc, _ = @addWithOverflow(self.pc, 4);
         self.in_exception = true;
     }
@@ -393,12 +389,12 @@ pub const CPU = struct {
         self.next_pc = addr;
     }
 
-    inline fn branchIf(self: *@This(), cond: bool, offset: u32) void {
+    inline fn branchIf(self: *@This(), cond: bool, offset: i32) void {
         self.in_branch = true;
         self.branch_taken = false;
 
         if (cond) {
-            const addr, _ = @addWithOverflow(self.pc, offset << 2);
+            const addr, _ = @addWithOverflow(self.pc, @as(u32, @bitCast(offset << 2)));
             if (addr % 4 != 0) {
                 @branchHint(.unlikely);
                 self.exception(.addr_load);
@@ -578,7 +574,7 @@ pub const CPU = struct {
         }
 
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -590,15 +586,12 @@ pub const CPU = struct {
     }
 
     fn addiu(self: *@This(), instr: Instr) void {
-        const sum, _ = addAsSigned(self.gpr[instr.rs()], instr.imm_s());
+        const sum, _ = add32s(self.gpr[instr.rs()], instr.imm_s());
         self.writeGpr(instr.rt(), sum);
     }
 
     fn addi(self: *@This(), instr: Instr) void {
-        const sum, const ov = addAsSigned(
-            self.gpr[instr.rs()],
-            instr.imm_s(),
-        );
+        const sum, const ov = add32s(self.gpr[instr.rs()], instr.imm_s());
 
         if (ov != 0) {
             self.exception(.overflow);
@@ -650,7 +643,7 @@ pub const CPU = struct {
 
     fn lw(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -663,7 +656,7 @@ pub const CPU = struct {
 
     fn lb(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const v = signExtend(u8, self.mem.readByte(addr));
 
         self.writeGprDelay(instr.rt(), v);
@@ -671,7 +664,7 @@ pub const CPU = struct {
 
     fn lbu(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const v = self.mem.readByte(addr);
 
         self.writeGprDelay(instr.rt(), v);
@@ -699,7 +692,7 @@ pub const CPU = struct {
 
     fn sh(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -713,7 +706,7 @@ pub const CPU = struct {
 
     fn sb(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const v = self.gpr[instr.rt()];
 
         self.mem.writeByte(addr, @truncate(v));
@@ -746,8 +739,9 @@ pub const CPU = struct {
     }
 
     fn jalr(self: *@This(), instr: Instr) void {
+        const v = self.gpr[instr.rs()];
         self.writeGpr(instr.rd(), self.next_pc);
-        self.jump(self.gpr[instr.rs()]);
+        self.jump(v);
     }
 
     fn bltz(self: *@This(), instr: Instr) void {
@@ -789,11 +783,11 @@ pub const CPU = struct {
 
         if (std.math.divTrunc(i32, num, denom)) |v| {
             self.lo = @bitCast(v);
-            self.hi = @bitCast(@mod(num, denom));
+            self.hi = @bitCast(@rem(num, denom));
         } else |err| switch (err) {
             error.DivisionByZero => {
                 self.lo = if (num >= 0) 0xffffffff else 0x00000001;
-                self.hi = @bitCast(denom);
+                self.hi = @bitCast(num);
             },
             error.Overflow => {
                 self.lo = 0x80000000;
@@ -831,7 +825,7 @@ pub const CPU = struct {
     }
 
     fn sltiu(self: *@This(), instr: Instr) void {
-        const less = self.gpr[instr.rs()] < instr.imm_s();
+        const less = self.gpr[instr.rs()] < @as(u32, @bitCast(instr.imm_s()));
         self.writeGpr(instr.rt(), @intFromBool(less));
     }
 
@@ -854,12 +848,12 @@ pub const CPU = struct {
     }
 
     fn mfc0(self: *@This(), instr: Instr) void {
-        const v = self.cop0.write(instr.rd());
+        const v = self.cop0.getReg(instr.rd());
         self.writeGprDelay(instr.rt(), v);
     }
 
     fn mtc0(self: *@This(), instr: Instr) void {
-        self.cop0.read(instr.rd(), self.gpr[instr.rt()]);
+        self.cop0.setReg(instr.rd(), self.gpr[instr.rt()]);
     }
 
     fn rfe(self: *@This(), _: Instr) void {
@@ -877,7 +871,7 @@ pub const CPU = struct {
         }
 
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -902,7 +896,7 @@ pub const CPU = struct {
         }
 
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -978,23 +972,15 @@ pub const CPU = struct {
     }
 
     fn bltzal(self: *@This(), instr: Instr) void {
-        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
         const v = self.gpr[instr.rs()];
-
-        self.branchIf(
-            @as(i32, @bitCast(v)) < 0,
-            instr.imm_s(),
-        );
+        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
+        self.branchIf(@as(i32, @bitCast(v)) < 0, instr.imm_s());
     }
 
     fn bgezal(self: *@This(), instr: Instr) void {
-        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
         const v = self.gpr[instr.rs()];
-
-        self.branchIf(
-            @as(i32, @bitCast(v)) >= 0,
-            instr.imm_s(),
-        );
+        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
+        self.branchIf(@as(i32, @bitCast(v)) >= 0, instr.imm_s());
     }
 
     fn bltzl(self: *@This(), instr: Instr) void {
@@ -1013,7 +999,7 @@ pub const CPU = struct {
 
     fn lwl(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const load_v = self.mem.readWord(aligned_addr);
@@ -1036,7 +1022,7 @@ pub const CPU = struct {
 
     fn lwr(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const load_v = self.mem.readWord(aligned_addr);
@@ -1059,7 +1045,7 @@ pub const CPU = struct {
 
     fn swl(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const curr_v = self.mem.readWord(aligned_addr);
@@ -1078,7 +1064,7 @@ pub const CPU = struct {
 
     fn swr(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
-        const addr, _ = @addWithOverflow(base, instr.imm_s());
+        const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const curr_v = self.mem.readWord(aligned_addr);
@@ -1102,6 +1088,11 @@ inline fn signExtend(comptime T: type, v: T) u32 {
         u16 => @bitCast(@as(i32, @as(i16, @bitCast(v)))),
         else => undefined,
     };
+}
+
+inline fn add32s(a: u32, b: i32) struct { u32, u1 } {
+    const v, const ov = @addWithOverflow(@as(i32, @bitCast(a)), b);
+    return .{ @bitCast(v), ov };
 }
 
 inline fn addAsSigned(a: u32, b: u32) struct { u32, u1 } {

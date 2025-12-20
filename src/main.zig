@@ -96,7 +96,7 @@ pub fn main() !void {
         cpu.execute();
         debug_ui.update();
         if (captureTtyOutput(cpu)) |ch| {
-            debug_ui.tty_view.writeChar(ch) catch unreachable;
+            try debug_ui.tty_view.writeChar(ch);
         }
     }
 }

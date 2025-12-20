@@ -27,12 +27,20 @@ const addr_space_800 = mem.AddrRange.init(.none, 0x80000000, 0x800000);
 const addr_space_bfc = mem.AddrRange.init(.none, 0xbfc00000, 0x800000);
 
 pub const VramView = struct {
+    pub const HighlightRect = struct {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+        color: u32,
+        label: []const u8,
+    };
+
     allocator: std.mem.Allocator,
     texture_id: gl.Uint,
+    gpu: *GPU,
 
-    vram: *align(16) GPU.VramArray,
-
-    pub fn init(allocator: std.mem.Allocator, vram: *align(16) GPU.VramArray) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, gpu: *GPU) !*@This() {
         var texture_id: gl.Uint = undefined;
         gl.genTextures(1, &texture_id);
 
@@ -40,7 +48,7 @@ pub const VramView = struct {
         self.* = .{
             .allocator = allocator,
             .texture_id = texture_id,
-            .vram = vram,
+            .gpu = gpu,
         };
 
         return self;
@@ -56,8 +64,9 @@ pub const VramView = struct {
             gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
             gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.vram);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram);
 
             const aspect_ratio = 1024.0 / 512.0; // 2:1 aspect ratio
             const available_width = zgui.getContentRegionAvail()[0];
@@ -71,6 +80,9 @@ pub const VramView = struct {
                 display_width = display_height * aspect_ratio;
             }
 
+            const cursor_pos = zgui.getCursorScreenPos();
+            const dl = zgui.getWindowDrawList();
+
             const textureRef = zgui.TextureRef{
                 .tex_id = @enumFromInt(self.texture_id),
                 .tex_data = null,
@@ -80,6 +92,44 @@ pub const VramView = struct {
                 .w = display_width,
                 .h = display_height,
             });
+
+            const draw_w = self.gpu.gp0_draw_area_end.x -| self.gpu.gp0_draw_area_start.x;
+            const draw_h = self.gpu.gp0_draw_area_end.y -| self.gpu.gp0_draw_area_start.y;
+            const gpu_display_res = self.gpu.getDisplayRes();
+
+            const highlights = [_]HighlightRect{
+                .{
+                    .x = self.gpu.gp0_draw_area_start.x,
+                    .y = self.gpu.gp0_draw_area_start.y,
+                    .w = draw_w,
+                    .h = draw_h,
+                    .color = 0xff00ff00,
+                    .label = "Draw",
+                },
+                .{
+                    .x = self.gpu.gp1_display_area_start.x,
+                    .y = self.gpu.gp1_display_area_start.y,
+                    .w = gpu_display_res[0],
+                    .h = gpu_display_res[1],
+                    .color = 0xff0000ff,
+                    .label = "Display",
+                },
+            };
+
+            const scale_x = display_width / 1024.0;
+            const scale_y = display_height / 512.0;
+
+            for (highlights) |rect| {
+                if (rect.w > 0 and rect.h > 0) {
+                    const x1 = cursor_pos[0] + @as(f32, @floatFromInt(rect.x)) * scale_x;
+                    const y1 = cursor_pos[1] + @as(f32, @floatFromInt(rect.y)) * scale_y;
+                    const x2 = x1 + @as(f32, @floatFromInt(rect.w)) * scale_x;
+                    const y2 = y1 + @as(f32, @floatFromInt(rect.h)) * scale_y;
+
+                    dl.addRect(.{ .pmin = .{ x1, y1 }, .pmax = .{ x2, y2 }, .col = rect.color, .thickness = 2.0 });
+                    dl.addText(.{ x1 + 4, y1 + 4 }, rect.color, "{s}", .{rect.label});
+                }
+            }
         }
         zgui.end();
     }
@@ -308,8 +358,8 @@ const CPUView = struct {
         if (zgui.beginTabItem("COP0", .{})) {
             defer zgui.endTabItem();
 
-            const exc_code = @as(cpu_mod.ExcCode, @enumFromInt(self.cpu.cop0.cause().exc_code));
-            const exc_tag = std.enums.tagName(cpu_mod.ExcCode, exc_code);
+            const exc_code = @as(cpu_mod.Cop0.ExcCode, self.cpu.cop0.cause().exc_code);
+            const exc_tag = std.enums.tagName(cpu_mod.Cop0.ExcCode, exc_code);
 
             _ = zgui.text("in exception: {d}", .{@intFromBool(self.cpu.in_exception)});
             _ = zgui.text("exc code: {s}", .{if (exc_tag) |t| t else "-"});
@@ -380,10 +430,81 @@ const CPUView = struct {
     }
 };
 
+const GPUView = struct {
+    allocator: std.mem.Allocator,
+    gpu: *GPU,
+
+    pub fn init(allocator: std.mem.Allocator, gpu: *GPU) !*@This() {
+        const self = try allocator.create(@This());
+        self.* = .{
+            .allocator = allocator,
+            .gpu = gpu,
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        const allocator = self.allocator;
+        allocator.destroy(self);
+    }
+
+    pub fn update(self: *@This()) void {
+        if (zgui.begin("GPU", .{})) {
+            // FIFO State
+            if (zgui.collapsingHeader("FIFO", .{})) {
+                zgui.text("State: {s}", .{@tagName(self.gpu.gp0_state)});
+                zgui.text("Command: 0x{x:0>2}", .{self.gpu.gp0_cmd});
+                zgui.text("FIFO Length: {d}", .{self.gpu.gp0_fifo.len});
+
+                if (self.gpu.gp0_fifo.len > 0) {
+                    zgui.text("FIFO Contents:", .{});
+                    for (0..self.gpu.gp0_fifo.len) |i| {
+                        zgui.text("  [{d}] 0x{x:0>8}", .{ i, self.gpu.gp0_fifo.buf[i] });
+                    }
+                }
+            }
+
+            // Draw Area
+            if (zgui.collapsingHeader("Draw Area", .{ .default_open = true })) {
+                const draw_w = self.gpu.gp0_draw_area_end.x -| self.gpu.gp0_draw_area_start.x;
+                const draw_h = self.gpu.gp0_draw_area_end.y -| self.gpu.gp0_draw_area_start.y;
+
+                zgui.text("Start: ({d}, {d})", .{ self.gpu.gp0_draw_area_start.x, self.gpu.gp0_draw_area_start.y });
+                zgui.text("End: ({d}, {d})", .{ self.gpu.gp0_draw_area_end.x, self.gpu.gp0_draw_area_end.y });
+                zgui.text("Offset: ({d}, {d})", .{ self.gpu.gp0_draw_offset.x, self.gpu.gp0_draw_offset.y });
+                zgui.text("Size: {d}x{d}", .{ draw_w, draw_h });
+            }
+
+            // Display Area
+            if (zgui.collapsingHeader("Display Area", .{ .default_open = true })) {
+                const display_res = self.gpu.getDisplayRes();
+                zgui.text("Display Enabled: {s}", .{if (self.gpu.gp1_display_enable) "yes" else "no"});
+                zgui.text("Start: ({d}, {d})", .{ self.gpu.gp1_display_area_start.x, self.gpu.gp1_display_area_start.y });
+                zgui.text("Resolution: {d}x{d}", .{ display_res[0], display_res[1] });
+            }
+
+            // Texture Window
+            if (zgui.collapsingHeader("Texture Window", .{})) {
+                zgui.text("Mask: ({d}, {d})", .{ self.gpu.gp0_texwin_mask[0], self.gpu.gp0_texwin_mask[1] });
+                zgui.text("Offset: ({d}, {d})", .{ self.gpu.gp0_texwin_offset[0], self.gpu.gp0_texwin_offset[1] });
+            }
+
+            // Status
+            if (zgui.collapsingHeader("Status", .{})) {
+                zgui.text("DMA Direction: {s}", .{@tagName(self.gpu.gp1_dma_direction)});
+                zgui.text("GPUSTAT: 0x{x:0>8}", .{self.gpu.readGpustat()});
+                zgui.text("GPUREAD: 0x{x:0>8}", .{self.gpu.gpuread});
+            }
+        }
+        zgui.end();
+    }
+};
+
 pub const DebugUI = struct {
     allocator: std.mem.Allocator,
     window: *glfw.Window,
     cpu_view: *CPUView,
+    gpu_view: *GPUView,
     assembly_view: *AssemblyView,
     vram_view: *VramView,
     tty_view: *TTYView,
@@ -396,6 +517,7 @@ pub const DebugUI = struct {
         glfw.windowHint(.context_version_minor, gl_version[1]);
         glfw.windowHint(.opengl_profile, .opengl_core_profile);
         glfw.windowHint(.opengl_forward_compat, true);
+        glfw.windowHint(.cocoa_retina_framebuffer, true);
         glfw.windowHint(.scale_framebuffer, false);
         glfw.windowHint(.client_api, .opengl_api);
         glfw.windowHint(.doublebuffer, true);
@@ -411,19 +533,25 @@ pub const DebugUI = struct {
 
         zgui.init(allocator);
         zgui.backend.init(window);
-        zgui.styleColorsClassic(zgui.getStyle());
+
+        const style = zgui.getStyle();
+        style.window_rounding = 6.0;
+        style.frame_rounding = 4.0;
+        zgui.styleColorsDark(style);
 
         _ = zgui.io.addFontFromMemory(default_font, default_font_size);
 
         const tty_view = try TTYView.init(allocator);
         const cpu_view = try CPUView.init(allocator, cpu);
+        const gpu_view = try GPUView.init(allocator, bus.dev.gpu);
         const assembly_view = try AssemblyView.init(allocator, cpu, bus, dasm);
-        const vram_view = try VramView.init(allocator, bus.dev.gpu.vram);
+        const vram_view = try VramView.init(allocator, bus.dev.gpu);
 
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
             .cpu_view = cpu_view,
+            .gpu_view = gpu_view,
             .assembly_view = assembly_view,
             .tty_view = tty_view,
             .vram_view = vram_view,
@@ -436,6 +564,7 @@ pub const DebugUI = struct {
     pub fn deinit(self: *@This()) void {
         self.assembly_view.deinit();
         self.cpu_view.deinit();
+        self.gpu_view.deinit();
         self.tty_view.deinit();
         self.vram_view.deinit();
 
@@ -477,6 +606,7 @@ pub const DebugUI = struct {
 
         self.updateFrameRate(now);
         self.cpu_view.update();
+        self.gpu_view.update();
         self.assembly_view.update();
         self.tty_view.update();
         self.vram_view.update();
@@ -491,7 +621,6 @@ pub const DebugUI = struct {
         const fps = 1.0 / delta;
         const cur_frame_time = delta * 1000.0;
 
-        zgui.setNextWindowPos(.{ .x = 10, .y = 10 });
         const flags = zgui.WindowFlags{
             .no_title_bar = true,
             .no_resize = true,
@@ -502,6 +631,7 @@ pub const DebugUI = struct {
             .always_auto_resize = true,
         };
 
+        zgui.setNextWindowPos(.{ .x = 10, .y = 10 });
         if (zgui.begin("Frame Rate", .{ .flags = flags })) {
             zgui.text("FPS: {:.2}", .{fps});
             zgui.text("Frame Time: {:.4} ms", .{cur_frame_time});
