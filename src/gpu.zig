@@ -110,6 +110,8 @@ pub const GPU = struct {
     gp1_display_enable: bool,
     interrupt_request: bool,
 
+    debug_pause: bool = false,
+
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
 
@@ -134,11 +136,11 @@ pub const GPU = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn readWord(self: *@This(), offset: u32) u32 {
-        switch (offset) {
+    pub fn readWord(self: *@This(), addr: u32) u32 {
+        switch (addr) {
             0 => return self.readGpuread(),
             4 => return self.readGpustat(),
-            else => std.debug.panic("invalid offset: {x}", .{offset}),
+            else => std.debug.panic("unhandled read: {x}", .{addr}),
         }
     }
 
@@ -146,7 +148,7 @@ pub const GPU = struct {
         switch (offset) {
             0 => self.gp0write(v),
             4 => self.gp1write(v),
-            else => std.debug.panic("invalid offset: {x}", .{offset}),
+            else => std.debug.panic("unhandled write: {x}", .{offset}),
         }
     }
 

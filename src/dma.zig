@@ -1,16 +1,17 @@
 const std = @import("std");
 const Bus = @import("mem.zig").Bus;
+const bits = @import("bits.zig");
 
 const log = std.log.scoped(.dma);
 
 const gpu_gp0_addr = 0x1f801810;
 
 const ChanCtrl = packed struct(u32) {
-    to_device: u1, // transfer direction: 0=to ram, 1=to device
-    addr_inc: u1, // maddr increment: 0=+4, 1=-4
+    direction: enum(u1) { to_ram = 0, to_device = 1 },
+    addr_inc: enum(u1) { @"+4" = 0, @"-4" = 1 },
     _pad0: u6,
     something: u1,
-    sync_mode: u2, // 0=burst, 1=slice, 2=linked-list, 3=reserved
+    sync_mode: enum(u2) { burst = 0, slice = 1, linked_list = 2, reserved = 3 },
     _pad1: u5,
     chopping_dma: u3,
     _pad2: u1,
@@ -93,13 +94,22 @@ pub const DMA = struct {
         };
     }
 
-    pub fn writeWord(self: *@This(), offset: u32, v: u32) void {
-        switch (offset) {
+    pub fn readWord(self: *@This(), addr: u32) u32 {
+        switch (addr) {
+            0x70 => return self.dma_ctrl,
+            0x74 => return self.int_ctrl,
+            else => log.debug("readWord: dma channel register read: {x}", .{addr}),
+        }
+        return 0;
+    }
+
+    pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+        switch (addr) {
             0x70 => self.dma_ctrl = v,
             0x74 => self.int_ctrl = v,
             else => {
-                const reg_id = @as(u8, @truncate((offset >> 2) & 0x3));
-                const chan_id = @as(u8, @truncate((offset >> 4) & 0x7));
+                const reg_id = bits.field(addr, 2, u2);
+                const chan_id = bits.field(addr, 4, u3);
                 self.updateChannel(chan_id, reg_id, v);
             },
         }
@@ -129,8 +139,8 @@ pub const DMA = struct {
 
         if (ctrl.start == 1) {
             switch (ctrl.sync_mode) {
-                1 => self.doGpuSyncModeSlice(),
-                2 => self.doGpuSyncModeLinkedList(),
+                .slice => self.doGpuSyncModeSlice(),
+                .linked_list => self.doGpuSyncModeLinkedList(),
                 else => std.debug.panic("sync_mode={d}", .{ctrl.sync_mode}),
             }
             ctrl.start = 0;
@@ -141,20 +151,23 @@ pub const DMA = struct {
         const ctrl = &self.ch_gpu.chan_ctrl;
         const blk = &self.ch_gpu.block_ctrl;
         const len = blk.block_size * blk.block_count;
-        const addr_inc = @as(u32, @bitCast(@as(i32, if (ctrl.addr_inc == 1) -4 else 4)));
 
-        if (ctrl.to_device == 1) {
-            for (0..len) |_| {
+        const addr_inc = @as(u32, @bitCast(switch (ctrl.addr_inc) {
+            .@"+4" => @as(i32, 4),
+            .@"-4" => @as(i32, -4),
+        }));
+
+        switch (ctrl.direction) {
+            .to_device => for (0..len) |_| {
                 const v = self.bus.readWord(self.ch_gpu.maddr);
                 self.bus.dev.gpu.gp0write(v);
                 self.ch_gpu.maddr, _ = @addWithOverflow(self.ch_gpu.maddr, addr_inc);
-            }
-        } else {
-            for (0..len) |_| {
+            },
+            .to_ram => for (0..len) |_| {
                 const v = self.bus.dev.gpu.readGpuread();
                 self.bus.writeWord(self.ch_gpu.maddr, v);
                 self.ch_gpu.maddr, _ = @addWithOverflow(self.ch_gpu.maddr, addr_inc);
-            }
+            },
         }
     }
 

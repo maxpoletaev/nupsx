@@ -93,6 +93,11 @@ pub fn main() !void {
 
         while (debug_ui.is_running) {
             cpu.execute();
+
+            if (bus.debug_pause or gpu.debug_pause) {
+                cpu.stall = true;
+            }
+
             debug_ui.update();
             if (captureTtyOutput(cpu)) |ch| {
                 try debug_ui.tty_view.writeChar(ch);

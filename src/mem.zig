@@ -8,7 +8,15 @@ const DMA = @import("dma.zig").DMA;
 const expectEqual = std.testing.expectEqual;
 const log = std.log.scoped(.mem);
 
-const DeviceId = enum { none, ram, bios, scratchpad, gpu, dma, spu_ctrl };
+const DeviceId = enum {
+    none,
+    ram,
+    bios,
+    gpu,
+    dma,
+    scratchpad,
+    spu_ctrl,
+};
 
 pub const Addr = opaque {
     pub const addr_gpu_gp0: u32 = 0x1f801810;
@@ -86,12 +94,30 @@ pub const Devices = struct {
     dma: *DMA,
 };
 
+pub const Interupt = enum(u32) {
+    vblank = 0,
+    gpu = 1,
+    cdrom = 2,
+    dma = 3,
+    tmr0 = 4,
+    tmr1 = 5,
+    tmr2 = 6,
+    ctrl_mc_byte = 7,
+    sio = 8,
+    spu = 9,
+    lightpen = 10,
+};
+
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {
     allocator: std.mem.Allocator,
+    interrupt_mask: u32 = 0,
+    interrupt_status: u32 = 0,
     scratchpad: [0x400]u8,
     ram: [0x200000]u8,
     dev: Devices,
+
+    debug_pause: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
@@ -127,7 +153,8 @@ pub const Bus = struct {
             else => {},
         }
 
-        log.debug("readByte: out of bounds: {x}", .{addr});
+        // log.debug("readByte: out of bounds: {x}", .{addr});
+        // self.debug_pause = true;
         return 0xac;
     }
 
@@ -153,9 +180,8 @@ pub const Bus = struct {
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         switch (addr) {
-            0x1f8010f4 => return 0x10000000,
-            0x1f801074 => return 0x18,
-            0x1f801070 => return 0,
+            0x1f801070 => return self.interrupt_status,
+            0x1f801074 => return self.interrupt_mask,
             else => {},
         }
 
@@ -170,7 +196,9 @@ pub const Bus = struct {
             else => {},
         }
 
-        log.debug("readWord: out of bounds: {x}", .{addr});
+        // log.debug("readWord: out of bounds: {x}", .{addr});
+        // self.debug_pause = true;
+
         return 0xacabacab;
     }
 
@@ -201,6 +229,12 @@ pub const Bus = struct {
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+        switch (addr) {
+            0x1f801070 => self.interrupt_status = v & self.interrupt_mask,
+            0x1f801074 => self.interrupt_mask = v,
+            else => {},
+        }
+
         const resolved_addr = resolveAddr(addr);
         const device, const offset = lookupDevice(resolved_addr);
 
@@ -212,6 +246,7 @@ pub const Bus = struct {
             else => {},
         }
 
+        // self.debug_pause = true;
         // log.warn("writeWord: out of bounds: {x}", .{addr});
     }
 };
