@@ -34,11 +34,14 @@ pub const VramView = struct {
         h: u16,
         color: u32,
         label: []const u8,
+        enabled: bool,
     };
 
     allocator: std.mem.Allocator,
     texture_id: gl.Uint,
     gpu: *GPU,
+    show_draw_area: bool,
+    show_display_area: bool,
 
     pub fn init(allocator: std.mem.Allocator, gpu: *GPU) !*@This() {
         var texture_id: gl.Uint = undefined;
@@ -49,6 +52,8 @@ pub const VramView = struct {
             .allocator = allocator,
             .texture_id = texture_id,
             .gpu = gpu,
+            .show_draw_area = false,
+            .show_display_area = false,
         };
 
         return self;
@@ -61,6 +66,10 @@ pub const VramView = struct {
 
     pub fn update(self: *@This()) void {
         if (zgui.begin("VRAM", .{})) {
+            _ = zgui.checkbox("Show Draw Area", .{ .v = &self.show_draw_area });
+            zgui.sameLine(.{});
+            _ = zgui.checkbox("Show Display Area", .{ .v = &self.show_display_area });
+
             gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -105,6 +114,7 @@ pub const VramView = struct {
                     .h = draw_h,
                     .color = 0xff00ff00,
                     .label = "Draw",
+                    .enabled = self.show_draw_area,
                 },
                 .{
                     .x = self.gpu.gp1_display_area_start.x,
@@ -113,6 +123,7 @@ pub const VramView = struct {
                     .h = gpu_display_res[1],
                     .color = 0xff0000ff,
                     .label = "Display",
+                    .enabled = self.show_display_area,
                 },
             };
 
@@ -120,7 +131,7 @@ pub const VramView = struct {
             const scale_y = display_height / 512.0;
 
             for (highlights) |rect| {
-                if (rect.w > 0 and rect.h > 0) {
+                if (rect.enabled and rect.w > 0 and rect.h > 0) {
                     const x1 = cursor_pos[0] + @as(f32, @floatFromInt(rect.x)) * scale_x;
                     const y1 = cursor_pos[1] + @as(f32, @floatFromInt(rect.y)) * scale_y;
                     const x2 = x1 + @as(f32, @floatFromInt(rect.w)) * scale_x;

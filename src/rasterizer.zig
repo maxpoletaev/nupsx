@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const log = std.log.scoped(.rasterizer);
+
 pub const Color24 = packed struct {
     r: u8,
     g: u8,
@@ -56,6 +58,8 @@ pub const Rasterizer = struct {
     const yres = 512;
 
     pixels: *align(16) [xres * yres]Color15,
+    draw_area_start: [2]i32,
+    draw_area_end: [2]i32,
     texwin_mask: [2]u16,
     texwin_offset: [2]u16,
 
@@ -67,7 +71,28 @@ pub const Rasterizer = struct {
             .pixels = pixels[0 .. xres * yres],
             .texwin_mask = .{ 0, 0 },
             .texwin_offset = .{ 0, 0 },
+            .draw_area_start = .{ 0, 0 },
+            .draw_area_end = .{ xres - 1, yres - 1 },
         };
+    }
+
+    pub inline fn setTextureWindow(self: *@This(), mask: [2]u16, offset: [2]u16) void {
+        self.texwin_mask = mask;
+        self.texwin_offset = offset;
+    }
+
+    pub inline fn setDrawAreaStart(self: *@This(), x: i32, y: i32) void {
+        self.draw_area_start = .{ x, y };
+    }
+
+    pub inline fn setDrawAreaEnd(self: *@This(), x: i32, y: i32) void {
+        self.draw_area_end = .{ x, y };
+    }
+
+    inline fn inBounds(self: *@This(), x: i32, y: i32) bool {
+        return x >= self.draw_area_start[0] and x <= self.draw_area_end[0] and
+            y >= self.draw_area_start[1] and y <= self.draw_area_end[1] and
+            x >= 0 and x < xres and y >= 0 and y < yres;
     }
 
     pub inline fn fill(self: *@This(), c: Color24) void {
@@ -75,19 +100,21 @@ pub const Rasterizer = struct {
     }
 
     pub inline fn drawPixel24(self: *@This(), x: i32, y: i32, c: Color24) void {
-        if (x < 0 or y < 0) return;
-        const idx: usize = @intCast(x + (y * xres));
-        self.pixels[idx & 0xfffff] = Color15.from24(c);
+        const xx = @as(u32, @bitCast(x)) & 0x3ff; // 0..1023
+        const yy = @as(u32, @bitCast(y)) & 0x1ff; // 0..511
+        self.pixels[xx + yy * xres] = Color15.from24(c);
     }
 
     pub inline fn drawPixel15(self: *@This(), x: i32, y: i32, c: Color15) void {
-        const idx: u32 = @intCast(x + (y * xres));
-        self.pixels[idx & 0xfffff] = c;
+        const xx = @as(u32, @bitCast(x)) & 0x3ff; // 0..1023
+        const yy = @as(u32, @bitCast(y)) & 0x1ff; // 0..511
+        self.pixels[xx + yy * xres] = c;
     }
 
     inline fn getPixel(self: *@This(), x: i32, y: i32) Color15 {
-        const idx: usize = @intCast(x + (y * xres));
-        return self.pixels[idx & 0xfffff];
+        const xx = @as(u32, @bitCast(x)) & 0x3ff; // 0..1023
+        const yy = @as(u32, @bitCast(y)) & 0x1ff; // 0..511
+        return self.pixels[xx + yy * xres];
     }
 
     inline fn edgeFunc(a: Vertex, b: Vertex, c: Vertex) i32 {
@@ -101,13 +128,16 @@ pub const Rasterizer = struct {
         v2: Vertex,
         c: Color24,
     ) void {
-        const abc = edgeFunc(v0, v1, v2);
-        if (abc < 0) return;
+        var abc = edgeFunc(v0, v1, v2);
+        if (abc == 0) return;
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), xres);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), yres);
+        const flipped = abc < 0;
+        if (flipped) abc = -abc;
+
+        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
+        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
+        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], xres - 1);
+        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], yres - 1);
 
         var y = y_min;
 
@@ -116,9 +146,15 @@ pub const Rasterizer = struct {
 
             while (x <= x_max) : (x += 1) {
                 const p = Vertex{ .x = x, .y = y };
-                const abp = edgeFunc(v0, v1, p);
-                const bcp = edgeFunc(v1, v2, p);
-                const cap = edgeFunc(v2, v0, p);
+                var abp = edgeFunc(v0, v1, p);
+                var bcp = edgeFunc(v1, v2, p);
+                var cap = edgeFunc(v2, v0, p);
+
+                if (flipped) {
+                    abp = -abp;
+                    bcp = -bcp;
+                    cap = -cap;
+                }
 
                 if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     self.drawPixel24(x, y, c);
@@ -133,13 +169,16 @@ pub const Rasterizer = struct {
         v1: Vertex,
         v2: Vertex,
     ) void {
-        const abc = edgeFunc(v0, v1, v2);
-        if (abc < 0) return;
+        var abc = edgeFunc(v0, v1, v2);
+        if (abc == 0) return;
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), xres);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), yres);
+        const flipped = abc < 0;
+        if (flipped) abc = -abc;
+
+        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
+        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
+        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], xres - 1);
+        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], yres - 1);
 
         const fixed_bits = 8;
         const fixed_one = 1 << fixed_bits;
@@ -152,9 +191,15 @@ pub const Rasterizer = struct {
             while (x <= x_max) : (x += 1) {
                 const p = Vertex{ .x = x, .y = y };
 
-                const abp = edgeFunc(v0, v1, p);
-                const bcp = edgeFunc(v1, v2, p);
-                const cap = edgeFunc(v2, v0, p);
+                var abp = edgeFunc(v0, v1, p);
+                var bcp = edgeFunc(v1, v2, p);
+                var cap = edgeFunc(v2, v0, p);
+
+                if (flipped) {
+                    abp = -abp;
+                    bcp = -bcp;
+                    cap = -cap;
+                }
 
                 if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const w0: u32 = @intCast(@divTrunc(bcp * fixed_one, abc));
@@ -175,11 +220,6 @@ pub const Rasterizer = struct {
         }
     }
 
-    pub fn setTextureWindow(self: *@This(), mask: [2]u16, offset: [2]u16) void {
-        self.texwin_mask = mask;
-        self.texwin_offset = offset;
-    }
-
     fn getTexel(
         self: *@This(),
         tx_orig: u16,
@@ -190,31 +230,23 @@ pub const Rasterizer = struct {
         cluty: u16,
         depth: ColorDepth,
     ) Color15 {
-        // const tx: u8 = @truncate((tx_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
-        // const ty: u8 = @truncate((ty_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
-        const tx: u16 = tx_orig;
-        const ty: u16 = ty_orig;
+        const tx: u8 = @truncate((tx_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
+        const ty: u8 = @truncate((ty_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
+        // const tx: u16 = tx_orig;
+        // const ty: u16 = ty_orig;
 
         switch (depth) {
             .bit4 => { // 4-bit
-                _ = clutx;
-                _ = cluty;
-                return Color15.init(0, 0x1f, 0); // TODO
-                // const texel: u16 = @bitCast(self.getPixel(tpx + tx / 4, tpy + ty));
-                // const index = (texel >> @as(u4, @truncate((tx % 4) * 4))) & 0x0f;
-
-                // std.log.debug("tx={}, ty={}, tpx={}, tpy={}, clutx={}, cluty={}", .{ tx, ty, tpx, tpy, clutx, cluty });
-                // std.log.debug("texel={x}, index={}", .{ texel, index });
-                // const pixel: u16 = @bitCast(self.getPixel(clutx + index, cluty));
-                // std.log.debug("pixel={:04x}", .{pixel});
-
-                // return self.getPixel(clutx + index, cluty);
+                const texel: u16 = @bitCast(self.getPixel(tpx + tx / 4, tpy + ty));
+                const shift = @as(u4, @truncate((tx % 4) * 4));
+                const idx = (texel >> shift) & 0xf;
+                return self.getPixel(clutx + idx, cluty);
             },
             .bit8 => { // 8-bit
-                // uint16_t texel = gpu->vram[(tpx + (tx >> 1)) + ((tpy + ty) * 1024)];
-                // int index = (texel >> ((tx & 0x1) << 3)) & 0xff;
-                // return gpu->vram[(clutx + index) + (cluty * 1024)];
-                return Color15.init(0, 0x1f, 0); // TODO
+                const texel: u16 = @bitCast(self.getPixel(tpx + tx / 2, tpy + ty));
+                const shift = @as(u4, @truncate((tx % 2) * 8));
+                const idx = (texel >> shift) & 0xff;
+                return self.getPixel(clutx + idx, cluty);
             },
             .bit15 => { // 15-bit
                 return self.getPixel(tpx + tx, tpy + ty);
@@ -236,10 +268,10 @@ pub const Rasterizer = struct {
         const abc = edgeFunc(v0, v1, v2);
         if (abc < 0) return;
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), xres);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), yres);
+        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
+        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
+        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], xres - 1);
+        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], yres - 1);
 
         const fixed_bits = 8;
         const fixed_one = 1 << fixed_bits;
@@ -256,7 +288,7 @@ pub const Rasterizer = struct {
                 const bcp = edgeFunc(v1, v2, p);
                 const cap = edgeFunc(v2, v0, p);
 
-                if (abp >= 0 and bcp >= 0 and cap >= 0) {
+                if (abp > 0 and bcp > 0 and cap > 0) {
                     const w0: u32 = @intCast(@divTrunc(bcp * fixed_one, abc));
                     const w1: u32 = @intCast(@divTrunc(cap * fixed_one, abc));
                     const w2: u32 = @intCast(@divTrunc(abp * fixed_one, abc));
@@ -274,6 +306,7 @@ pub const Rasterizer = struct {
                         depth,
                     );
 
+                    if (@as(u16, @bitCast(texel)) == 0) continue;
                     self.drawPixel15(x, y, texel);
                 }
             }
@@ -308,6 +341,10 @@ pub const Rasterizer = struct {
         y1: i32,
         c: Color24,
     ) void {
+        if (!self.inBounds(x0, y0) and !self.inBounds(x1, y1)) {
+            return;
+        }
+
         const dx: i32 = @intCast(@abs(x1 - x0));
         const dy: i32 = @intCast(@abs(y1 - y0));
         const sx: i32 = if (x0 < x1) 1 else -1;
