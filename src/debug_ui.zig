@@ -22,9 +22,19 @@ const gl = zopengl.bindings;
 
 const logger = std.log.scoped(.debug);
 
-const addr_space_000 = mem.AddrRange.init(.none, 0x00000000, 0x800000);
-const addr_space_800 = mem.AddrRange.init(.none, 0x80000000, 0x800000);
-const addr_space_bfc = mem.AddrRange.init(.none, 0xbfc00000, 0x800000);
+const AddrSpace = struct {
+    start: u32,
+    size: u32,
+
+    fn match(self: @This(), addr: u32) bool {
+        return addr >= self.start and addr < (self.start + self.size);
+    }
+};
+
+/// Address space constants for disassembly view
+const addr_space_000 = AddrSpace{ .start = 0x00000000, .size = 0x800000 };
+const addr_space_800 = AddrSpace{ .start = 0x80000000, .size = 0x800000 };
+const addr_space_bfc = AddrSpace{ .start = 0xbfc00000, .size = 0x800000 };
 
 pub const VramView = struct {
     pub const HighlightRect = struct {

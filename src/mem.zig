@@ -8,48 +8,39 @@ const DMA = @import("dma.zig").DMA;
 const expectEqual = std.testing.expectEqual;
 const log = std.log.scoped(.mem);
 
-const DeviceId = enum {
-    none,
-    ram,
-    bios,
-    gpu,
-    dma,
-    scratchpad,
-    spu_ctrl,
-};
-
 pub const Addr = opaque {
-    pub const addr_gpu_gp0: u32 = 0x1f801810;
-    pub const addr_gpu_gp1: u32 = 0x1f801814;
-    pub const addr_gpu_gpuread: u32 = 0x1f801810;
-    pub const addr_gpu_gpustat: u32 = 0x1f801814;
-};
+    // Main RAM: 2MB
+    pub const ram_start: u32 = 0x00000000;
+    pub const ram_end: u32 = 0x001fffff;
 
-pub const AddrRange = struct {
-    device: DeviceId,
-    start: u32,
-    end: u32,
-    size: u32,
+    // Scratchpad: 1KB fast RAM
+    pub const scratchpad_start: u32 = 0x1f800000;
+    pub const scratchpad_end: u32 = 0x1f8003ff;
 
-    pub fn init(device: DeviceId, start: u32, size: u32) AddrRange {
-        return AddrRange{
-            .device = device,
-            .start = start,
-            .end = start + size,
-            .size = size,
-        };
-    }
+    // Interrupt Control
+    pub const i_stat: u32 = 0x1f801070;
+    pub const i_mask: u32 = 0x1f801074;
 
-    pub inline fn match(self: AddrRange, addr: u32) bool {
-        return (addr >= self.start and addr <= self.end);
-    }
+    // DMA
+    pub const dma_start: u32 = 0x1f801080;
+    pub const dma_end: u32 = 0x1f8010ff;
+    pub const dma_dpcr: u32 = 0x1f8010f0;
+    pub const dma_dicr: u32 = 0x1f8010f4;
 
-    pub inline fn matchWithOffset(self: AddrRange, addr: u32) ?u32 {
-        if (addr >= self.start and addr <= self.end) {
-            return addr - self.start;
-        }
-        return null;
-    }
+    // GPU
+    pub const gpu_start: u32 = 0x1f801810;
+    pub const gpu_end: u32 = 0x1f801817;
+    pub const gpu_gp0: u32 = 0x1f801810;
+    pub const gpu_gp1: u32 = 0x1f801814;
+
+    // SPU
+    pub const spu_start: u32 = 0x1f801d80;
+    pub const spu_end: u32 = 0x1f801dbf;
+    pub const spu_stat: u32 = 0x1f801dae;
+
+    // BIOS: 512KB ROM
+    pub const bios_start: u32 = 0x1fc00000;
+    pub const bios_end: u32 = 0x1fc7ffff;
 };
 
 const mem_region_mirror_table = [_]u32{
@@ -62,29 +53,10 @@ inline fn resolveAddr(addr: u32) u32 {
     return addr & mask;
 }
 
-const addr_ranges = [_]AddrRange{
-    .init(.ram, 0x00000000, 0x200000),
-    .init(.scratchpad, 0x1f800000, 0x400),
-    .init(.bios, 0x1fc00000, 0x80000),
-    .init(.gpu, 0x1f801810, 0x8),
-    .init(.dma, 0x1f801080, 0x80),
-    .init(.spu_ctrl, 0x1f801d80, 0x40),
-};
-
-/// Lookup device by its address range.
-inline fn lookupDevice(addr: u32) struct { DeviceId, u32 } {
-    inline for (addr_ranges) |r| {
-        if (r.matchWithOffset(addr)) |offset| {
-            return .{ r.device, offset };
-        }
-    }
-    return .{ .none, 0 };
-}
-
-test "lookup device" {
-    const device, const offset = lookupDevice(0x1f800000);
-    try expectEqual(.scratchpad, device);
-    try expectEqual(0, offset);
+test "resolveAddr" {
+    try expectEqual(0x00000000, resolveAddr(0x00000000));
+    try expectEqual(0x00000000, resolveAddr(0x80000000));
+    try expectEqual(0x00000000, resolveAddr(0xa0000000));
 }
 
 /// Connetced deivces set for 2-step initialization.
@@ -144,12 +116,19 @@ pub const Bus = struct {
 
     pub fn readByte(self: *@This(), addr: u32) u8 {
         const resolved_addr = resolveAddr(addr);
-        const device, const offset = lookupDevice(resolved_addr);
 
-        switch (device) {
-            .scratchpad => return read(u8, &self.scratchpad, offset),
-            .bios => return read(u8, self.dev.bios.rom, offset),
-            .ram => return read(u8, &self.ram, offset),
+        switch (resolved_addr) {
+            Addr.ram_start...Addr.ram_end => {
+                return read(u8, &self.ram, resolved_addr);
+            },
+            Addr.scratchpad_start...Addr.scratchpad_end => {
+                const offset = resolved_addr - Addr.scratchpad_start;
+                return read(u8, &self.scratchpad, offset);
+            },
+            Addr.bios_start...Addr.bios_end => {
+                const offset = resolved_addr - Addr.bios_start;
+                return read(u8, self.dev.bios.rom, offset);
+            },
             else => {},
         }
 
@@ -160,17 +139,24 @@ pub const Bus = struct {
 
     pub fn readHalf(self: *@This(), addr: u32) u16 {
         switch (addr) {
-            0x1f801dae => return 0x2007,
+            Addr.spu_stat => return 0x2007,
             else => {},
         }
 
         const resolved_addr = resolveAddr(addr);
-        const device, const offset = lookupDevice(resolved_addr);
 
-        switch (device) {
-            .ram => return read(u16, &self.ram, offset),
-            .scratchpad => return read(u16, &self.scratchpad, offset),
-            .bios => return read(u16, self.dev.bios.rom, offset),
+        switch (resolved_addr) {
+            Addr.ram_start...Addr.ram_end => {
+                return read(u16, &self.ram, resolved_addr);
+            },
+            Addr.scratchpad_start...Addr.scratchpad_end => {
+                const offset = resolved_addr - Addr.scratchpad_start;
+                return read(u16, &self.scratchpad, offset);
+            },
+            Addr.bios_start...Addr.bios_end => {
+                const offset = resolved_addr - Addr.bios_start;
+                return read(u16, self.dev.bios.rom, offset);
+            },
             else => {},
         }
 
@@ -180,19 +166,31 @@ pub const Bus = struct {
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         switch (addr) {
-            0x1f801070 => return self.interrupt_status,
-            0x1f801074 => return self.interrupt_mask,
+            Addr.i_stat => return self.interrupt_status,
+            Addr.i_mask => return self.interrupt_mask,
             else => {},
         }
 
         const resolved_addr = resolveAddr(addr);
-        const device, const offset = lookupDevice(resolved_addr);
 
-        switch (device) {
-            .ram => return read(u32, &self.ram, offset),
-            .scratchpad => return read(u32, &self.scratchpad, offset),
-            .bios => return read(u32, self.dev.bios.rom, offset),
-            .gpu => return self.dev.gpu.readWord(offset),
+        switch (resolved_addr) {
+            Addr.ram_start...Addr.ram_end => {
+                return read(u32, &self.ram, resolved_addr);
+            },
+            Addr.scratchpad_start...Addr.scratchpad_end => {
+                const offset = resolved_addr - Addr.scratchpad_start;
+                return read(u32, &self.scratchpad, offset);
+            },
+            Addr.bios_start...Addr.bios_end => {
+                const offset = resolved_addr - Addr.bios_start;
+                return read(u32, self.dev.bios.rom, offset);
+            },
+            Addr.gpu_start...Addr.gpu_end => {
+                return self.dev.gpu.readWord(resolved_addr);
+            },
+            Addr.dma_start...Addr.dma_end => {
+                return self.dev.dma.readWord(resolved_addr);
+            },
             else => {},
         }
 
@@ -204,11 +202,15 @@ pub const Bus = struct {
 
     pub fn writeByte(self: *@This(), addr: u32, value: u8) void {
         const resolved_addr = resolveAddr(addr);
-        const device, const offset = lookupDevice(resolved_addr);
 
-        switch (device) {
-            .ram => return writeToBuf(u8, &self.ram, offset, value),
-            .scratchpad => return writeToBuf(u8, &self.scratchpad, offset, value),
+        switch (resolved_addr) {
+            Addr.ram_start...Addr.ram_end => {
+                return writeToBuf(u8, &self.ram, resolved_addr, value);
+            },
+            Addr.scratchpad_start...Addr.scratchpad_end => {
+                const offset = resolved_addr - Addr.scratchpad_start;
+                return writeToBuf(u8, &self.scratchpad, offset, value);
+            },
             else => {},
         }
 
@@ -217,11 +219,15 @@ pub const Bus = struct {
 
     pub fn writeHalf(self: *@This(), addr: u32, value: u16) void {
         const resolved_addr = resolveAddr(addr);
-        const device, const offset = lookupDevice(resolved_addr);
 
-        switch (device) {
-            .ram => return writeToBuf(u16, &self.ram, offset, value),
-            .scratchpad => return writeToBuf(u16, &self.scratchpad, offset, value),
+        switch (resolved_addr) {
+            Addr.ram_start...Addr.ram_end => {
+                return writeToBuf(u16, &self.ram, resolved_addr, value);
+            },
+            Addr.scratchpad_start...Addr.scratchpad_end => {
+                const offset = resolved_addr - Addr.scratchpad_start;
+                return writeToBuf(u16, &self.scratchpad, offset, value);
+            },
             else => {},
         }
 
@@ -230,19 +236,29 @@ pub const Bus = struct {
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
         switch (addr) {
-            0x1f801070 => self.interrupt_status = v & self.interrupt_mask,
-            0x1f801074 => self.interrupt_mask = v,
+            Addr.i_stat => {
+                self.interrupt_status = v & self.interrupt_mask;
+                return;
+            },
+            Addr.i_mask => {
+                self.interrupt_mask = v;
+                return;
+            },
             else => {},
         }
 
         const resolved_addr = resolveAddr(addr);
-        const device, const offset = lookupDevice(resolved_addr);
 
-        switch (device) {
-            .ram => return writeToBuf(u32, &self.ram, offset, v),
-            .scratchpad => return writeToBuf(u32, &self.scratchpad, offset, v),
-            .gpu => return self.dev.gpu.writeWord(offset, v),
-            .dma => return self.dev.dma.writeWord(offset, v),
+        switch (resolved_addr) {
+            Addr.ram_start...Addr.ram_end => {
+                return writeToBuf(u32, &self.ram, resolved_addr, v);
+            },
+            Addr.scratchpad_start...Addr.scratchpad_end => {
+                const offset = resolved_addr - Addr.scratchpad_start;
+                return writeToBuf(u32, &self.scratchpad, offset, v);
+            },
+            Addr.gpu_start...Addr.gpu_end => return self.dev.gpu.writeWord(resolved_addr, v),
+            Addr.dma_start...Addr.dma_end => return self.dev.dma.writeWord(resolved_addr, v),
             else => {},
         }
 

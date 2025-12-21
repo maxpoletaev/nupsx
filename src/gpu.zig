@@ -138,17 +138,17 @@ pub const GPU = struct {
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         switch (addr) {
-            0 => return self.readGpuread(),
-            4 => return self.readGpustat(),
-            else => std.debug.panic("unhandled read: {x}", .{addr}),
+            mem.Addr.gpu_gp0 => return self.readGpuread(),
+            mem.Addr.gpu_gp1 => return self.readGpustat(),
+            else => std.debug.panic("unhandled GPU read: {x}", .{addr}),
         }
     }
 
-    pub fn writeWord(self: *@This(), offset: u32, v: u32) void {
-        switch (offset) {
-            0 => self.gp0write(v),
-            4 => self.gp1write(v),
-            else => std.debug.panic("unhandled write: {x}", .{offset}),
+    pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+        switch (addr) {
+            mem.Addr.gpu_gp0 => self.gp0write(v),
+            mem.Addr.gpu_gp1 => self.gp1write(v),
+            else => std.debug.panic("unhandled GPU write: {x}", .{addr}),
         }
     }
 

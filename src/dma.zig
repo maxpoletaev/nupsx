@@ -1,10 +1,9 @@
 const std = @import("std");
-const Bus = @import("mem.zig").Bus;
+const mem = @import("mem.zig");
+const Bus = mem.Bus;
 const bits = @import("bits.zig");
 
 const log = std.log.scoped(.dma);
-
-const gpu_gp0_addr = 0x1f801810;
 
 const ChanCtrl = packed struct(u32) {
     direction: enum(u1) { to_ram = 0, to_device = 1 },
@@ -47,31 +46,31 @@ const Channel = struct {
 pub const DMA = struct {
     allocator: std.mem.Allocator,
     bus: *Bus,
-    dma_ctrl: u32,
-    int_ctrl: u32,
+    dpcr: u32,
+    dicr: u32,
 
-    ch_mdec_in: Channel,
-    ch_mdec_out: Channel,
-    ch_gpu: Channel,
-    ch_cdrom: Channel,
-    ch_spu: Channel,
-    ch_pio: Channel,
-    ch_otc: Channel,
+    chan_mdec_in: Channel,
+    chan_mdec_out: Channel,
+    chan_gpu: Channel,
+    chan_cdrom: Channel,
+    chan_spu: Channel,
+    chan_pio: Channel,
+    chan_otc: Channel,
 
     pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
             .bus = bus,
-            .dma_ctrl = 0,
-            .int_ctrl = 0,
-            .ch_mdec_in = .init(),
-            .ch_mdec_out = .init(),
-            .ch_gpu = .init(),
-            .ch_cdrom = .init(),
-            .ch_spu = .init(),
-            .ch_pio = .init(),
-            .ch_otc = .init(),
+            .dpcr = 0,
+            .dicr = 0,
+            .chan_mdec_in = .init(),
+            .chan_mdec_out = .init(),
+            .chan_gpu = .init(),
+            .chan_cdrom = .init(),
+            .chan_spu = .init(),
+            .chan_pio = .init(),
+            .chan_otc = .init(),
         };
 
         return self;
@@ -83,33 +82,36 @@ pub const DMA = struct {
 
     fn channelFromIndex(self: *@This(), idx: u8) *Channel {
         return switch (idx) {
-            0 => &self.ch_mdec_in,
-            1 => &self.ch_mdec_out,
-            2 => &self.ch_gpu,
-            3 => &self.ch_cdrom,
-            4 => &self.ch_spu,
-            5 => &self.ch_pio,
-            6 => &self.ch_otc,
+            0 => &self.chan_mdec_in,
+            1 => &self.chan_mdec_out,
+            2 => &self.chan_gpu,
+            3 => &self.chan_cdrom,
+            4 => &self.chan_spu,
+            5 => &self.chan_pio,
+            6 => &self.chan_otc,
             else => unreachable,
         };
     }
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         switch (addr) {
-            0x70 => return self.dma_ctrl,
-            0x74 => return self.int_ctrl,
-            else => log.debug("readWord: dma channel register read: {x}", .{addr}),
+            mem.Addr.dma_dpcr => return self.dpcr,
+            mem.Addr.dma_dicr => return self.dicr,
+            else => {
+                log.debug("readWord: dma channel register read: {x}", .{addr});
+                return 0;
+            },
         }
-        return 0;
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
         switch (addr) {
-            0x70 => self.dma_ctrl = v,
-            0x74 => self.int_ctrl = v,
+            mem.Addr.dma_dpcr => self.dpcr = v,
+            mem.Addr.dma_dicr => self.dicr = v,
             else => {
-                const reg_id = bits.field(addr, 2, u2);
-                const chan_id = bits.field(addr, 4, u3);
+                const offset = addr - mem.Addr.dma_start;
+                const reg_id = bits.field(offset, 2, u2);
+                const chan_id = bits.field(offset, 4, u3);
                 self.updateChannel(chan_id, reg_id, v);
             },
         }
@@ -135,7 +137,7 @@ pub const DMA = struct {
     }
 
     fn doGpu(self: *@This()) void {
-        const ctrl = &self.ch_gpu.chan_ctrl;
+        const ctrl = &self.chan_gpu.chan_ctrl;
 
         if (ctrl.start == 1) {
             switch (ctrl.sync_mode) {
@@ -148,9 +150,9 @@ pub const DMA = struct {
     }
 
     fn doGpuSyncModeSlice(self: *@This()) void {
-        const ctrl = &self.ch_gpu.chan_ctrl;
-        const blk = &self.ch_gpu.block_ctrl;
-        const len = blk.block_size * blk.block_count;
+        const ctrl = &self.chan_gpu.chan_ctrl;
+        const block = &self.chan_gpu.block_ctrl;
+        const len = block.block_size * block.block_count;
 
         const addr_inc = @as(u32, @bitCast(switch (ctrl.addr_inc) {
             .@"+4" => @as(i32, 4),
@@ -159,20 +161,20 @@ pub const DMA = struct {
 
         switch (ctrl.direction) {
             .to_device => for (0..len) |_| {
-                const v = self.bus.readWord(self.ch_gpu.maddr);
+                const v = self.bus.readWord(self.chan_gpu.maddr);
                 self.bus.dev.gpu.gp0write(v);
-                self.ch_gpu.maddr, _ = @addWithOverflow(self.ch_gpu.maddr, addr_inc);
+                self.chan_gpu.maddr, _ = @addWithOverflow(self.chan_gpu.maddr, addr_inc);
             },
             .to_ram => for (0..len) |_| {
                 const v = self.bus.dev.gpu.readGpuread();
-                self.bus.writeWord(self.ch_gpu.maddr, v);
-                self.ch_gpu.maddr, _ = @addWithOverflow(self.ch_gpu.maddr, addr_inc);
+                self.bus.writeWord(self.chan_gpu.maddr, v);
+                self.chan_gpu.maddr, _ = @addWithOverflow(self.chan_gpu.maddr, addr_inc);
             },
         }
     }
 
     fn doGpuSyncModeLinkedList(self: *@This()) void {
-        var addr = self.ch_gpu.maddr;
+        var addr = self.chan_gpu.maddr;
 
         while (addr != 0xffffff) {
             const hdr = self.bus.readWord(addr);
@@ -189,12 +191,12 @@ pub const DMA = struct {
     }
 
     fn doOtc(self: *@This()) void {
-        const ctrl = &self.ch_otc.chan_ctrl;
-        const blk = &self.ch_otc.block_ctrl;
+        const ctrl = &self.chan_otc.chan_ctrl;
+        const block = &self.chan_otc.block_ctrl;
 
         if (ctrl.start == 1) {
-            var addr = self.ch_otc.maddr;
-            const len = blk.block_size;
+            var addr = self.chan_otc.maddr;
+            const len = block.block_size;
 
             for (0..len) |i| {
                 const next_addr = (addr - 4) & 0xffffff;
