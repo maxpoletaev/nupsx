@@ -8,6 +8,7 @@ const Disasm = @import("Disasm.zig");
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const DebugUI = @import("debug_ui.zig").DebugUI;
+const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
 
 pub fn main() !void {
@@ -18,16 +19,17 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var args = try Args.parse(allocator);
+    var args = Args.parse(allocator) catch |err| {
+        switch (err) {
+            error.InvalidArgument => std.process.exit(1),
+            else => return err,
+        }
+    };
     defer args.deinit();
 
     const bus = try mem.Bus.init(allocator);
     defer bus.deinit();
 
-    if (args.bios_path.len == 0) {
-        std.log.err("--bios argument is required", .{});
-        std.process.exit(1);
-    }
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
 
@@ -85,18 +87,24 @@ pub fn main() !void {
                 cpu.step();
             }
         }
+    } else if (args.debug_ui) {
+        const debug_ui = try DebugUI.init(allocator, cpu, bus, disasm);
+        defer debug_ui.deinit();
 
-        return;
-    }
+        while (debug_ui.is_running) {
+            cpu.execute();
+            debug_ui.update();
+            if (captureTtyOutput(cpu)) |ch| {
+                try debug_ui.tty_view.writeChar(ch);
+            }
+        }
+    } else {
+        const display_ui = try UI.init(allocator, gpu);
+        defer display_ui.deinit();
 
-    const debug_ui = try DebugUI.init(allocator, cpu, bus, disasm);
-    defer debug_ui.deinit();
-
-    while (debug_ui.is_running) {
-        cpu.execute();
-        debug_ui.update();
-        if (captureTtyOutput(cpu)) |ch| {
-            try debug_ui.tty_view.writeChar(ch);
+        while (display_ui.is_running) {
+            cpu.execute();
+            display_ui.update();
         }
     }
 }

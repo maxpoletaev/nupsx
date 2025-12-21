@@ -16,11 +16,11 @@ const default_font = @embedFile("assets/freepixel.ttf");
 const default_font_size = 16.0;
 
 const frame_time: f64 = 1.0 / 60.0;
-const window_title = "nuPSX";
+const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
-const logger = std.log.scoped(.nupsx);
+const logger = std.log.scoped(.debug);
 
 const addr_space_000 = mem.AddrRange.init(.none, 0x00000000, 0x800000);
 const addr_space_800 = mem.AddrRange.init(.none, 0x80000000, 0x800000);

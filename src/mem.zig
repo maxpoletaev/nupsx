@@ -127,11 +127,16 @@ pub const Bus = struct {
             else => {},
         }
 
-        // log.debug("readByte: out of bounds: {x}", .{addr});
+        log.debug("readByte: out of bounds: {x}", .{addr});
         return 0xac;
     }
 
     pub fn readHalf(self: *@This(), addr: u32) u16 {
+        switch (addr) {
+            0x1f801dae => return 0x2007,
+            else => {},
+        }
+
         const resolved_addr = resolveAddr(addr);
         const device, const offset = lookupDevice(resolved_addr);
 
@@ -142,11 +147,18 @@ pub const Bus = struct {
             else => {},
         }
 
-        // log.debug("readHalf: out of bounds: {x}", .{addr});
+        log.debug("readHalf: out of bounds: {x}", .{addr});
         return 0xacab;
     }
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
+        switch (addr) {
+            0x1f8010f4 => return 0x10000000,
+            0x1f801074 => return 0x18,
+            0x1f801070 => return 0,
+            else => {},
+        }
+
         const resolved_addr = resolveAddr(addr);
         const device, const offset = lookupDevice(resolved_addr);
 
@@ -158,7 +170,7 @@ pub const Bus = struct {
             else => {},
         }
 
-        // log.debug("readWord: out of bounds: {x}", .{addr});
+        log.debug("readWord: out of bounds: {x}", .{addr});
         return 0xacabacab;
     }
 

@@ -108,6 +108,7 @@ pub const GPU = struct {
     gp1_dma_direction: enum(u2) { off = 0, fifo = 1, cpu_to_gp0 = 2, gpuread_to_cpu = 3 },
     gp1_display_mode: DisplayMode,
     gp1_display_enable: bool,
+    interrupt_request: bool,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
@@ -190,17 +191,13 @@ pub const GPU = struct {
             self.gp0_fifo.reset();
         }
 
-        switch (self.gp0_state) {
-            .recv_command => log.debug("gp0 - cmd: {x}", .{self.gp0_cmd}),
-            .recv_args => log.debug("gp0 - arg: {x}", .{v}),
-            else => {},
-        }
+        // switch (self.gp0_state) {
+        //     .recv_command => log.debug("gp0 - cmd: {x}", .{self.gp0_cmd}),
+        //     .recv_args => log.debug("gp0 - arg: {x}", .{v}),
+        //     else => {},
+        // }
 
         self.stepCommandState(v);
-
-        if (self.gp0_state == .recv_command) {
-            log.debug("---", .{});
-        }
     }
 
     fn stepCommandState(self: *@This(), v: u32) void {
@@ -208,6 +205,7 @@ pub const GPU = struct {
             0x00 => {},
             0x01 => {}, // self.clearCache(v),
             0x02 => self.drawRectFlat(v),
+            0x1f => self.interrupt_request = true,
 
             0x20 => self.drawPoly3Flat(v),
             0x22 => self.drawPoly3Flat(v),
@@ -253,14 +251,8 @@ pub const GPU = struct {
             0xc0 => self.vramToCpu(v),
             0xe1 => {}, // self.setDrawMode(v),
             0xe2 => self.setTextureWindow(v),
-            0xe3 => { // setDrawAreaStart
-                self.gp0_draw_area_start = @bitCast(v);
-                self.rasterizer.setDrawAreaStart(self.gp0_draw_area_start.x, self.gp0_draw_area_start.y);
-            },
-            0xe4 => { // setDrawAreaEnd
-                self.gp0_draw_area_end = @bitCast(v);
-                self.rasterizer.setDrawAreaEnd(self.gp0_draw_area_end.x, self.gp0_draw_area_end.y);
-            },
+            0xe3 => self.setDrawAreaStart(v),
+            0xe4 => self.setDrawAreaEnd(v),
             0xe5 => self.gp0_draw_offset = @bitCast(v),
 
             0xe6 => {}, // self.setBitMask(v),
@@ -381,6 +373,16 @@ pub const GPU = struct {
         self.gp0_texwin_mask = .{ mask_x, mask_y };
         self.gp0_texwin_offset = .{ offset_x, offset_y };
         self.rasterizer.setTextureWindow(self.gp0_texwin_mask, self.gp0_texwin_offset);
+    }
+
+    fn setDrawAreaStart(self: *@This(), v: u32) void {
+        self.gp0_draw_area_start = @bitCast(v);
+        self.rasterizer.setDrawAreaStart(self.gp0_draw_area_start.x, self.gp0_draw_area_start.y);
+    }
+
+    fn setDrawAreaEnd(self: *@This(), v: u32) void {
+        self.gp0_draw_area_end = @bitCast(v);
+        self.rasterizer.setDrawAreaEnd(self.gp0_draw_area_end.x, self.gp0_draw_area_end.y);
     }
 
     fn drawRect1x1(self: *@This(), v: u32) void {
@@ -694,7 +696,7 @@ pub const GPU = struct {
         switch (cmd) {
             0x00 => {}, // self.reset(v),
             0x01 => self.clearFifo(v),
-            0x02 => {}, // self.acqIrq(v),
+            0x02 => self.interrupt_request = false,
             0x03 => self.gp1_display_enable = (v & 1 != 0),
             0x04 => self.gp1_dma_direction = @enumFromInt(@as(u2, @truncate(v))),
             0x05 => self.gp1_display_area_start = @bitCast(v),

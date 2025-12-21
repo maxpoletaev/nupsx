@@ -1,4 +1,7 @@
 const std = @import("std");
+const Args = @This();
+
+const log = std.log.scoped(.args);
 
 iter: *std.process.ArgIterator,
 
@@ -7,10 +10,9 @@ exe_path: ?[]const u8,
 
 step_execute: bool = false,
 no_ui: bool = false,
+debug_ui: bool = false,
 disasm: bool = false,
 breakpoint: u32 = 0,
-
-const Args = @This();
 
 pub fn parse(allocator: std.mem.Allocator) !Args {
     var iter = try std.process.argsWithAllocator(allocator);
@@ -22,6 +24,9 @@ pub fn parse(allocator: std.mem.Allocator) !Args {
         }
         if (std.mem.eql(u8, arg, "--no-ui")) {
             args.no_ui = true;
+        }
+        if (std.mem.eql(u8, arg, "--debug-ui")) {
+            args.debug_ui = true;
         }
         if (std.mem.eql(u8, arg, "--disasm")) {
             args.disasm = true;
@@ -36,11 +41,22 @@ pub fn parse(allocator: std.mem.Allocator) !Args {
         if (std.mem.eql(u8, arg, "--exe")) {
             args.exe_path = iter.next() orelse return error.InvalidArgument;
         }
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            return error.InvalidArgument;
+        }
     }
 
+    try args.validate();
     return args;
 }
 
 pub fn deinit(self: *Args) void {
     self.iter.deinit();
+}
+
+fn validate(self: *Args) !void {
+    if (self.bios_path.len == 0) {
+        log.err("--bios path is required", .{});
+        return error.InvalidArgument;
+    }
 }
