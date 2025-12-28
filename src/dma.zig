@@ -25,20 +25,20 @@ const ChanCtrl = packed struct(u32) {
 };
 
 const BlockCtrl = packed struct(u32) {
-    block_size: u16,
-    block_count: u16,
+    size: u16,
+    count: u16,
 };
 
 const Channel = struct {
     maddr: u32,
-    chan_ctrl: ChanCtrl,
-    block_ctrl: BlockCtrl,
+    ctrl: ChanCtrl,
+    block: BlockCtrl,
 
     pub fn init() Channel {
         return .{
             .maddr = 0,
-            .chan_ctrl = std.mem.zeroes(ChanCtrl),
-            .block_ctrl = std.mem.zeroes(BlockCtrl),
+            .ctrl = std.mem.zeroes(ChanCtrl),
+            .block = std.mem.zeroes(BlockCtrl),
         };
     }
 };
@@ -54,13 +54,13 @@ pub const DMA = struct {
     dpcr: u32,
     dicr: u32,
 
-    chan_mdec_in: Channel,
-    chan_mdec_out: Channel,
-    chan_gpu: Channel,
-    chan_cdrom: Channel,
-    chan_spu: Channel,
-    chan_pio: Channel,
-    chan_otc: Channel,
+    mdec_in: Channel,
+    mdec_out: Channel,
+    gpu: Channel,
+    cdrom: Channel,
+    spu: Channel,
+    pio: Channel,
+    otc: Channel,
 
     pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*@This() {
         const self = try allocator.create(@This());
@@ -69,13 +69,13 @@ pub const DMA = struct {
             .bus = bus,
             .dpcr = 0,
             .dicr = 0,
-            .chan_mdec_in = .init(),
-            .chan_mdec_out = .init(),
-            .chan_gpu = .init(),
-            .chan_cdrom = .init(),
-            .chan_spu = .init(),
-            .chan_pio = .init(),
-            .chan_otc = .init(),
+            .mdec_in = .init(),
+            .mdec_out = .init(),
+            .gpu = .init(),
+            .cdrom = .init(),
+            .spu = .init(),
+            .pio = .init(),
+            .otc = .init(),
         };
 
         return self;
@@ -85,50 +85,65 @@ pub const DMA = struct {
         self.allocator.destroy(self);
     }
 
-    fn channelFromIndex(self: *@This(), idx: u8) *Channel {
-        return switch (idx) {
-            0 => &self.chan_mdec_in,
-            1 => &self.chan_mdec_out,
-            2 => &self.chan_gpu,
-            3 => &self.chan_cdrom,
-            4 => &self.chan_spu,
-            5 => &self.chan_pio,
-            6 => &self.chan_otc,
+    fn getChannel(self: *@This(), chan_id: u8) *Channel {
+        return switch (chan_id) {
+            0 => &self.mdec_in,
+            1 => &self.mdec_out,
+            2 => &self.gpu,
+            3 => &self.cdrom,
+            4 => &self.spu,
+            5 => &self.pio,
+            6 => &self.otc,
             else => unreachable,
         };
     }
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
-        return switch (addr) {
-            addr_dpcr => self.dpcr,
-            addr_dicr => self.dicr,
-            else => blk: {
-                log.warn("unhandled read at: {x}", .{addr});
-                break :blk 0;
+        switch (addr) {
+            addr_dpcr => return self.dpcr,
+            addr_dicr => return self.dicr,
+
+            else => {
+                const offset = addr - addr_start;
+                const reg_id = bits.field(offset, 2, u2);
+                const chan_id = bits.field(offset, 4, u3);
+                return self.readChannelReg(chan_id, reg_id);
             },
-        };
+        }
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
         switch (addr) {
             addr_dpcr => self.dpcr = v,
             addr_dicr => self.dicr = v,
+
             else => {
                 const offset = addr - addr_start;
                 const reg_id = bits.field(offset, 2, u2);
                 const chan_id = bits.field(offset, 4, u3);
-                self.updateChannel(chan_id, reg_id, v);
+                self.writeChannelReg(chan_id, reg_id, v);
             },
         }
     }
 
-    fn updateChannel(self: *@This(), chan_id: u8, reg_id: u8, v: u32) void {
-        const chan = self.channelFromIndex(chan_id);
+    fn readChannelReg(self: *@This(), chan_id: u8, reg_id: u8) u32 {
+        const chan = self.getChannel(chan_id);
+
+        return switch (reg_id) {
+            0 => chan.maddr,
+            1 => @bitCast(chan.block),
+            2 => @bitCast(chan.ctrl),
+            else => unreachable,
+        };
+    }
+
+    fn writeChannelReg(self: *@This(), chan_id: u8, reg_id: u8, v: u32) void {
+        const chan = self.getChannel(chan_id);
 
         switch (reg_id) {
             0 => chan.maddr = v,
-            1 => chan.block_ctrl = @bitCast(v),
-            2 => chan.chan_ctrl = @bitCast(v),
+            1 => chan.block = @bitCast(v),
+            2 => chan.ctrl = @bitCast(v),
             else => unreachable,
         }
 
@@ -142,7 +157,7 @@ pub const DMA = struct {
     }
 
     fn doGpu(self: *@This()) void {
-        const ctrl = &self.chan_gpu.chan_ctrl;
+        const ctrl = &self.gpu.ctrl;
 
         if (ctrl.start == 1) {
             switch (ctrl.sync_mode) {
@@ -155,9 +170,9 @@ pub const DMA = struct {
     }
 
     fn doGpuSyncModeSlice(self: *@This()) void {
-        const ctrl = &self.chan_gpu.chan_ctrl;
-        const block = &self.chan_gpu.block_ctrl;
-        const len = block.block_size * block.block_count;
+        const ctrl = &self.gpu.ctrl;
+        const block = &self.gpu.block;
+        const len = block.size * block.count;
 
         const addr_inc = @as(u32, @bitCast(switch (ctrl.addr_inc) {
             .@"+4" => @as(i32, 4),
@@ -166,20 +181,20 @@ pub const DMA = struct {
 
         switch (ctrl.direction) {
             .to_device => for (0..len) |_| {
-                const v = self.bus.readWord(self.chan_gpu.maddr);
+                const v = self.bus.readWord(self.gpu.maddr);
                 self.bus.dev.gpu.gp0write(v);
-                self.chan_gpu.maddr, _ = @addWithOverflow(self.chan_gpu.maddr, addr_inc);
+                self.gpu.maddr, _ = @addWithOverflow(self.gpu.maddr, addr_inc);
             },
             .to_ram => for (0..len) |_| {
                 const v = self.bus.dev.gpu.readGpuread();
-                self.bus.writeWord(self.chan_gpu.maddr, v);
-                self.chan_gpu.maddr, _ = @addWithOverflow(self.chan_gpu.maddr, addr_inc);
+                self.bus.writeWord(self.gpu.maddr, v);
+                self.gpu.maddr, _ = @addWithOverflow(self.gpu.maddr, addr_inc);
             },
         }
     }
 
     fn doGpuSyncModeLinkedList(self: *@This()) void {
-        var addr = self.chan_gpu.maddr;
+        var addr = self.gpu.maddr;
 
         while (addr != 0xffffff) {
             const hdr = self.bus.readWord(addr);
@@ -196,12 +211,12 @@ pub const DMA = struct {
     }
 
     fn doOtc(self: *@This()) void {
-        const ctrl = &self.chan_otc.chan_ctrl;
-        const block = &self.chan_otc.block_ctrl;
+        const ctrl = &self.otc.ctrl;
+        const block = &self.otc.block;
 
         if (ctrl.start == 1) {
-            var addr = self.chan_otc.maddr;
-            const len = block.block_size;
+            var addr = self.otc.maddr;
+            const len = block.size;
 
             for (0..len) |i| {
                 const next_addr = (addr - 4) & 0xffffff;

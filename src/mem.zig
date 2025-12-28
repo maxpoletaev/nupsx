@@ -190,6 +190,7 @@ pub const Bus = struct {
         inline for (0..3) |_| self.dev.gpu.tick();
         self.dev.timers.tick();
 
+        // GPU events dispatch
         const gpu_events = self.dev.gpu.consumeEvents();
         if (gpu_events.hblank_start) self.dev.timers.hblankStart();
         if (gpu_events.hblank_end) self.dev.timers.hblankEnd();
@@ -199,6 +200,7 @@ pub const Bus = struct {
         }
         if (gpu_events.vblank_end) self.dev.timers.vblankEnd();
 
+        // Timer events dispatch
         const timer_events = self.dev.timers.consumeEvents();
         if (timer_events.t0_fired) self.setInterrupt(Interrupt.tmr0);
         if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);

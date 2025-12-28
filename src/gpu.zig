@@ -680,13 +680,28 @@ pub const GPU = struct {
     fn drawPoly3ShadedTextured(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                log.debug("drawPoly3ShadedTextured - not implemented", .{});
                 self.gp0_fifo.add(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 8) {
+                    const pos0 = argVertex(self.gp0_fifo.buf[1]);
+                    const tx0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const pos1 = argVertex(self.gp0_fifo.buf[4]);
+                    const tx1 = argTexcoord(self.gp0_fifo.buf[5]);
+                    const pos2 = argVertex(self.gp0_fifo.buf[7]);
+                    const tx2 = argTexcoord(self.gp0_fifo.buf[8]);
+
+                    const clut = argClut(self.gp0_fifo.buf[2]);
+                    const tp = argTextpage(self.gp0_fifo.buf[5]);
+
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .tx = tx0.x, .ty = tx0.y };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .tx = tx1.x, .ty = tx1.y };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .tx = tx2.x, .ty = tx2.y };
+
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+
                     self.gp0_state = .recv_command;
                 }
             },
@@ -697,13 +712,32 @@ pub const GPU = struct {
     fn drawPoly4ShadedTextured(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                log.debug("drawPoly3ShadedTextured - not implemented", .{});
                 self.gp0_fifo.add(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 12) {
+                    const pos0 = argVertex(self.gp0_fifo.buf[1]);
+                    const tx0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const pos1 = argVertex(self.gp0_fifo.buf[4]);
+                    const tx1 = argTexcoord(self.gp0_fifo.buf[5]);
+                    const pos2 = argVertex(self.gp0_fifo.buf[7]);
+                    const tx2 = argTexcoord(self.gp0_fifo.buf[8]);
+                    const pos3 = argVertex(self.gp0_fifo.buf[10]);
+                    const tx3 = argTexcoord(self.gp0_fifo.buf[11]);
+
+                    const clut = argClut(self.gp0_fifo.buf[2]);
+                    const tp = argTextpage(self.gp0_fifo.buf[5]);
+
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .tx = tx0.x, .ty = tx0.y };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .tx = tx1.x, .ty = tx1.y };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .tx = tx2.x, .ty = tx2.y };
+                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .tx = tx3.x, .ty = tx3.y };
+
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+
                     self.gp0_state = .recv_command;
                 }
             },

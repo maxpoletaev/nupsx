@@ -76,6 +76,14 @@ const Timer = struct {
         };
     }
 
+    inline fn increment(self: *@This()) void {
+        if (self.mode.reset_on_target and self.target != 0 and self.current == self.target) {
+            self.current = 0; // reset happens on the next tick after reaching target
+            return;
+        }
+        self.current +%= 1;
+    }
+
     inline fn getMode(self: *@This()) u16 {
         const v: u16 = @bitCast(self.mode);
         // reached bits are reset on read
@@ -84,7 +92,7 @@ const Timer = struct {
         return v;
     }
 
-    inline fn setMode(self: *@This(), v: u16) void {
+    inline fn setMode(self: *@This(), v: u16, in_hblank: bool, in_vblank: bool) void {
         const prev = self.mode;
         self.mode = @bitCast(v);
 
@@ -97,6 +105,20 @@ const Timer = struct {
         self.paused = false;
         self.once = false;
         self.current = 0;
+
+        // depending on the sync mode, the timer may start paused
+        if (self.mode.sync_enable) {
+            switch (self.getSyncMode()) {
+                .reset_and_pause_outside_vblank => self.paused = in_vblank,
+                .reset_and_pause_outside_hblank => self.paused = in_hblank,
+                .pause_during_hblank => self.paused = in_hblank,
+                .pause_during_vblank => self.paused = in_vblank,
+                .pause_until_hblank => self.paused = !in_hblank,
+                .pause_until_vblank => self.paused = !in_vblank,
+                .stop_at_current => self.paused = true,
+                else => {},
+            }
+        }
     }
 
     pub inline fn getSyncMode(self: *@This()) SyncMode {
@@ -117,7 +139,7 @@ pub const Timers = struct {
     const reg_target = 8;
 
     allocator: std.mem.Allocator,
-    t: [3]Timer,
+    timers: [3]Timer,
     div8_counter: u8,
     in_hblank: bool = false,
     in_vblank: bool = false,
@@ -128,7 +150,7 @@ pub const Timers = struct {
         self.* = .{
             .div8_counter = 0,
             .allocator = allocator,
-            .t = .{ .init(0), .init(1), .init(2) },
+            .timers = .{ .init(0), .init(1), .init(2) },
         };
         return self;
     }
@@ -160,13 +182,13 @@ pub const Timers = struct {
 
     pub fn readHalf(self: *@This(), addr: u32) u16 {
         const offset = addr - addr_start;
-        const reg = bits.field(offset, 0, u4);
-        const timer = bits.field(offset, 4, u2);
+        const regid = bits.field(offset, 0, u4);
+        const tmrid = bits.field(offset, 4, u2);
 
-        switch (reg) {
-            reg_current => return self.t[timer].current,
-            reg_mode => return self.t[timer].getMode(),
-            reg_target => return self.t[timer].target,
+        switch (regid) {
+            reg_current => return self.timers[tmrid].current,
+            reg_mode => return self.timers[tmrid].getMode(),
+            reg_target => return self.timers[tmrid].target,
             else => {
                 std.debug.panic("timers: unhandled readHalf at {x}", .{addr});
             },
@@ -175,13 +197,13 @@ pub const Timers = struct {
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         const offset = addr - addr_start;
-        const reg = bits.field(offset, 0, u4);
-        const timer = bits.field(offset, 4, u2);
+        const regid = bits.field(offset, 0, u4);
+        const tmrid = bits.field(offset, 4, u2);
 
-        switch (reg) {
-            reg_current => return self.t[timer].current,
-            reg_mode => return self.t[timer].getMode(),
-            reg_target => return self.t[timer].target,
+        switch (regid) {
+            reg_current => return self.timers[tmrid].current,
+            reg_mode => return self.timers[tmrid].getMode(),
+            reg_target => return self.timers[tmrid].target,
             else => {
                 std.debug.panic("timers: unhandled readHalf at {x}", .{addr});
             },
@@ -196,13 +218,13 @@ pub const Timers = struct {
         // log.debug("writeHalf {x} = {x}", .{ addr, v });
 
         const offset = addr - addr_start;
-        const reg = bits.field(offset, 0, u4);
-        const timer = bits.field(offset, 4, u2);
+        const regid = bits.field(offset, 0, u4);
+        const tmrid = bits.field(offset, 4, u2);
 
-        switch (reg) {
-            reg_current => self.t[timer].current = v,
-            reg_mode => self.t[timer].setMode(v),
-            reg_target => self.t[timer].target = v,
+        switch (regid) {
+            reg_current => self.timers[tmrid].current = v,
+            reg_mode => self.timers[tmrid].setMode(v, self.in_hblank, self.in_vblank),
+            reg_target => self.timers[tmrid].target = v,
             else => {
                 log.warn("unhandled writeHalf at {x}", .{addr});
             },
@@ -213,13 +235,13 @@ pub const Timers = struct {
         // log.debug("writeHalf {x} = {x}", .{ addr, v });
 
         const offset = addr - addr_start;
-        const reg = bits.field(offset, 0, u4);
-        const timer = bits.field(offset, 4, u2);
+        const regid = bits.field(offset, 0, u4);
+        const tmrid = bits.field(offset, 4, u2);
 
-        switch (reg) {
-            reg_current => self.t[timer].current = @truncate(v),
-            reg_mode => self.t[timer].setMode(@truncate(v)),
-            reg_target => self.t[timer].target = @truncate(v),
+        switch (regid) {
+            reg_current => self.timers[tmrid].current = @truncate(v),
+            reg_mode => self.timers[tmrid].setMode(@truncate(v), self.in_hblank, self.in_vblank),
+            reg_target => self.timers[tmrid].target = @truncate(v),
             else => {
                 log.warn("unhandled writeHalf at {x}", .{addr});
             },
@@ -237,18 +259,18 @@ pub const Timers = struct {
     }
 
     inline fn tickTimer0(self: *@This()) void {
-        const timer = &self.t[0];
+        const timer = &self.timers[0];
         if (timer.paused) return;
 
         switch (timer.getClockSource()) {
             .system_clock => {
-                timer.current +%= 1;
+                timer.increment();
                 self.checkTimerIRQ(0);
             },
             .dotclock => {
                 // Dotclock ticks depend on the current gpu mode.
-                // For now just inmcrement on every system clock tick.
-                timer.current +%= 1;
+                // For now just increment on every system clock tick.
+                timer.increment();
                 self.checkTimerIRQ(0);
             },
             else => {},
@@ -256,28 +278,28 @@ pub const Timers = struct {
     }
 
     inline fn tickTimer1(self: *@This()) void {
-        const timer = &self.t[1];
+        const timer = &self.timers[1];
         if (timer.paused) return;
 
         if (timer.getClockSource() == .system_clock) {
-            timer.current +%= 1;
+            timer.increment();
             self.checkTimerIRQ(1);
         }
     }
 
     inline fn tickTimer2(self: *@This()) void {
-        const timer = &self.t[2];
+        const timer = &self.timers[2];
         if (timer.paused) return;
 
         switch (timer.getClockSource()) {
             .system_clock => {
-                timer.current +%= 1;
+                timer.increment();
                 self.checkTimerIRQ(2);
             },
             .system_clock_div8 => {
                 self.div8_counter +%= 1;
                 if (self.div8_counter % 8 == 0) {
-                    timer.current +%= 1;
+                    timer.increment();
                     self.checkTimerIRQ(2);
                 }
             },
@@ -286,11 +308,10 @@ pub const Timers = struct {
     }
 
     fn checkTimerIRQ(self: *@This(), idx: u2) void {
-        const timer = &self.t[idx];
+        const timer = &self.timers[idx];
 
         if (timer.target != 0 and timer.current == timer.target) {
             timer.mode.reached_target = true;
-            if (timer.mode.reset_on_target) timer.current = 0;
             if (timer.mode.irq_on_target) self.setTimerFired(idx);
         }
 
@@ -307,8 +328,8 @@ pub const Timers = struct {
     pub fn hblankStart(self: *@This()) void {
         self.in_hblank = true;
 
-        const t0 = &self.t[0];
-        const t1 = &self.t[1];
+        const t0 = &self.timers[0];
+        const t1 = &self.timers[1];
 
         // Timer 0 hblank sync modes
         if (t0.mode.sync_enable) {
@@ -332,7 +353,7 @@ pub const Timers = struct {
 
         // Timer 1 in hblank clock mode increments on hblank
         if (t1.getClockSource() == .hblank and !t1.paused) {
-            t1.current +%= 1;
+            t1.increment();
             self.checkTimerIRQ(1);
         }
     }
@@ -340,7 +361,7 @@ pub const Timers = struct {
     pub fn hblankEnd(self: *@This()) void {
         self.in_hblank = false;
 
-        const t0 = &self.t[0];
+        const t0 = &self.timers[0];
         if (!t0.mode.sync_enable) return;
 
         switch (t0.getSyncMode()) {
@@ -354,7 +375,7 @@ pub const Timers = struct {
         self.in_vblank = true;
 
         // Timer 1 vblank sync modes
-        const t1 = &self.t[1];
+        const t1 = &self.timers[1];
         if (!t1.mode.sync_enable) return;
 
         switch (t1.getSyncMode()) {
@@ -378,7 +399,7 @@ pub const Timers = struct {
     pub fn vblankEnd(self: *@This()) void {
         self.in_vblank = false;
 
-        const t1 = &self.t[1];
+        const t1 = &self.timers[1];
         if (!t1.mode.sync_enable) return;
 
         switch (t1.getSyncMode()) {

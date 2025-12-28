@@ -22,7 +22,7 @@ pub fn deinit(self: *@This()) void {
 pub fn update(self: *@This()) void {
     if (zgui.begin("Timers", .{})) {
         for (0..3) |i| {
-            const timer = &self.timers.t[i];
+            const timer = &self.timers.timers[i];
             const mode_val: u16 = @bitCast(timer.mode);
             const clock_source = timer.getClockSource();
             const sync_mode = timer.getSyncMode();
