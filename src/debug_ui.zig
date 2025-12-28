@@ -6,11 +6,13 @@ const zopengl = @import("zopengl");
 const mem = @import("mem.zig");
 const gpu_mod = @import("gpu.zig");
 const cpu_mod = @import("cpu.zig");
+const timer_mod = @import("timer.zig");
 const Disasm = @import("Disasm.zig");
 
 const Bus = mem.Bus;
 const CPU = cpu_mod.CPU;
 const GPU = gpu_mod.GPU;
+const Timers = timer_mod.Timers;
 
 const default_font = @embedFile("assets/freepixel.ttf");
 const default_font_size = 16.0;
@@ -521,11 +523,82 @@ const GPUView = struct {
     }
 };
 
+const TimerView = struct {
+    allocator: std.mem.Allocator,
+    timers: *Timers,
+
+    pub fn init(allocator: std.mem.Allocator, timers: *Timers) !*@This() {
+        const self = try allocator.create(@This());
+        self.* = .{
+            .allocator = allocator,
+            .timers = timers,
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        const allocator = self.allocator;
+        allocator.destroy(self);
+    }
+
+    pub fn update(self: *@This()) void {
+        if (zgui.begin("Timers", .{})) {
+            for (0..3) |i| {
+                const timer = &self.timers.t[i];
+                const mode_val: u16 = @bitCast(timer.mode);
+                const clock_source = timer.getClockSource();
+                const sync_mode = timer.getSyncMode();
+
+                const header_label = switch (i) {
+                    0 => "Timer 0",
+                    1 => "Timer 1",
+                    2 => "Timer 2",
+                    else => unreachable,
+                };
+                if (zgui.collapsingHeader(header_label, .{ .default_open = true })) {
+                    const indent_w = 20.0;
+                    zgui.indent(.{ .indent_w = indent_w });
+
+                    zgui.text("Current: 0x{x:0>4} ({d})", .{ timer.current, timer.current });
+                    zgui.text("Target: 0x{x:0>4} ({d})", .{ timer.target, timer.target });
+                    zgui.text("Paused: {s}", .{if (timer.paused) "yes" else "no"});
+
+                    zgui.separator();
+
+                    zgui.text("Clock Source: {s}", .{@tagName(clock_source)});
+                    zgui.text("Sync Mode: {s}", .{@tagName(sync_mode)});
+
+                    zgui.pushIntId(@intCast(i));
+                    if (zgui.collapsingHeader("Mode Register", .{})) {
+                        zgui.text("Raw Value: 0x{x:0>4}", .{mode_val});
+                        zgui.text("Sync Enable: {s}", .{if (timer.mode.sync_enable) "yes" else "no"});
+                        zgui.text("Sync Mode: {d}", .{timer.mode.sync_mode});
+                        zgui.text("Reset on Target: {s}", .{if (timer.mode.reset_on_target) "yes" else "no"});
+                        zgui.text("IRQ on Target: {s}", .{if (timer.mode.irq_on_target) "yes" else "no"});
+                        zgui.text("IRQ on 0xFFFF: {s}", .{if (timer.mode.irq_on_ffff) "yes" else "no"});
+                        zgui.text("IRQ Repeat: {s}", .{if (timer.mode.irq_repeat) "yes" else "no"});
+                        zgui.text("IRQ Toggle: {s}", .{if (timer.mode.irq_toggle) "yes" else "no"});
+                        zgui.text("Clock Source Bits: {d}", .{timer.mode.clock_source});
+                        zgui.text("IRQ Disabled: {s}", .{if (timer.mode.irq_disabled) "yes" else "no"});
+                        zgui.text("Reached Target: {s}", .{if (timer.mode.reached_target) "yes" else "no"});
+                        zgui.text("Reached 0xFFFF: {s}", .{if (timer.mode.reached_ffff) "yes" else "no"});
+                    }
+                    zgui.popId();
+
+                    zgui.unindent(.{ .indent_w = indent_w });
+                }
+            }
+        }
+        zgui.end();
+    }
+};
+
 pub const DebugUI = struct {
     allocator: std.mem.Allocator,
     window: *glfw.Window,
     cpu_view: *CPUView,
     gpu_view: *GPUView,
+    timer_view: *TimerView,
     assembly_view: *AssemblyView,
     vram_view: *VramView,
     tty_view: *TTYView,
@@ -565,6 +638,7 @@ pub const DebugUI = struct {
         const tty_view = try TTYView.init(allocator);
         const cpu_view = try CPUView.init(allocator, cpu);
         const gpu_view = try GPUView.init(allocator, bus.dev.gpu);
+        const timer_view = try TimerView.init(allocator, bus.dev.timers);
         const assembly_view = try AssemblyView.init(allocator, cpu, bus, dasm);
         const vram_view = try VramView.init(allocator, bus.dev.gpu);
 
@@ -573,6 +647,7 @@ pub const DebugUI = struct {
             .allocator = allocator,
             .cpu_view = cpu_view,
             .gpu_view = gpu_view,
+            .timer_view = timer_view,
             .assembly_view = assembly_view,
             .tty_view = tty_view,
             .vram_view = vram_view,
@@ -586,6 +661,7 @@ pub const DebugUI = struct {
         self.assembly_view.deinit();
         self.cpu_view.deinit();
         self.gpu_view.deinit();
+        self.timer_view.deinit();
         self.tty_view.deinit();
         self.vram_view.deinit();
 
@@ -628,6 +704,7 @@ pub const DebugUI = struct {
         self.updateFrameRate(now);
         self.cpu_view.update();
         self.gpu_view.update();
+        self.timer_view.update();
         self.assembly_view.update();
         self.tty_view.update();
         self.vram_view.update();

@@ -82,11 +82,11 @@ const Timer = struct {
         self.mode.reached_ffff = prev.reached_ffff;
     }
 
-    inline fn getSyncMode(self: *@This()) SyncMode {
+    pub inline fn getSyncMode(self: *@This()) SyncMode {
         return sync_mode_table[self.idx][self.mode.sync_mode];
     }
 
-    inline fn getClockSource(self: *@This()) ClockSource {
+    pub inline fn getClockSource(self: *@This()) ClockSource {
         return clock_source_table[self.idx][self.mode.clock_source];
     }
 };

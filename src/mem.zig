@@ -129,7 +129,7 @@ pub const Interrupt = opaque {
     pub const lightpen: u32 = 1 << 10;
 };
 
-fn unhandledRead(comptime T: anytype, addr: u32) T {
+pub fn unhandledRead(comptime T: anytype, addr: u32) T {
     const v = switch (T) {
         u8 => 0xac,
         u16 => 0xacab,
@@ -140,7 +140,7 @@ fn unhandledRead(comptime T: anytype, addr: u32) T {
     return v;
 }
 
-fn unhandledWrite(comptime T: anytype, addr: u32, value: T) void {
+pub fn unhandledWrite(comptime T: anytype, addr: u32, value: T) void {
     log.warn("unhandled write at address: {x}={x}", .{ addr, value });
 }
 

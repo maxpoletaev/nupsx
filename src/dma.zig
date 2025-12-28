@@ -1,8 +1,8 @@
 const std = @import("std");
-const mem = @import("mem.zig");
-const Bus = mem.Bus;
+const mem_mod = @import("mem.zig");
 const bits = @import("bits.zig");
 
+const Bus = mem_mod.Bus;
 const log = std.log.scoped(.dma);
 
 const ChanCtrl = packed struct(u32) {
@@ -99,14 +99,14 @@ pub const DMA = struct {
     }
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
-        switch (addr) {
-            addr_dpcr => return self.dpcr,
-            addr_dicr => return self.dicr,
-            else => {
-                log.debug("readWord: dma channel register read: {x}", .{addr});
-                return 0;
+        return switch (addr) {
+            addr_dpcr => self.dpcr,
+            addr_dicr => self.dicr,
+            else => blk: {
+                log.warn("unhandled read at: {x}", .{addr});
+                break :blk 0;
             },
-        }
+        };
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
