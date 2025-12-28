@@ -2,17 +2,18 @@ const std = @import("std");
 const mem = @import("mem.zig");
 
 const timer_mod = @import("timer.zig");
+const disasm_mod = @import("disasm.zig");
 
-const Args = @import("Args.zig");
+const Args = @import("args.zig").Args;
 const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
-const Disasm = @import("Disasm.zig");
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
-const DebugUI = @import("debug_ui.zig").DebugUI;
+const DebugUI = @import("debug_ui/DebugUI.zig");
 const UI = @import("ui.zig").UI;
-const Timers = timer_mod.Timers;
 const exe = @import("exe.zig");
+const Disasm = disasm_mod.Disasm;
+const Timers = timer_mod.Timers;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -72,9 +73,6 @@ pub fn main() !void {
     const stdin = std.fs.File.stdin();
     var stdin_buf: [1]u8 = undefined;
 
-    const disasm = try Disasm.init(allocator);
-    defer disasm.deinit();
-
     if (args.step_execute) {
         cpu.stall = true;
     }
@@ -89,6 +87,9 @@ pub fn main() !void {
     }
 
     if (args.no_ui) {
+        const disasm = try Disasm.init(allocator);
+        defer disasm.deinit();
+
         while (true) {
             cpu.execute();
 
@@ -104,7 +105,7 @@ pub fn main() !void {
             }
         }
     } else if (args.debug_ui) {
-        const debug_ui = try DebugUI.init(allocator, cpu, bus, disasm);
+        const debug_ui = try DebugUI.init(allocator, cpu, bus);
         defer debug_ui.deinit();
 
         while (debug_ui.is_running) {
