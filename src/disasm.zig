@@ -1,12 +1,12 @@
 const std = @import("std");
-const cpu = @import("cpu.zig");
+const cpu_mod = @import("cpu.zig");
 
-const Instr = cpu.Instr;
-const Opcode = cpu.Opcode;
-const RegName = cpu.RegName;
-const CopOpCode = cpu.CopOpcode;
-const BranchCond = cpu.BranchCond;
-const SpecialOpcode = cpu.SpecialOpcode;
+const Instr = cpu_mod.Instr;
+const Opcode = cpu_mod.Opcode;
+const RegName = cpu_mod.RegName;
+const CopOpCode = cpu_mod.CopOpcode;
+const BranchCond = cpu_mod.BranchCond;
+const SpecialOpcode = cpu_mod.SpecialOpcode;
 
 const DisasmBuf = std.array_list.Aligned(u8, null);
 const Writer = DisasmBuf.Writer;

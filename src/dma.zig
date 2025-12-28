@@ -18,9 +18,9 @@ const ChanCtrl = packed struct(u32) {
     _pad3: u1,
     start: u1,
     _pad4: u3,
-    force_start: u1,
-    pause: u1,
-    snooping: u1,
+    force_start: bool,
+    pause: bool,
+    snooping: bool,
     _pad5: u1,
 };
 

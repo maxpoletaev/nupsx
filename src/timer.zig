@@ -189,6 +189,8 @@ pub const Timers = struct {
     }
 
     pub fn writeHalf(self: *@This(), addr: u32, v: u16) void {
+        log.debug("writeHalf {x} = {x}", .{ addr, v });
+
         const offset = addr - addr_start;
         const reg = bits.field(offset, 0, u4);
         const timer = bits.field(offset, 4, u2);
@@ -204,6 +206,8 @@ pub const Timers = struct {
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+        log.debug("writeHalf {x} = {x}", .{ addr, v });
+
         const offset = addr - addr_start;
         const reg = bits.field(offset, 0, u4);
         const timer = bits.field(offset, 4, u2);

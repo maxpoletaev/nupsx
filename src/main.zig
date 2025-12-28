@@ -125,9 +125,21 @@ pub fn main() !void {
         const display_ui = try UI.init(allocator, gpu);
         defer display_ui.deinit();
 
+        var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);
+        defer tty_buf.deinit(allocator);
+
         while (display_ui.is_running) {
             cpu.execute();
+            bus.tickSystemClock();
             display_ui.update();
+
+            if (captureTtyOutput(cpu)) |ch| {
+                try tty_buf.append(allocator, ch);
+                if (ch == '\n' or tty_buf.items.len >= 1024) {
+                    std.log.info("TTY: {s}", .{tty_buf.items});
+                    tty_buf.clearRetainingCapacity();
+                }
+            }
         }
     }
 }

@@ -136,12 +136,12 @@ pub fn unhandledRead(comptime T: anytype, addr: u32) T {
         u32 => 0xacabacab,
         else => @compileError("unsupported type"),
     };
-    log.warn("unhandled read at address: {x}", .{addr});
+    log.warn("unhandled read at {x}", .{addr});
     return v;
 }
 
 pub fn unhandledWrite(comptime T: anytype, addr: u32, value: T) void {
-    log.warn("unhandled write at address: {x}={x}", .{ addr, value });
+    log.warn("unhandled write at {x}={x}", .{ addr, value });
 }
 
 const addr_istat: u32 = 0x1f801070;
@@ -194,6 +194,14 @@ pub const Bus = struct {
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readByte(masked_addr),
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.readByte(masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.readByte(masked_addr),
+
+            0x1f801000...0x1f801023 => 0, // memctl
+            0x1f801060...0x1f801063 => 0, // ramsize
+            0x1f801c00...0x1f801e7f => 0, // spu
+            0xfffe0130...0xfffe0133 => 0, // cachectl
+            0x1f000000...0x1f0000ff => 0, // expansion 1
+            0x1f802000...0x1f802041 => 0, // expansion 2
+
             else => unhandledRead(u8, addr),
         };
     }
@@ -202,11 +210,20 @@ pub const Bus = struct {
         const masked_addr = maskAddr(addr);
 
         return switch (masked_addr) {
-            addr_spu_stat => return 0x2007,
+            // addr_spu_stat => return 0x2007,
+
             RAM.addr_start...RAM.addr_end => self.dev.ram.readHalf(masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readHalf(masked_addr),
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.readHalf(masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.readHalf(masked_addr),
+
+            0x1f801000...0x1f801023 => 0, // memctl
+            0x1f801060...0x1f801063 => 0, // ramsize
+            0x1f801c00...0x1f801e7f => 0, // spu
+            0xfffe0130...0xfffe0133 => 0, // cachectl
+            0x1f000000...0x1f0000ff => 0, // expansion 1
+            0x1f802000...0x1f802041 => 0, // expansion 2
+
             else => unhandledRead(u16, masked_addr),
         };
     }
@@ -217,12 +234,21 @@ pub const Bus = struct {
         return switch (masked_addr) {
             addr_istat => self.irq_status,
             addr_imask => self.irq_mask,
+
             RAM.addr_start...RAM.addr_end => self.dev.ram.readWord(masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readWord(masked_addr),
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.readWord(masked_addr),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.readWord(masked_addr),
             DMA.addr_start...DMA.addr_end => self.dev.dma.readWord(masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.readWord(masked_addr),
+
+            0x1f801000...0x1f801023 => 0, // memctl
+            0x1f801060...0x1f801063 => 0, // ramsize
+            0x1f801c00...0x1f801e7f => 0, // spu
+            0xfffe0130...0xfffe0133 => 0, // cachectl
+            0x1f000000...0x1f0000ff => 0, // expansion 1
+            0x1f802000...0x1f802041 => 0, // expansion 2
+
             else => unhandledRead(u32, masked_addr),
         };
     }
@@ -233,6 +259,14 @@ pub const Bus = struct {
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, value),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, value),
             Timers.addr_start...Timers.addr_end => self.dev.timers.writeByte(masked_addr, value),
+
+            0x1f801000...0x1f801023 => {}, // memctl
+            0x1f801060...0x1f801063 => {}, // ramsize
+            0x1f801c00...0x1f801e7f => {}, // spu
+            0xfffe0130...0xfffe0133 => {}, // cachectl
+            0x1f000000...0x1f0000ff => {}, // expansion 1
+            0x1f802000...0x1f802041 => {}, // expansion 2
+
             else => unhandledWrite(u8, addr, value),
         }
     }
@@ -244,6 +278,14 @@ pub const Bus = struct {
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeHalf(masked_addr, value),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeHalf(masked_addr, value),
             Timers.addr_start...Timers.addr_end => self.dev.timers.writeHalf(masked_addr, value),
+
+            0x1f801000...0x1f801023 => {}, // memctl
+            0x1f801060...0x1f801063 => {}, // ramsize
+            0x1f801c00...0x1f801e7f => {}, // spu
+            0xfffe0130...0xfffe0133 => {}, // cachectl
+            0x1f000000...0x1f0000ff => {}, // expansion 1
+            0x1f802000...0x1f802041 => {}, // expansion 2
+
             else => unhandledWrite(u16, addr, value),
         }
     }
@@ -257,11 +299,20 @@ pub const Bus = struct {
                 self.dev.cpu.setInterruptPending(@truncate(self.irq_status));
             },
             addr_imask => self.irq_mask = v,
+
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeWord(masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeWord(masked_addr, v),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.writeWord(masked_addr, v),
             DMA.addr_start...DMA.addr_end => self.dev.dma.writeWord(masked_addr, v),
             Timers.addr_start...Timers.addr_end => self.dev.timers.writeWord(masked_addr, v),
+
+            0x1f801000...0x1f801023 => {}, // memctl
+            0x1f801060...0x1f801063 => {}, // ramsize
+            0x1f801c00...0x1f801e7f => {}, // spu
+            0xfffe0130...0xfffe0133 => {}, // cachectl
+            0x1f000000...0x1f0000ff => {}, // expansion 1
+            0x1f802000...0x1f802041 => {}, // expansion 2
+
             else => unhandledWrite(u32, addr, v),
         }
     }

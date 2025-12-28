@@ -42,6 +42,8 @@ const CmdState = enum {
     send_data,
 };
 
+const gpu_cycle_hblank_start = 2560;
+
 inline fn argColor(v: u32) Color24 {
     return @bitCast(@as(u24, @truncate(v)));
 }
