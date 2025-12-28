@@ -187,28 +187,39 @@ pub const Cop0 = struct {
     };
 
     const Status = packed struct(u32) {
-        curr_int_enable: u1,
-        curr_user_mode: u1,
-        prev_int_enable: u1,
-        prev_user_mode: u1,
-        old_int_enable: u1,
-        old_user_mode: u1,
-        _pad0: u2,
-        interrupt_mask: u8,
-        isolate_cache: u1,
-        swap_caches: u1,
-        force_parity_zero: u1,
-        cache_miss: u1,
-        parity_error: u1,
-        tlb_shutdown: u1,
-        boot_vectors: u1,
-        _pad1: u2,
-        reverse_endianness: u1,
-        _pad2: u2,
-        cop0_enable: u1,
-        cop1_enable: u1,
-        cop2_enable: u1, // GTE
-        cop3_enable: u1,
+        curr_int_enable: bool, // 0
+        curr_user_mode: bool, // 1
+        prev_int_enable: bool, // 2
+        prev_user_mode: bool, // 3
+        old_int_enable: bool, // 4
+        old_user_mode: bool, // 5
+        _pad0: u2, // 6-7
+        interrupt_mask: u8, // 8-15
+        isolate_cache: bool, // 16
+        swap_caches: bool, // 17
+        force_parity_zero: bool, // 18
+        cache_miss: bool, // 19
+        parity_error: bool, // 20
+        tlb_shutdown: bool, // 21
+        boot_vectors: u1, // 22
+        _pad1: u2, // 23-24
+        reverse_endianness: bool, // 25
+        _pad2: u2, // 26-27
+        cop0_enable: bool, // 28
+        cop1_enable: bool, // 29
+        cop2_enable: bool, // 30
+        cop3_enable: bool, // 31
+    };
+
+    const Cause = packed struct(u32) {
+        _pad0: u2, // 0-1
+        exc_code: ExcCode, // 2-6
+        _pad1: u1, // 7
+        interrupt_pending: u8, // 8-15
+        _pad2: u12, // 16-27
+        cop_number: u2, // 28-29
+        branch_taken: bool, // 30
+        epc_at_branch: bool, // 31
     };
 
     pub const ExcCode = enum(u5) {
@@ -226,18 +237,6 @@ pub const Cop0 = struct {
         cop_unusable = 0xB,
         overflow = 0xC,
         _,
-    };
-
-    const Cause = packed struct(u32) {
-        _pad0: u2,
-        exc_code: ExcCode,
-        _pad1: u1,
-        software_interrupt: u2,
-        interrupt_pending: u6,
-        _pad2: u12,
-        cop_number: u2,
-        branch_taken: u1,
-        epc_at_branch: u1,
     };
 
     const reg_status: u8 = 12;
@@ -267,14 +266,16 @@ pub const Cop0 = struct {
         const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
         self.r[reg_status] &= ~@as(u32, 0x3f); // clear mode bits on the SR register
         self.r[reg_status] |= (mode << 2) & 0x3f; // shift mode stack 2 bits to the left
-        self.depth += 1;
+        self.depth, const ov = @addWithOverflow(self.depth, 1);
+        if (ov != 0) log.warn("cop0 exception stack overflow", .{});
     }
 
     pub fn pop(self: *@This()) void {
         const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
         self.r[reg_status] &= ~@as(u32, 0x0f); // clear mode bits on the SR register
         self.r[reg_status] |= (mode >> 2); // shift mode stack 2 bits to the right
-        self.depth -= 1;
+        self.depth, const ov = @subWithOverflow(self.depth, 1);
+        if (ov != 0) log.warn("cop0 exception stack underflow", .{});
     }
 };
 
@@ -296,8 +297,6 @@ pub const CPU = struct {
     cop0: Cop0,
     instr: Instr,
     instr_addr: u32,
-    stall: bool,
-    breakpoint: u32,
     delay_load: LoadSlot,
     delay_load_next: LoadSlot,
     branch_taken: bool,
@@ -317,11 +316,9 @@ pub const CPU = struct {
             .gpr = undefined,
             .cop0 = undefined,
             .next_pc = 0,
-            .stall = false,
             .pc = 0,
             .delay_load = .{},
             .delay_load_next = .{},
-            .breakpoint = 0,
             .in_branch = false,
             .in_delay_slot = false,
             .in_exception = false,
@@ -343,21 +340,15 @@ pub const CPU = struct {
     }
 
     pub fn reset(self: *@This()) void {
-        self.stall = false;
         self.pc = reset_addr;
         self.next_pc = self.pc + 4;
     }
 
-    fn unhandled(self: *@This(), code: u32) void {
+    fn unhandled(_: *@This(), code: u32) void {
         if (code == 0 or code == 1) {
             return;
         }
-        log.err("unhandled instruction: {x}", .{code});
-        self.stall = true;
-    }
-
-    pub fn setBreakpoint(self: *@This(), addr: u32) void {
-        self.breakpoint = addr;
+        std.debug.panic("unhandled instruction: {x}", .{code});
     }
 
     fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
@@ -369,7 +360,7 @@ pub const CPU = struct {
         if (self.in_delay_slot) {
             const branch_addr, _ = @subWithOverflow(self.instr_addr, 4);
             self.cop0.r[Cop0.reg_epc] = branch_addr;
-            self.cop0.cause().epc_at_branch = 1;
+            self.cop0.cause().epc_at_branch = true;
         }
 
         // Jump to exception handler (no delay slot)
@@ -430,18 +421,41 @@ pub const CPU = struct {
         self.next_pc, _ = @addWithOverflow(pc, 4);
     }
 
-    pub fn step(self: *@This()) void {
+    pub fn requestInterrupt(self: *@This(), v: bool) void {
+        if (v) {
+            // Set Cause.bit10 on request
+            self.cop0.r[Cop0.reg_cause] |= @as(u32, 1 << 10);
+        } else {
+            // Clear Cause.bit10 on acknowledge
+            self.cop0.r[Cop0.reg_cause] &= ~@as(u32, 1 << 10);
+        }
+    }
+
+    fn checkInterrupt(self: *@This()) bool {
+        const status = self.cop0.status();
+        if (!status.curr_int_enable) return false;
+
+        if ((self.cop0.cause().interrupt_pending & status.interrupt_mask) != 0) {
+            self.exception(.interrupt);
+            return true;
+        }
+
+        return false;
+    }
+
+    pub fn tick(self: *@This()) void {
         self.gpr[0] = 0;
 
-        // Fetch the instruction
         const instr_code = self.mem.readWord(self.pc);
         const instr = Instr{ .code = instr_code };
         self.instr_addr = self.pc;
         self.instr = instr;
 
-        // Increment the PC
         self.pc = self.next_pc;
         self.next_pc, _ = @addWithOverflow(self.pc, 4);
+
+        // Break if there is an interrupt
+        if (self.checkInterrupt()) return;
 
         // If the last instruction was a branch, then we are in delay slot
         self.in_delay_slot = self.in_branch;
@@ -478,13 +492,13 @@ pub const CPU = struct {
                 .break_ => self.break_(instr),
                 .mult => self.mult(instr),
                 .sub => self.sub(instr),
-                else => self.unhandled(instr_code),
+                else => self.unhandled(instr.code),
             },
             .cop0 => switch (instr.copOpcode()) {
                 .mtc => self.mtc0(instr),
                 .mfc => self.mfc0(instr),
                 .rfe => self.rfe(instr),
-                else => self.unhandled(instr_code),
+                else => self.unhandled(instr.code),
             },
             .bcondz => switch (instr.bcond()) {
                 .bltz => self.bltz(instr),
@@ -525,32 +539,13 @@ pub const CPU = struct {
             .swr => self.swr(instr),
             .cop1 => self.exception(.cop_unusable),
             .cop3 => self.exception(.cop_unusable),
-            else => self.unhandled(instr_code),
+            else => self.unhandled(instr.code),
         }
 
         // Handle delayed loads
         self.gpr[self.delay_load.r] = self.delay_load.v;
         self.delay_load = self.delay_load_next;
         self.delay_load_next.clear();
-    }
-
-    pub fn execute(self: *@This()) void {
-        if (self.stall) {
-            return;
-        }
-
-        if (self.breakpoint != 0 and self.pc == self.breakpoint) {
-            @branchHint(.unlikely);
-            log.debug("reached breakpoint: {x}", .{self.breakpoint});
-            self.stall = true;
-            return;
-        }
-
-        self.step();
-    }
-
-    pub fn setInterruptPending(self: *@This(), v: u6) void {
-        self.cop0.cause().interrupt_pending = v;
     }
 
     // --------------------------------------
@@ -572,7 +567,7 @@ pub const CPU = struct {
     }
 
     fn sw(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isolate_cache == 1) {
+        if (self.cop0.status().isolate_cache) {
             // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
@@ -869,7 +864,7 @@ pub const CPU = struct {
     }
 
     fn lhu(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isolate_cache == 1) {
+        if (self.cop0.status().isolate_cache) {
             // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
@@ -894,7 +889,7 @@ pub const CPU = struct {
     }
 
     fn lh(self: *@This(), instr: Instr) void {
-        if (self.cop0.status().isolate_cache == 1) {
+        if (self.cop0.status().isolate_cache) {
             // log.debug("ignoring write while cache is isolated", .{});
             return;
         }

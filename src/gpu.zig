@@ -42,7 +42,10 @@ const CmdState = enum {
     send_data,
 };
 
-const gpu_cycle_hblank_start = 2560;
+const gpu_cycles_hblank_start_ntsc: u32 = 2560;
+const gpu_cycles_hblank_end_ntsc: u32 = 3413;
+const gpu_scans_vblank_start_ntsc: u32 = 240;
+const gpu_scans_vblank_end_ntsc: u32 = 263;
 
 inline fn argColor(v: u32) Color24 {
     return @bitCast(@as(u24, @truncate(v)));
@@ -83,6 +86,13 @@ inline fn argTextpage(v: u32) struct {
     return .{ .x = tpx, .y = tpy, .depth = depth };
 }
 
+pub const GPUEvents = packed struct(u4) {
+    hblank_start: bool = false,
+    hblank_end: bool = false,
+    vblank_start: bool = false,
+    vblank_end: bool = false,
+};
+
 pub const GPU = struct {
     pub const vram_size = 0x100000;
     pub const addr_gp0: u32 = 0x1f801810;
@@ -116,6 +126,13 @@ pub const GPU = struct {
     gp1_display_enable: bool,
     interrupt_request: bool,
 
+    cycle: u32 = 0,
+    scanline: u32 = 0,
+    in_hblank: bool = false,
+    in_vblank: bool = false,
+
+    events: GPUEvents = .{},
+    frame_ready: bool = false,
     debug_pause: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
@@ -728,4 +745,85 @@ pub const GPU = struct {
             else => std.debug.panic("unknown gp1 read register: 0x{x}", .{reg}),
         };
     }
+
+    // -------------------------
+    // GPU Timing
+    // -------------------------
+
+    pub inline fn consumeEvents(self: *@This()) GPUEvents {
+        const events = self.events;
+        self.events = .{};
+        return events;
+    }
+
+    pub inline fn consumeFrameReady(self: *@This()) bool {
+        const ready = self.frame_ready;
+        self.frame_ready = false;
+        return ready;
+    }
+
+    pub fn tick(self: *@This()) void {
+        self.cycle += 1;
+
+        switch (self.cycle) {
+            gpu_cycles_hblank_start_ntsc => {
+                self.in_hblank = true;
+                self.events.hblank_start = true;
+            },
+            gpu_cycles_hblank_end_ntsc => {
+                self.in_hblank = false;
+                self.events.hblank_end = true;
+                self.scanline += 1;
+                self.cycle = 0;
+
+                switch (self.scanline) {
+                    gpu_scans_vblank_start_ntsc => {
+                        self.in_vblank = true;
+                        self.frame_ready = true;
+                        self.events.vblank_start = true;
+                    },
+                    gpu_scans_vblank_end_ntsc => {
+                        self.scanline = 0;
+                        self.in_vblank = false;
+                        self.events.vblank_end = true;
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+
+    // pub fn tick(self: *@This(), gpu_cycles: u32) void {
+    //     const prev_hblank = self.in_hblank;
+    //     self.cycle += @floatFromInt(gpu_cycles);
+
+    //     const curr_hblank = self.cycle >= gpu_cycles_per_hdraw_ntsc and
+    //         self.cycle < gpu_cycles_per_scanline_ntsc;
+
+    //     if (curr_hblank and !prev_hblank) {
+    //         self.in_hblank = true;
+    //         self.events.hblank_start = true;
+    //     }
+
+    //     if (!curr_hblank and prev_hblank) {
+    //         self.in_hblank = false;
+    //         self.events.hblank_end = true;
+
+    //         self.cycle -= gpu_cycles_per_scanline_ntsc;
+    //         self.scanline += 1;
+
+    //         if (self.scanline == gpu_scans_per_vdraw_ntsc) {
+    //             self.in_vblank = true;
+    //             self.frame_ready = true;
+    //             self.events.vblank_start = true;
+    //         }
+
+    //         if (self.scanline >= gpu_scans_per_frame_ntsc) {
+    //             self.scanline = 0;
+    //             self.in_vblank = false;
+    //             self.events.vblank_end = true;
+    //         }
+    //     }
+    // }
 };

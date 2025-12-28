@@ -109,10 +109,10 @@ pub const Devices = struct {
     cpu: *CPU,
     bios: *BIOS,
     ram: *RAM,
-    scratchpad: *Scratchpad,
     gpu: *GPU,
     dma: *DMA,
     timers: *Timers,
+    scratchpad: *Scratchpad,
 };
 
 pub const Interrupt = opaque {
@@ -144,11 +144,8 @@ pub fn unhandledWrite(comptime T: anytype, addr: u32, value: T) void {
     log.warn("unhandled write at {x}={x}", .{ addr, value });
 }
 
-const addr_istat: u32 = 0x1f801070;
-const addr_imask: u32 = 0x1f801074;
-const addr_spu_start: u32 = 0x1f801d80;
-const addr_spu_end: u32 = 0x1f801dbf;
-const addr_spu_stat: u32 = 0x1f801dae;
+const addr_irq_stat: u32 = 0x1f801070;
+const addr_irq_mask: u32 = 0x1f801074;
 
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {
@@ -156,7 +153,7 @@ pub const Bus = struct {
     dev: Devices,
 
     irq_mask: u32 = 0,
-    irq_status: u32 = 0,
+    irq_stat: u32 = 0,
 
     debug_pause: bool = false,
 
@@ -173,17 +170,39 @@ pub const Bus = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn initDevices(self: *@This(), dev: Devices) void {
+    pub fn connect(self: *@This(), dev: Devices) void {
         self.dev = dev;
     }
 
-    pub fn setInterrupt(self: *@This(), v: u32) void {
-        self.irq_status |= v;
-        self.dev.cpu.setInterruptPending(@truncate(self.irq_status));
+    inline fn updateInterruptPending(self: *@This()) void {
+        // On every change to irq_stat or irq_mask, recalculate pending IRQs
+        const pending = (self.irq_stat & self.irq_mask) != 0;
+        self.dev.cpu.requestInterrupt(pending);
     }
 
-    pub fn tickSystemClock(self: *@This()) void {
-        self.dev.timers.tickSystemClock();
+    pub fn setInterrupt(self: *@This(), v: u32) void {
+        self.irq_stat |= v;
+        self.updateInterruptPending();
+    }
+
+    pub fn tick(self: *@This()) void {
+        self.dev.cpu.tick();
+        inline for (0..3) |_| self.dev.gpu.tick();
+        self.dev.timers.tick();
+
+        const gpu_events = self.dev.gpu.consumeEvents();
+        if (gpu_events.hblank_start) self.dev.timers.hblankStart();
+        if (gpu_events.hblank_end) self.dev.timers.hblankEnd();
+        if (gpu_events.vblank_start) {
+            self.dev.timers.vblankStart();
+            self.setInterrupt(Interrupt.vblank);
+        }
+        if (gpu_events.vblank_end) self.dev.timers.vblankEnd();
+
+        const timer_events = self.dev.timers.consumeEvents();
+        if (timer_events.t0_fired) self.setInterrupt(Interrupt.tmr0);
+        if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);
+        if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
     }
 
     pub fn readByte(self: *@This(), addr: u32) u8 {
@@ -232,8 +251,8 @@ pub const Bus = struct {
         const masked_addr = maskAddr(addr);
 
         return switch (masked_addr) {
-            addr_istat => self.irq_status,
-            addr_imask => self.irq_mask,
+            addr_irq_stat => self.irq_stat,
+            addr_irq_mask => self.irq_mask,
 
             RAM.addr_start...RAM.addr_end => self.dev.ram.readWord(masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readWord(masked_addr),
@@ -255,6 +274,7 @@ pub const Bus = struct {
 
     pub fn writeByte(self: *@This(), addr: u32, value: u8) void {
         const masked_addr = maskAddr(addr);
+
         switch (masked_addr) {
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, value),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, value),
@@ -294,11 +314,14 @@ pub const Bus = struct {
         const masked_addr = maskAddr(addr);
 
         switch (masked_addr) {
-            addr_istat => {
-                self.irq_status &= v;
-                self.dev.cpu.setInterruptPending(@truncate(self.irq_status));
+            addr_irq_stat => {
+                self.irq_stat &= v; // (0=acknowledge, 1=no change)`
+                self.updateInterruptPending();
             },
-            addr_imask => self.irq_mask = v,
+            addr_irq_mask => {
+                self.irq_mask = v;
+                self.updateInterruptPending();
+            },
 
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeWord(masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeWord(masked_addr, v),

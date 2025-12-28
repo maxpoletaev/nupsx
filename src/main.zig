@@ -3,15 +3,17 @@ const mem = @import("mem.zig");
 
 const timer_mod = @import("timer.zig");
 const disasm_mod = @import("disasm.zig");
+const gpu_mod = @import("gpu.zig");
 
 const Args = @import("args.zig").Args;
 const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
-const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const DebugUI = @import("debug_ui/DebugUI.zig");
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
+const GPU = gpu_mod.GPU;
+const GPUEvent = gpu_mod.GPUEvent;
 const Disasm = disasm_mod.Disasm;
 const Timers = timer_mod.Timers;
 
@@ -52,34 +54,25 @@ pub fn main() !void {
     const dma = try DMA.init(allocator, bus);
     defer dma.deinit();
 
-    const timers = Timers.init(allocator, bus);
+    const timers = Timers.init(allocator);
     defer timers.deinit();
 
-    bus.initDevices(.{
+    bus.connect(.{
         .cpu = cpu,
         .bios = bios,
         .ram = ram,
-        .scratchpad = scratchpad,
         .gpu = gpu,
         .dma = dma,
         .timers = timers,
+        .scratchpad = scratchpad,
     });
 
-    if (args.breakpoint != 0) {
-        cpu.setBreakpoint(args.breakpoint);
-        std.log.info("breakpoint is set to {x}", .{args.breakpoint});
-    }
-
-    const stdin = std.fs.File.stdin();
-    var stdin_buf: [1]u8 = undefined;
-
-    if (args.step_execute) {
-        cpu.stall = true;
-    }
+    // const stdin = std.fs.File.stdin();
+    // var stdin_buf: [1]u8 = undefined;
 
     if (args.exe_path) |path| {
         while (cpu.pc != 0x80030000) {
-            cpu.execute();
+            bus.tick();
         }
 
         std.log.info("loading exe file: {s}", .{path});
@@ -91,54 +84,61 @@ pub fn main() !void {
         defer disasm.deinit();
 
         while (true) {
-            cpu.execute();
+            bus.tick();
 
             if (args.disasm) {
                 const decoded = disasm.disassemble(cpu.instr);
                 std.log.debug("{x}\t {x}\t {s}", .{ cpu.instr_addr, cpu.instr.code, decoded });
             }
 
-            if (cpu.stall) {
-                _ = try stdin.read(&stdin_buf);
-                args.disasm = true;
-                cpu.step();
-            }
+            // if (cpu.stall) {
+            //     _ = try stdin.read(&stdin_buf);
+            //     args.disasm = true;
+            //     cpu.step();
+            // }
         }
     } else if (args.debug_ui) {
         const debug_ui = try DebugUI.init(allocator, cpu, bus);
         defer debug_ui.deinit();
 
-        while (debug_ui.is_running) {
-            cpu.execute();
-            bus.tickSystemClock();
+        while (true) {
+            bus.tick();
 
-            if (bus.debug_pause or gpu.debug_pause) {
-                cpu.stall = true;
-            }
-
-            debug_ui.update();
             if (captureTtyOutput(cpu)) |ch| {
                 try debug_ui.tty_view.writeChar(ch);
+            }
+
+            if (gpu.consumeFrameReady()) {
+                if (!debug_ui.is_running) {
+                    break;
+                }
+                debug_ui.update();
             }
         }
     } else {
         const display_ui = try UI.init(allocator, gpu);
         defer display_ui.deinit();
 
+        var stdout = std.fs.File.stdout();
         var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);
         defer tty_buf.deinit(allocator);
 
-        while (display_ui.is_running) {
-            cpu.execute();
-            bus.tickSystemClock();
-            display_ui.update();
+        while (true) {
+            bus.tick();
 
             if (captureTtyOutput(cpu)) |ch| {
                 try tty_buf.append(allocator, ch);
                 if (ch == '\n' or tty_buf.items.len >= 1024) {
-                    std.log.info("TTY: {s}", .{tty_buf.items});
+                    try stdout.writeAll(tty_buf.items);
                     tty_buf.clearRetainingCapacity();
                 }
+            }
+
+            if (gpu.consumeFrameReady()) {
+                if (!display_ui.is_running) {
+                    break;
+                }
+                display_ui.update();
             }
         }
     }

@@ -64,16 +64,16 @@ fn drawGprTab(self: *@This()) void {
 
 pub fn update(self: *@This()) void {
     if (zgui.begin("CPU", .{})) {
-        _ = zgui.checkbox("Stall", .{
-            .v = &self.cpu.stall,
-        });
+        // _ = zgui.checkbox("Stall", .{
+        //     .v = &self.cpu.stall,
+        // });
 
-        if (self.cpu.stall) {
-            zgui.sameLine(.{});
-            if (zgui.button("Step", .{})) {
-                self.cpu.step();
-            }
-        }
+        // if (self.cpu.stall) {
+        //     zgui.sameLine(.{});
+        //     if (zgui.button("Step", .{})) {
+        //         self.cpu.step();
+        //     }
+        // }
 
         _ = zgui.inputInt("PC", .{
             .step = 4,

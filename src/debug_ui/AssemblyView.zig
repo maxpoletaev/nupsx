@@ -84,9 +84,9 @@ pub fn update(self: *@This()) void {
                 self.follow_pc = !self.follow_pc;
             }
 
-            if (zgui.isKeyPressed(zgui.Key.space, false)) {
-                if (self.cpu.stall) self.cpu.step();
-            }
+            // if (zgui.isKeyPressed(zgui.Key.space, false)) {
+            //     if (self.cpu.stall) self.cpu.step();
+            // }
         }
 
         // Scrollable area
