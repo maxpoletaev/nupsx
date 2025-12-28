@@ -549,6 +549,10 @@ pub const CPU = struct {
         self.step();
     }
 
+    pub fn setInterruptPending(self: *@This(), v: u6) void {
+        self.cop0.cause().interrupt_pending = v;
+    }
+
     // --------------------------------------
     // Instructions
     // --------------------------------------

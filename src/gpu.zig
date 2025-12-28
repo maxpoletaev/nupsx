@@ -83,6 +83,10 @@ inline fn argTextpage(v: u32) struct {
 
 pub const GPU = struct {
     pub const vram_size = 0x100000;
+    pub const addr_gp0: u32 = 0x1f801810;
+    pub const addr_gp1: u32 = 0x1f801814;
+    pub const addr_start: u32 = 0x1f801810;
+    pub const addr_end: u32 = 0x1f801817;
 
     allocator: std.mem.Allocator,
     rasterizer: Rasterizer,
@@ -138,16 +142,16 @@ pub const GPU = struct {
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         switch (addr) {
-            mem.Addr.gpu_gp0 => return self.readGpuread(),
-            mem.Addr.gpu_gp1 => return self.readGpustat(),
+            addr_gp0 => return self.readGpuread(),
+            addr_gp1 => return self.readGpustat(),
             else => std.debug.panic("unhandled GPU read: {x}", .{addr}),
         }
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
         switch (addr) {
-            mem.Addr.gpu_gp0 => self.gp0write(v),
-            mem.Addr.gpu_gp1 => self.gp1write(v),
+            addr_gp0 => self.gp0write(v),
+            addr_gp1 => self.gp1write(v),
             else => std.debug.panic("unhandled GPU write: {x}", .{addr}),
         }
     }
@@ -295,7 +299,7 @@ pub const GPU = struct {
                     const y = @as(u32, (arg_ypos + self.gp0_ycur) & 0x1ff);
 
                     const addr = 2 * (1024 * y + x);
-                    mem.writeToBuf(u16, self.vram, addr, halfword);
+                    mem.write(u16, self.vram, addr, halfword);
 
                     self.gp0_xcur += 1;
 

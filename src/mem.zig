@@ -4,90 +4,159 @@ const builtin = @import("builtin");
 const BIOS = @import("bios.zig").BIOS;
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
+const CPU = @import("cpu.zig").CPU;
+const Timers = @import("timer.zig").Timers;
 
 const expectEqual = std.testing.expectEqual;
 const log = std.log.scoped(.mem);
 
-pub const Addr = opaque {
-    // Main RAM: 2MB
-    pub const ram_start: u32 = 0x00000000;
-    pub const ram_end: u32 = 0x001fffff;
-
-    // Scratchpad: 1KB fast RAM
-    pub const scratchpad_start: u32 = 0x1f800000;
-    pub const scratchpad_end: u32 = 0x1f8003ff;
-
-    // Interrupt Control
-    pub const i_stat: u32 = 0x1f801070;
-    pub const i_mask: u32 = 0x1f801074;
-
-    // DMA
-    pub const dma_start: u32 = 0x1f801080;
-    pub const dma_end: u32 = 0x1f8010ff;
-    pub const dma_dpcr: u32 = 0x1f8010f0;
-    pub const dma_dicr: u32 = 0x1f8010f4;
-
-    // GPU
-    pub const gpu_start: u32 = 0x1f801810;
-    pub const gpu_end: u32 = 0x1f801817;
-    pub const gpu_gp0: u32 = 0x1f801810;
-    pub const gpu_gp1: u32 = 0x1f801814;
-
-    // SPU
-    pub const spu_start: u32 = 0x1f801d80;
-    pub const spu_end: u32 = 0x1f801dbf;
-    pub const spu_stat: u32 = 0x1f801dae;
-
-    // BIOS: 512KB ROM
-    pub const bios_start: u32 = 0x1fc00000;
-    pub const bios_end: u32 = 0x1fc7ffff;
-};
-
-const mem_region_mirror_table = [_]u32{
+const addr_mask_table = [_]u32{
     0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
     0x7fffffff, 0x1fffffff, 0xffffffff, 0xffffffff,
 };
 
-inline fn resolveAddr(addr: u32) u32 {
-    const mask = mem_region_mirror_table[addr >> 29];
+inline fn maskAddr(addr: u32) u32 {
+    const mask = addr_mask_table[addr >> 29];
     return addr & mask;
 }
 
-test "resolveAddr" {
-    try expectEqual(0x00000000, resolveAddr(0x00000000));
-    try expectEqual(0x00000000, resolveAddr(0x80000000));
-    try expectEqual(0x00000000, resolveAddr(0xa0000000));
+test "maskAddr" {
+    try expectEqual(0x00000000, maskAddr(0x00000000));
+    try expectEqual(0x00000000, maskAddr(0x80000000));
+    try expectEqual(0x00000000, maskAddr(0xa0000000));
 }
+
+/// Main RAM (2MB)
+pub const RAM = struct {
+    pub const addr_start: u32 = 0x00000000;
+    pub const addr_end: u32 = 0x001fffff;
+
+    data: [0x200000]u8,
+
+    pub fn init(allocator: std.mem.Allocator) !*@This() {
+        const self = try allocator.create(@This());
+        self.* = .{ .data = undefined };
+        @memset(&self.data, 0);
+        return self;
+    }
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
+
+    pub inline fn readByte(self: *@This(), addr: u32) u8 {
+        return read(u8, &self.data, addr - addr_start);
+    }
+    pub inline fn readHalf(self: *@This(), addr: u32) u16 {
+        return read(u16, &self.data, addr - addr_start);
+    }
+    pub inline fn readWord(self: *@This(), addr: u32) u32 {
+        return read(u32, &self.data, addr - addr_start);
+    }
+
+    pub inline fn writeByte(self: *@This(), addr: u32, value: u8) void {
+        write(u8, &self.data, addr - addr_start, value);
+    }
+    pub inline fn writeHalf(self: *@This(), addr: u32, value: u16) void {
+        write(u16, &self.data, addr - addr_start, value);
+    }
+    pub inline fn writeWord(self: *@This(), addr: u32, value: u32) void {
+        write(u32, &self.data, addr - addr_start, value);
+    }
+};
+
+/// Scratchpad fast RAM (1KB)
+pub const Scratchpad = struct {
+    pub const addr_start: u32 = 0x1f800000;
+    pub const addr_end: u32 = 0x1f8003ff;
+
+    data: [0x400]u8,
+
+    pub fn init(allocator: std.mem.Allocator) !*@This() {
+        const self = try allocator.create(@This());
+        self.* = .{ .data = undefined };
+        @memset(&self.data, 0);
+        return self;
+    }
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
+
+    pub inline fn readByte(self: *@This(), addr: u32) u8 {
+        return read(u8, &self.data, addr - addr_start);
+    }
+    pub inline fn readHalf(self: *@This(), addr: u32) u16 {
+        return read(u16, &self.data, addr - addr_start);
+    }
+    pub inline fn readWord(self: *@This(), addr: u32) u32 {
+        return read(u32, &self.data, addr - addr_start);
+    }
+
+    pub inline fn writeByte(self: *@This(), addr: u32, value: u8) void {
+        write(u8, &self.data, addr - addr_start, value);
+    }
+    pub inline fn writeHalf(self: *@This(), addr: u32, value: u16) void {
+        write(u16, &self.data, addr - addr_start, value);
+    }
+    pub inline fn writeWord(self: *@This(), addr: u32, value: u32) void {
+        write(u32, &self.data, addr - addr_start, value);
+    }
+};
 
 /// Connetced deivces set for 2-step initialization.
 pub const Devices = struct {
+    cpu: *CPU,
     bios: *BIOS,
+    ram: *RAM,
+    scratchpad: *Scratchpad,
     gpu: *GPU,
     dma: *DMA,
+    timers: *Timers,
 };
 
-pub const Interupt = enum(u32) {
-    vblank = 0,
-    gpu = 1,
-    cdrom = 2,
-    dma = 3,
-    tmr0 = 4,
-    tmr1 = 5,
-    tmr2 = 6,
-    ctrl_mc_byte = 7,
-    sio = 8,
-    spu = 9,
-    lightpen = 10,
+pub const Interrupt = opaque {
+    pub const vblank: u32 = 1 << 0;
+    pub const gpu: u32 = 1 << 1;
+    pub const cdrom: u32 = 1 << 2;
+    pub const dma: u32 = 1 << 3;
+    pub const tmr0: u32 = 1 << 4;
+    pub const tmr1: u32 = 1 << 5;
+    pub const tmr2: u32 = 1 << 6;
+    pub const ctrl_mc_byte: u32 = 1 << 7;
+    pub const sio: u32 = 1 << 8;
+    pub const spu: u32 = 1 << 9;
+    pub const lightpen: u32 = 1 << 10;
 };
+
+fn unhandledRead(comptime T: anytype, addr: u32) T {
+    const v = switch (T) {
+        u8 => 0xac,
+        u16 => 0xacab,
+        u32 => 0xacabacab,
+        else => @compileError("unsupported type"),
+    };
+    log.warn("unhandled read at address: {x}", .{addr});
+    return v;
+}
+
+fn unhandledWrite(comptime T: anytype, addr: u32, value: T) void {
+    log.warn("unhandled write at address: {x}={x}", .{ addr, value });
+}
+
+const addr_istat: u32 = 0x1f801070;
+const addr_imask: u32 = 0x1f801074;
+const addr_spu_start: u32 = 0x1f801d80;
+const addr_spu_end: u32 = 0x1f801dbf;
+const addr_spu_stat: u32 = 0x1f801dae;
 
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {
     allocator: std.mem.Allocator,
-    interrupt_mask: u32 = 0,
-    interrupt_status: u32 = 0,
-    scratchpad: [0x400]u8,
-    ram: [0x200000]u8,
     dev: Devices,
+
+    irq_mask: u32 = 0,
+    irq_status: u32 = 0,
 
     debug_pause: bool = false,
 
@@ -95,14 +164,8 @@ pub const Bus = struct {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
-            .scratchpad = undefined,
-            .ram = undefined,
             .dev = undefined,
         };
-
-        @memset(&self.ram, 0);
-        @memset(&self.scratchpad, 0);
-
         return self;
     }
 
@@ -114,156 +177,93 @@ pub const Bus = struct {
         self.dev = dev;
     }
 
+    pub fn setInterrupt(self: *@This(), v: u32) void {
+        self.irq_status |= v;
+        self.dev.cpu.setInterruptPending(@truncate(self.irq_status));
+    }
+
+    pub fn tickSystemClock(self: *@This()) void {
+        self.dev.timers.tickSystemClock();
+    }
+
     pub fn readByte(self: *@This(), addr: u32) u8 {
-        const resolved_addr = resolveAddr(addr);
+        const masked_addr = maskAddr(addr);
 
-        switch (resolved_addr) {
-            Addr.ram_start...Addr.ram_end => {
-                return read(u8, &self.ram, resolved_addr);
-            },
-            Addr.scratchpad_start...Addr.scratchpad_end => {
-                const offset = resolved_addr - Addr.scratchpad_start;
-                return read(u8, &self.scratchpad, offset);
-            },
-            Addr.bios_start...Addr.bios_end => {
-                const offset = resolved_addr - Addr.bios_start;
-                return read(u8, self.dev.bios.rom, offset);
-            },
-            else => {},
-        }
-
-        // log.debug("readByte: out of bounds: {x}", .{addr});
-        // self.debug_pause = true;
-        return 0xac;
+        return switch (masked_addr) {
+            RAM.addr_start...RAM.addr_end => self.dev.ram.readByte(masked_addr),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readByte(masked_addr),
+            BIOS.addr_start...BIOS.addr_end => self.dev.bios.readByte(masked_addr),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.readByte(masked_addr),
+            else => unhandledRead(u8, addr),
+        };
     }
 
     pub fn readHalf(self: *@This(), addr: u32) u16 {
-        switch (addr) {
-            Addr.spu_stat => return 0x2007,
-            else => {},
-        }
+        const masked_addr = maskAddr(addr);
 
-        const resolved_addr = resolveAddr(addr);
-
-        switch (resolved_addr) {
-            Addr.ram_start...Addr.ram_end => {
-                return read(u16, &self.ram, resolved_addr);
-            },
-            Addr.scratchpad_start...Addr.scratchpad_end => {
-                const offset = resolved_addr - Addr.scratchpad_start;
-                return read(u16, &self.scratchpad, offset);
-            },
-            Addr.bios_start...Addr.bios_end => {
-                const offset = resolved_addr - Addr.bios_start;
-                return read(u16, self.dev.bios.rom, offset);
-            },
-            else => {},
-        }
-
-        log.debug("readHalf: out of bounds: {x}", .{addr});
-        return 0xacab;
+        return switch (masked_addr) {
+            addr_spu_stat => return 0x2007,
+            RAM.addr_start...RAM.addr_end => self.dev.ram.readHalf(masked_addr),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readHalf(masked_addr),
+            BIOS.addr_start...BIOS.addr_end => self.dev.bios.readHalf(masked_addr),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.readHalf(masked_addr),
+            else => unhandledRead(u16, masked_addr),
+        };
     }
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
-        switch (addr) {
-            Addr.i_stat => return self.interrupt_status,
-            Addr.i_mask => return self.interrupt_mask,
-            else => {},
-        }
+        const masked_addr = maskAddr(addr);
 
-        const resolved_addr = resolveAddr(addr);
-
-        switch (resolved_addr) {
-            Addr.ram_start...Addr.ram_end => {
-                return read(u32, &self.ram, resolved_addr);
-            },
-            Addr.scratchpad_start...Addr.scratchpad_end => {
-                const offset = resolved_addr - Addr.scratchpad_start;
-                return read(u32, &self.scratchpad, offset);
-            },
-            Addr.bios_start...Addr.bios_end => {
-                const offset = resolved_addr - Addr.bios_start;
-                return read(u32, self.dev.bios.rom, offset);
-            },
-            Addr.gpu_start...Addr.gpu_end => {
-                return self.dev.gpu.readWord(resolved_addr);
-            },
-            Addr.dma_start...Addr.dma_end => {
-                return self.dev.dma.readWord(resolved_addr);
-            },
-            else => {},
-        }
-
-        // log.debug("readWord: out of bounds: {x}", .{addr});
-        // self.debug_pause = true;
-
-        return 0xacabacab;
+        return switch (masked_addr) {
+            addr_istat => self.irq_status,
+            addr_imask => self.irq_mask,
+            RAM.addr_start...RAM.addr_end => self.dev.ram.readWord(masked_addr),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readWord(masked_addr),
+            BIOS.addr_start...BIOS.addr_end => self.dev.bios.readWord(masked_addr),
+            GPU.addr_start...GPU.addr_end => self.dev.gpu.readWord(masked_addr),
+            DMA.addr_start...DMA.addr_end => self.dev.dma.readWord(masked_addr),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.readWord(masked_addr),
+            else => unhandledRead(u32, masked_addr),
+        };
     }
 
     pub fn writeByte(self: *@This(), addr: u32, value: u8) void {
-        const resolved_addr = resolveAddr(addr);
-
-        switch (resolved_addr) {
-            Addr.ram_start...Addr.ram_end => {
-                return writeToBuf(u8, &self.ram, resolved_addr, value);
-            },
-            Addr.scratchpad_start...Addr.scratchpad_end => {
-                const offset = resolved_addr - Addr.scratchpad_start;
-                return writeToBuf(u8, &self.scratchpad, offset, value);
-            },
-            else => {},
+        const masked_addr = maskAddr(addr);
+        switch (masked_addr) {
+            RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, value),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, value),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.writeByte(masked_addr, value),
+            else => unhandledWrite(u8, addr, value),
         }
-
-        // log.warn("writeByte: out of bounds: {x}", .{addr})
     }
 
     pub fn writeHalf(self: *@This(), addr: u32, value: u16) void {
-        const resolved_addr = resolveAddr(addr);
+        const masked_addr = maskAddr(addr);
 
-        switch (resolved_addr) {
-            Addr.ram_start...Addr.ram_end => {
-                return writeToBuf(u16, &self.ram, resolved_addr, value);
-            },
-            Addr.scratchpad_start...Addr.scratchpad_end => {
-                const offset = resolved_addr - Addr.scratchpad_start;
-                return writeToBuf(u16, &self.scratchpad, offset, value);
-            },
-            else => {},
+        switch (masked_addr) {
+            RAM.addr_start...RAM.addr_end => self.dev.ram.writeHalf(masked_addr, value),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeHalf(masked_addr, value),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.writeHalf(masked_addr, value),
+            else => unhandledWrite(u16, addr, value),
         }
-
-        // log.warn("writeHalf: out of bounds: {x}", .{addr});
     }
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
-        switch (addr) {
-            Addr.i_stat => {
-                self.interrupt_status = v & self.interrupt_mask;
-                return;
+        const masked_addr = maskAddr(addr);
+
+        switch (masked_addr) {
+            addr_istat => {
+                self.irq_status &= v;
+                self.dev.cpu.setInterruptPending(@truncate(self.irq_status));
             },
-            Addr.i_mask => {
-                self.interrupt_mask = v;
-                return;
-            },
-            else => {},
+            addr_imask => self.irq_mask = v,
+            RAM.addr_start...RAM.addr_end => self.dev.ram.writeWord(masked_addr, v),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeWord(masked_addr, v),
+            GPU.addr_start...GPU.addr_end => self.dev.gpu.writeWord(masked_addr, v),
+            DMA.addr_start...DMA.addr_end => self.dev.dma.writeWord(masked_addr, v),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.writeWord(masked_addr, v),
+            else => unhandledWrite(u32, addr, v),
         }
-
-        const resolved_addr = resolveAddr(addr);
-
-        switch (resolved_addr) {
-            Addr.ram_start...Addr.ram_end => {
-                return writeToBuf(u32, &self.ram, resolved_addr, v);
-            },
-            Addr.scratchpad_start...Addr.scratchpad_end => {
-                const offset = resolved_addr - Addr.scratchpad_start;
-                return writeToBuf(u32, &self.scratchpad, offset, v);
-            },
-            Addr.gpu_start...Addr.gpu_end => return self.dev.gpu.writeWord(resolved_addr, v),
-            Addr.dma_start...Addr.dma_end => return self.dev.dma.writeWord(resolved_addr, v),
-            else => {},
-        }
-
-        // self.debug_pause = true;
-        // log.warn("writeWord: out of bounds: {x}", .{addr});
     }
 };
 
@@ -281,7 +281,7 @@ pub inline fn read(comptime T: type, buf: []u8, offset: u32) T {
     return std.mem.readInt(T, sl, .little);
 }
 
-pub inline fn writeToBuf(comptime T: type, buf: []u8, offset: u32, v: T) void {
+pub inline fn write(comptime T: type, buf: []u8, offset: u32, v: T) void {
     const t_size = @sizeOf(T);
 
     if (comptime builtin.mode == .Debug) {

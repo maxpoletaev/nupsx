@@ -1,6 +1,8 @@
 const std = @import("std");
 const mem = @import("mem.zig");
 
+const timer_mod = @import("timer.zig");
+
 const Args = @import("Args.zig");
 const CPU = @import("cpu.zig").CPU;
 const BIOS = @import("bios.zig").BIOS;
@@ -9,6 +11,7 @@ const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const DebugUI = @import("debug_ui.zig").DebugUI;
 const UI = @import("ui.zig").UI;
+const Timers = timer_mod.Timers;
 const exe = @import("exe.zig");
 
 pub fn main() !void {
@@ -30,6 +33,12 @@ pub fn main() !void {
     const bus = try mem.Bus.init(allocator);
     defer bus.deinit();
 
+    const ram = try mem.RAM.init(allocator);
+    defer ram.deinit(allocator);
+
+    const scratchpad = try mem.Scratchpad.init(allocator);
+    defer scratchpad.deinit(allocator);
+
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
 
@@ -42,10 +51,17 @@ pub fn main() !void {
     const dma = try DMA.init(allocator, bus);
     defer dma.deinit();
 
+    const timers = Timers.init(allocator, bus);
+    defer timers.deinit();
+
     bus.initDevices(.{
+        .cpu = cpu,
+        .bios = bios,
+        .ram = ram,
+        .scratchpad = scratchpad,
         .gpu = gpu,
         .dma = dma,
-        .bios = bios,
+        .timers = timers,
     });
 
     if (args.breakpoint != 0) {
@@ -93,6 +109,7 @@ pub fn main() !void {
 
         while (debug_ui.is_running) {
             cpu.execute();
+            bus.tickSystemClock();
 
             if (bus.debug_pause or gpu.debug_pause) {
                 cpu.stall = true;

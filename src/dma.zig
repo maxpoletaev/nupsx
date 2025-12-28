@@ -44,6 +44,11 @@ const Channel = struct {
 };
 
 pub const DMA = struct {
+    pub const addr_start: u32 = 0x1f801080;
+    pub const addr_end: u32 = 0x1f8010ff;
+    pub const addr_dpcr: u32 = 0x1f8010f0;
+    pub const addr_dicr: u32 = 0x1f8010f4;
+
     allocator: std.mem.Allocator,
     bus: *Bus,
     dpcr: u32,
@@ -95,8 +100,8 @@ pub const DMA = struct {
 
     pub fn readWord(self: *@This(), addr: u32) u32 {
         switch (addr) {
-            mem.Addr.dma_dpcr => return self.dpcr,
-            mem.Addr.dma_dicr => return self.dicr,
+            addr_dpcr => return self.dpcr,
+            addr_dicr => return self.dicr,
             else => {
                 log.debug("readWord: dma channel register read: {x}", .{addr});
                 return 0;
@@ -106,10 +111,10 @@ pub const DMA = struct {
 
     pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
         switch (addr) {
-            mem.Addr.dma_dpcr => self.dpcr = v,
-            mem.Addr.dma_dicr => self.dicr = v,
+            addr_dpcr => self.dpcr = v,
+            addr_dicr => self.dicr = v,
             else => {
-                const offset = addr - mem.Addr.dma_start;
+                const offset = addr - addr_start;
                 const reg_id = bits.field(offset, 2, u2);
                 const chan_id = bits.field(offset, 4, u3);
                 self.updateChannel(chan_id, reg_id, v);
