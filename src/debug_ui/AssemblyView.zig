@@ -102,7 +102,7 @@ pub fn update(self: *@This()) void {
 
                 for (start..end) |i| {
                     const addr = @as(u32, @truncate(addr_range.start + i * 4));
-                    const instr = cpu_mod.Instr{ .code = self.bus.readWord(addr) };
+                    const instr = cpu_mod.Instr{ .code = self.bus.read(u32, addr) };
 
                     self.tmp_buf.clearRetainingCapacity();
                     disasm_mod.toWriter(instr, &self.tmp_buf.writer) catch unreachable;

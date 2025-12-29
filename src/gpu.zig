@@ -159,19 +159,20 @@ pub const GPU = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn readWord(self: *@This(), addr: u32) u32 {
-        switch (addr) {
-            addr_gp0 => return self.readGpuread(),
-            addr_gp1 => return self.readGpustat(),
-            else => std.debug.panic("unhandled GPU read: {x}", .{addr}),
-        }
+    pub fn read(self: *@This(), comptime T: type, addr: u32) T {
+        const v = switch (addr) {
+            addr_gp0 => self.readGpuread(),
+            addr_gp1 => self.readGpustat(),
+            else => std.debug.panic("unhandled GPU read at {x}", .{addr}),
+        };
+        return @truncate(v);
     }
 
-    pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+    pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
         switch (addr) {
             addr_gp0 => self.gp0write(v),
             addr_gp1 => self.gp1write(v),
-            else => std.debug.panic("unhandled GPU write: {x}", .{addr}),
+            else => std.debug.panic("unhandled GPU write at {x}", .{addr}),
         }
     }
 
@@ -318,7 +319,7 @@ pub const GPU = struct {
                     const y = @as(u32, (arg_ypos + self.gp0_ycur) & 0x1ff);
 
                     const addr = 2 * (1024 * y + x);
-                    mem.write(u16, self.vram, addr, halfword);
+                    mem.writeBuf(u16, self.vram, addr, halfword);
 
                     self.gp0_xcur += 1;
 
@@ -370,7 +371,7 @@ pub const GPU = struct {
                     const y = @as(u32, (arg_ypos + self.gp0_ycur) & 0x1ff);
 
                     const addr = 2 * (1024 * y + x);
-                    const halfword = mem.read(u16, self.vram, addr);
+                    const halfword = mem.readBuf(u16, self.vram, addr);
 
                     self.gpuread |= @as(u32, halfword) << shift;
                     self.gp0_xcur += 1;

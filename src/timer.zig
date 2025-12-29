@@ -176,72 +176,39 @@ pub const Timers = struct {
         }
     }
 
-    pub fn readByte(_: *@This(), addr: u32) u8 {
-        std.debug.panic("timers: unhandled readByte at {x}", .{addr});
-    }
-
-    pub fn readHalf(self: *@This(), addr: u32) u16 {
+    pub fn read(self: *@This(), comptime T: type, addr: u32) T {
         const offset = addr - addr_start;
         const regid = bits.field(offset, 0, u4);
         const tmrid = bits.field(offset, 4, u2);
 
-        switch (regid) {
-            reg_current => return self.timers[tmrid].current,
-            reg_mode => return self.timers[tmrid].getMode(),
-            reg_target => return self.timers[tmrid].target,
-            else => {
-                std.debug.panic("timers: unhandled readHalf at {x}", .{addr});
-            },
-        }
+        const v = switch (regid) {
+            reg_current => self.timers[tmrid].current,
+            reg_mode => self.timers[tmrid].getMode(),
+            reg_target => self.timers[tmrid].target,
+            else => std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), addr }),
+        };
+        return switch (T) {
+            u16, u32 => v,
+            u8 => @truncate(v),
+            else => @compileError("Timers.Read: Unsupported type"),
+        };
     }
 
-    pub fn readWord(self: *@This(), addr: u32) u32 {
+    pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
         const offset = addr - addr_start;
         const regid = bits.field(offset, 0, u4);
         const tmrid = bits.field(offset, 4, u2);
 
-        switch (regid) {
-            reg_current => return self.timers[tmrid].current,
-            reg_mode => return self.timers[tmrid].getMode(),
-            reg_target => return self.timers[tmrid].target,
-            else => {
-                std.debug.panic("timers: unhandled readHalf at {x}", .{addr});
-            },
-        }
-    }
-
-    pub fn writeByte(_: *@This(), addr: u32, v: u8) void {
-        std.debug.panic("unhandled writeByte at {x} with value {x}", .{ addr, v });
-    }
-
-    pub fn writeHalf(self: *@This(), addr: u32, v: u16) void {
-        // log.debug("writeHalf {x} = {x}", .{ addr, v });
-
-        const offset = addr - addr_start;
-        const regid = bits.field(offset, 0, u4);
-        const tmrid = bits.field(offset, 4, u2);
+        const vv: u16 = switch (T) {
+            u8, u16 => v,
+            u32 => @truncate(v),
+            else => @compileError("Timers.Write: Unsupported type"),
+        };
 
         switch (regid) {
-            reg_current => self.timers[tmrid].current = v,
-            reg_mode => self.timers[tmrid].setMode(v, self.in_hblank, self.in_vblank),
-            reg_target => self.timers[tmrid].target = v,
-            else => {
-                log.warn("unhandled writeHalf at {x}", .{addr});
-            },
-        }
-    }
-
-    pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
-        // log.debug("writeHalf {x} = {x}", .{ addr, v });
-
-        const offset = addr - addr_start;
-        const regid = bits.field(offset, 0, u4);
-        const tmrid = bits.field(offset, 4, u2);
-
-        switch (regid) {
-            reg_current => self.timers[tmrid].current = @truncate(v),
-            reg_mode => self.timers[tmrid].setMode(@truncate(v), self.in_hblank, self.in_vblank),
-            reg_target => self.timers[tmrid].target = @truncate(v),
+            reg_current => self.timers[tmrid].current = vv,
+            reg_mode => self.timers[tmrid].setMode(vv, self.in_hblank, self.in_vblank),
+            reg_target => self.timers[tmrid].target = vv,
             else => {
                 log.warn("unhandled writeHalf at {x}", .{addr});
             },

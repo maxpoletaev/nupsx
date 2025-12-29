@@ -98,21 +98,21 @@ pub const DMA = struct {
         };
     }
 
-    pub fn readWord(self: *@This(), addr: u32) u32 {
-        switch (addr) {
-            addr_dpcr => return self.dpcr,
-            addr_dicr => return self.dicr,
-
-            else => {
+    pub fn read(self: *@This(), comptime T: type, addr: u32) T {
+        const v = switch (addr) {
+            addr_dpcr => self.dpcr,
+            addr_dicr => self.dicr,
+            else => blk: {
                 const offset = addr - addr_start;
                 const reg_id = bits.field(offset, 2, u2);
                 const chan_id = bits.field(offset, 4, u3);
-                return self.readChannelReg(chan_id, reg_id);
+                break :blk self.readChannelReg(chan_id, reg_id);
             },
-        }
+        };
+        return @truncate(v);
     }
 
-    pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+    pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
         switch (addr) {
             addr_dpcr => self.dpcr = v,
             addr_dicr => self.dicr = v,
@@ -181,13 +181,13 @@ pub const DMA = struct {
 
         switch (ctrl.direction) {
             .to_device => for (0..len) |_| {
-                const v = self.bus.readWord(self.gpu.maddr);
+                const v = self.bus.read(u32, self.gpu.maddr);
                 self.bus.dev.gpu.gp0write(v);
                 self.gpu.maddr, _ = @addWithOverflow(self.gpu.maddr, addr_inc);
             },
             .to_ram => for (0..len) |_| {
                 const v = self.bus.dev.gpu.readGpuread();
-                self.bus.writeWord(self.gpu.maddr, v);
+                self.bus.write(u32, self.gpu.maddr, v);
                 self.gpu.maddr, _ = @addWithOverflow(self.gpu.maddr, addr_inc);
             },
         }
@@ -197,12 +197,12 @@ pub const DMA = struct {
         var addr = self.gpu.maddr;
 
         while (addr != 0xffffff) {
-            const hdr = self.bus.readWord(addr);
+            const hdr = self.bus.read(u32, addr);
             const word_count = hdr >> 24;
 
             for (0..word_count) |i| {
                 const data_addr = @as(u32, @intCast(addr + 4 * (i + 1)));
-                const v = self.bus.readWord(data_addr);
+                const v = self.bus.read(u32, data_addr);
                 self.bus.dev.gpu.gp0write(v);
             }
 
@@ -221,7 +221,7 @@ pub const DMA = struct {
             for (0..len) |i| {
                 const next_addr = (addr - 4) & 0xffffff;
                 const hdr: u32 = if (i == len - 1) 0xffffff else next_addr;
-                self.bus.writeWord(addr, hdr);
+                self.bus.write(u32, addr, hdr);
                 addr = next_addr;
             }
 

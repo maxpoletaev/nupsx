@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const BIOS = @import("bios.zig").BIOS;
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const CPU = @import("cpu.zig").CPU;
@@ -27,6 +26,50 @@ test "maskAddr" {
     try expectEqual(0x00000000, maskAddr(0xa0000000));
 }
 
+/// BIOS ROM (512KB)
+pub const BIOS = struct {
+    pub const addr_start: u32 = 0x1fc00000;
+    pub const addr_end: u32 = 0x1fc7ffff;
+
+    allocator: std.mem.Allocator,
+    rom: []u8,
+
+    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !*@This() {
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        const file_size = try file.getEndPos();
+        const rom = try allocator.alloc(u8, file_size);
+
+        const bytes_read = try file.readAll(rom);
+        if (bytes_read != file_size) {
+            return error.FileReadError;
+        }
+
+        const self = try allocator.create(@This());
+        self.* = .{
+            .allocator = allocator,
+            .rom = rom,
+        };
+
+        return self;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        const allocator = self.allocator;
+        allocator.free(self.rom);
+        allocator.destroy(self);
+    }
+
+    pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {
+        return readBuf(T, self.rom, addr - addr_start);
+    }
+
+    pub inline fn write(_: *@This(), comptime T: type, _: u32, _: T) void {
+        // BIOS is read-only
+    }
+};
+
 /// Main RAM (2MB)
 pub const RAM = struct {
     pub const addr_start: u32 = 0x00000000;
@@ -45,24 +88,12 @@ pub const RAM = struct {
         allocator.destroy(self);
     }
 
-    pub inline fn readByte(self: *@This(), addr: u32) u8 {
-        return read(u8, &self.data, addr - addr_start);
-    }
-    pub inline fn readHalf(self: *@This(), addr: u32) u16 {
-        return read(u16, &self.data, addr - addr_start);
-    }
-    pub inline fn readWord(self: *@This(), addr: u32) u32 {
-        return read(u32, &self.data, addr - addr_start);
+    pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {
+        return readBuf(T, &self.data, addr - addr_start);
     }
 
-    pub inline fn writeByte(self: *@This(), addr: u32, value: u8) void {
-        write(u8, &self.data, addr - addr_start, value);
-    }
-    pub inline fn writeHalf(self: *@This(), addr: u32, value: u16) void {
-        write(u16, &self.data, addr - addr_start, value);
-    }
-    pub inline fn writeWord(self: *@This(), addr: u32, value: u32) void {
-        write(u32, &self.data, addr - addr_start, value);
+    pub inline fn write(self: *@This(), comptime T: type, addr: u32, value: T) void {
+        return writeBuf(T, &self.data, addr - addr_start, value);
     }
 };
 
@@ -84,24 +115,12 @@ pub const Scratchpad = struct {
         allocator.destroy(self);
     }
 
-    pub inline fn readByte(self: *@This(), addr: u32) u8 {
-        return read(u8, &self.data, addr - addr_start);
-    }
-    pub inline fn readHalf(self: *@This(), addr: u32) u16 {
-        return read(u16, &self.data, addr - addr_start);
-    }
-    pub inline fn readWord(self: *@This(), addr: u32) u32 {
-        return read(u32, &self.data, addr - addr_start);
+    pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {
+        return readBuf(T, &self.data, addr - addr_start);
     }
 
-    pub inline fn writeByte(self: *@This(), addr: u32, value: u8) void {
-        write(u8, &self.data, addr - addr_start, value);
-    }
-    pub inline fn writeHalf(self: *@This(), addr: u32, value: u16) void {
-        write(u16, &self.data, addr - addr_start, value);
-    }
-    pub inline fn writeWord(self: *@This(), addr: u32, value: u32) void {
-        write(u32, &self.data, addr - addr_start, value);
+    pub inline fn write(self: *@This(), comptime T: type, addr: u32, value: T) void {
+        return writeBuf(T, &self.data, addr - addr_start, value);
     }
 };
 
@@ -131,7 +150,7 @@ pub const Interrupt = opaque {
     pub const lightpen: u32 = 1 << 10;
 };
 
-pub fn unhandledRead(comptime T: anytype, addr: u32) T {
+fn unhandledRead(comptime T: anytype, addr: u32) T {
     const v = switch (T) {
         u8 => 0xac,
         u16 => 0xacab,
@@ -142,8 +161,8 @@ pub fn unhandledRead(comptime T: anytype, addr: u32) T {
     return v;
 }
 
-pub fn unhandledWrite(comptime T: anytype, addr: u32, v: T) void {
-    log.warn("unhandled write ({s}) at {x}={x}", .{ @typeName(T), addr, v });
+fn unhandledWrite(comptime T: anytype, addr: u32, v: T) void {
+    log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
 }
 
 const addr_irq_stat: u32 = 0x1f801070;
@@ -206,97 +225,6 @@ pub const Bus = struct {
         if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
     }
 
-    pub fn readByte(self: *@This(), addr: u32) u8 {
-        const masked_addr = maskAddr(addr);
-
-        return switch (masked_addr) {
-            RAM.addr_start...RAM.addr_end => self.dev.ram.readByte(masked_addr),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readByte(masked_addr),
-            BIOS.addr_start...BIOS.addr_end => self.dev.bios.readByte(masked_addr),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.readByte(masked_addr),
-            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.readByte(masked_addr),
-
-            0x1f801000...0x1f801023 => 0, // memctl
-            0x1f801060...0x1f801063 => 0, // ramsize
-            0x1f801c00...0x1f801e7f => 0, // spu
-            0xfffe0130...0xfffe0133 => 0, // cachectl
-            0x1f000000...0x1f0000ff => 0, // expansion 1
-            0x1f802000...0x1f802041 => 0, // expansion 2
-
-            else => unhandledRead(u8, addr),
-        };
-    }
-
-    pub fn readHalf(self: *@This(), addr: u32) u16 {
-        const masked_addr = maskAddr(addr);
-
-        return switch (masked_addr) {
-            addr_irq_stat => @truncate(self.irq_stat),
-            addr_irq_mask => @truncate(self.irq_mask),
-
-            RAM.addr_start...RAM.addr_end => self.dev.ram.readHalf(masked_addr),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readHalf(masked_addr),
-            BIOS.addr_start...BIOS.addr_end => self.dev.bios.readHalf(masked_addr),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.readHalf(masked_addr),
-            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.readHalf(masked_addr),
-
-            0x1f801000...0x1f801023 => 0, // memctl
-            0x1f801060...0x1f801063 => 0, // ramsize
-            0x1f801c00...0x1f801e7f => 0, // spu
-            0xfffe0130...0xfffe0133 => 0, // cachectl
-            0x1f000000...0x1f0000ff => 0, // expansion 1
-            0x1f802000...0x1f802041 => 0, // expansion 2
-
-            else => unhandledRead(u16, masked_addr),
-        };
-    }
-
-    pub fn readWord(self: *@This(), addr: u32) u32 {
-        const masked_addr = maskAddr(addr);
-
-        return switch (masked_addr) {
-            addr_irq_stat => self.irq_stat,
-            addr_irq_mask => self.irq_mask,
-
-            RAM.addr_start...RAM.addr_end => self.dev.ram.readWord(masked_addr),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readWord(masked_addr),
-            BIOS.addr_start...BIOS.addr_end => self.dev.bios.readWord(masked_addr),
-            GPU.addr_start...GPU.addr_end => self.dev.gpu.readWord(masked_addr),
-            DMA.addr_start...DMA.addr_end => self.dev.dma.readWord(masked_addr),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.readWord(masked_addr),
-            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.readWord(masked_addr),
-
-            0x1f801000...0x1f801023 => 0, // memctl
-            0x1f801060...0x1f801063 => 0, // ramsize
-            0x1f801c00...0x1f801e7f => 0, // spu
-            0xfffe0130...0xfffe0133 => 0, // cachectl
-            0x1f000000...0x1f0000ff => 0, // expansion 1
-            0x1f802000...0x1f802041 => 0, // expansion 2
-
-            else => unhandledRead(u32, masked_addr),
-        };
-    }
-
-    pub fn writeByte(self: *@This(), addr: u32, v: u8) void {
-        const masked_addr = maskAddr(addr);
-
-        switch (masked_addr) {
-            RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, v),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, v),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.writeByte(masked_addr, v),
-            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.writeByte(masked_addr, v),
-
-            0x1f801000...0x1f801023 => {}, // memctl
-            0x1f801060...0x1f801063 => {}, // ramsize
-            0x1f801c00...0x1f801e7f => {}, // spu
-            0xfffe0130...0xfffe0133 => {}, // cachectl
-            0x1f000000...0x1f0000ff => {}, // expansion 1
-            0x1f802000...0x1f802041 => {}, // expansion 2
-
-            else => unhandledWrite(u8, addr, v),
-        }
-    }
-
     inline fn setIrqStat(self: *@This(), v: u32) void {
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`
         self.updateInterruptPending();
@@ -309,42 +237,46 @@ pub const Bus = struct {
         log.debug("irq_mask write: {x}", .{v});
     }
 
-    pub fn writeHalf(self: *@This(), addr: u32, v: u16) void {
+    pub fn read(self: *@This(), comptime T: type, addr: u32) T {
         const masked_addr = maskAddr(addr);
 
-        switch (masked_addr) {
-            addr_irq_stat => self.setIrqStat(v),
-            addr_irq_mask => self.setIrqMask(v),
+        return switch (masked_addr) {
+            addr_irq_stat => @as(T, @truncate(self.irq_stat)),
+            addr_irq_mask => @as(T, @truncate(self.irq_mask)),
 
-            RAM.addr_start...RAM.addr_end => self.dev.ram.writeHalf(masked_addr, v),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeHalf(masked_addr, v),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.writeHalf(masked_addr, v),
-            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.writeHalf(masked_addr, v),
+            RAM.addr_start...RAM.addr_end => self.dev.ram.read(T, masked_addr),
+            BIOS.addr_start...BIOS.addr_end => self.dev.bios.read(T, masked_addr),
+            GPU.addr_start...GPU.addr_end => self.dev.gpu.read(T, masked_addr),
+            DMA.addr_start...DMA.addr_end => self.dev.dma.read(T, masked_addr),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.read(T, masked_addr),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.read(T, masked_addr),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.read(T, masked_addr),
 
-            0x1f801000...0x1f801023 => {}, // memctl
-            0x1f801060...0x1f801063 => {}, // ramsize
-            0x1f801c00...0x1f801e7f => {}, // spu
-            0xfffe0130...0xfffe0133 => {}, // cachectl
-            0x1f000000...0x1f0000ff => {}, // expansion 1
-            0x1f802000...0x1f802041 => {}, // expansion 2
+            0x1f801000...0x1f801023 => 0, // memctl
+            0x1f801060...0x1f801063 => 0, // ramsize
+            0x1f801c00...0x1f801e7f => 0, // spu
+            0xfffe0130...0xfffe0133 => 0, // cachectl
+            0x1f000000...0x1f0000ff => 0, // expansion 1
+            0x1f802000...0x1f802041 => 0, // expansion 2
 
-            else => unhandledWrite(u16, addr, v),
-        }
+            else => unhandledRead(T, addr),
+        };
     }
 
-    pub fn writeWord(self: *@This(), addr: u32, v: u32) void {
+    pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
         const masked_addr = maskAddr(addr);
 
         switch (masked_addr) {
             addr_irq_stat => self.setIrqStat(v),
             addr_irq_mask => self.setIrqMask(v),
 
-            RAM.addr_start...RAM.addr_end => self.dev.ram.writeWord(masked_addr, v),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeWord(masked_addr, v),
-            GPU.addr_start...GPU.addr_end => self.dev.gpu.writeWord(masked_addr, v),
-            DMA.addr_start...DMA.addr_end => self.dev.dma.writeWord(masked_addr, v),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.writeWord(masked_addr, v),
-            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.writeWord(masked_addr, v),
+            RAM.addr_start...RAM.addr_end => self.dev.ram.write(T, masked_addr, v),
+            BIOS.addr_start...BIOS.addr_end => self.dev.bios.write(T, masked_addr, v),
+            GPU.addr_start...GPU.addr_end => self.dev.gpu.write(T, masked_addr, v),
+            DMA.addr_start...DMA.addr_end => self.dev.dma.write(T, masked_addr, v),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.write(T, masked_addr, v),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.write(T, masked_addr, v),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.write(T, masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
@@ -353,12 +285,12 @@ pub const Bus = struct {
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2
 
-            else => unhandledWrite(u32, addr, v),
+            else => unhandledWrite(T, addr, v),
         }
     }
 };
 
-pub inline fn read(comptime T: type, buf: []u8, offset: u32) T {
+pub inline fn readBuf(comptime T: type, buf: []u8, offset: u32) T {
     const t_size = @sizeOf(T);
 
     if (comptime builtin.mode == .Debug) {
@@ -372,7 +304,7 @@ pub inline fn read(comptime T: type, buf: []u8, offset: u32) T {
     return std.mem.readInt(T, sl, .little);
 }
 
-pub inline fn write(comptime T: type, buf: []u8, offset: u32, v: T) void {
+pub inline fn writeBuf(comptime T: type, buf: []u8, offset: u32, v: T) void {
     const t_size = @sizeOf(T);
 
     if (comptime builtin.mode == .Debug) {

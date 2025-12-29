@@ -51,7 +51,7 @@ pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *
     // Load EXE payload to RAM
     for (0..hdr.exe_size) |i| {
         const addr = hdr.ram_addr + i;
-        bus.writeByte(@intCast(addr), buf[0x800 + i]);
+        bus.write(u8, @intCast(addr), buf[0x800 + i]);
     }
 
     // Set initial register values

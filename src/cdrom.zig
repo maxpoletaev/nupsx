@@ -20,30 +20,12 @@ pub const CDROM = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn readByte(_: @This(), addr: u32) u8 {
-        log.warn("unhandled readByte at {x}", .{addr});
+    pub fn read(_: @This(), comptime T: type, addr: u32) T {
+        log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
         return 0;
     }
 
-    pub fn readHalf(_: @This(), addr: u32) u16 {
-        log.warn("unhandled readHalf at {x}", .{addr});
-        return 0;
-    }
-
-    pub fn readWord(_: @This(), addr: u32) u32 {
-        log.warn("unhandled readWord at {x}", .{addr});
-        return 0;
-    }
-
-    pub fn writeByte(_: @This(), addr: u32, v: u8) void {
-        log.warn("unhandled writeByte at {x} = {x}", .{ addr, v });
-    }
-
-    pub fn writeHalf(_: @This(), addr: u32, v: u16) void {
-        log.warn("unhandled writeHalf at {x} = {x}", .{ addr, v });
-    }
-
-    pub fn writeWord(_: @This(), addr: u32, v: u32) void {
-        log.warn("unhandled writeWord at {x} = {x}", .{ addr, v });
+    pub fn write(_: @This(), comptime T: type, addr: u32, v: T) void {
+        log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, @as(u32, v) });
     }
 };

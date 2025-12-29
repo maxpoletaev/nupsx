@@ -1,6 +1,6 @@
 const std = @import("std");
-const mem = @import("mem.zig");
 
+const mem_mod = @import("mem.zig");
 const timer_mod = @import("timer.zig");
 const disasm_mod = @import("disasm.zig");
 const gpu_mod = @import("gpu.zig");
@@ -8,14 +8,18 @@ const cdrom_mod = @import("cdrom.zig");
 
 const Args = @import("args.zig").Args;
 const CPU = @import("cpu.zig").CPU;
-const BIOS = @import("bios.zig").BIOS;
 const DMA = @import("dma.zig").DMA;
 const DebugUI = @import("debug_ui/DebugUI.zig");
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
+
+const Bus = mem_mod.Bus;
+const BIOS = mem_mod.BIOS;
+const RAM = mem_mod.RAM;
+const Scratchpad = mem_mod.Scratchpad;
 const GPU = gpu_mod.GPU;
-const GPUEvent = gpu_mod.GPUEvent;
 const Disasm = disasm_mod.Disasm;
+const GPUEvent = gpu_mod.GPUEvent;
 const Timers = timer_mod.Timers;
 const CDROM = cdrom_mod.CDROM;
 
@@ -35,17 +39,17 @@ pub fn main() !void {
     };
     defer args.deinit();
 
-    const bus = try mem.Bus.init(allocator);
-    defer bus.deinit();
-
-    const ram = try mem.RAM.init(allocator);
-    defer ram.deinit(allocator);
-
-    const scratchpad = try mem.Scratchpad.init(allocator);
-    defer scratchpad.deinit(allocator);
-
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
+
+    const bus = try Bus.init(allocator);
+    defer bus.deinit();
+
+    const ram = try RAM.init(allocator);
+    defer ram.deinit(allocator);
+
+    const scratchpad = try Scratchpad.init(allocator);
+    defer scratchpad.deinit(allocator);
 
     const gpu = try GPU.init(allocator);
     defer gpu.deinit();
