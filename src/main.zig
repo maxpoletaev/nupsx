@@ -67,10 +67,6 @@ pub fn main() !void {
         .scratchpad = scratchpad,
     });
 
-    if (args.step_execute) {
-        bus.debug_paused = true;
-    }
-
     // const stdin = std.fs.File.stdin();
     // var stdin_buf: [1]u8 = undefined;
 
@@ -113,9 +109,14 @@ pub fn main() !void {
         defer debug_ui.deinit();
 
         while (debug_ui.is_running) {
-            if (bus.debug_paused) {
+            if (debug_ui.cpu_view.paused and !debug_ui.cpu_view.step_requested) {
                 debug_ui.updatePaused();
             } else {
+                if (debug_ui.cpu_view.step_requested) {
+                    debug_ui.cpu_view.step_requested = false;
+                    debug_ui.cpu_view.paused = true;
+                }
+
                 bus.tick();
 
                 if (captureTtyOutput(cpu)) |ch| {

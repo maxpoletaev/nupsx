@@ -8,7 +8,6 @@ pub const Args = struct {
     bios_path: []const u8,
     exe_path: ?[]const u8,
 
-    step_execute: bool = false,
     no_ui: bool = false,
     debug_ui: bool = false,
     disasm: bool = false,
@@ -19,9 +18,6 @@ pub const Args = struct {
         var args = std.mem.zeroInit(Args, .{ .iter = &iter });
 
         while (iter.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--step")) {
-                args.step_execute = true;
-            }
             if (std.mem.eql(u8, arg, "--no-ui")) {
                 args.no_ui = true;
             }

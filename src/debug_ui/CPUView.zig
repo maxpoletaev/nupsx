@@ -21,6 +21,9 @@ allocator: std.mem.Allocator,
 cpu: *CPU,
 bus: *Bus,
 
+paused: bool = false,
+step_requested: bool = false,
+
 pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     const self = try allocator.create(@This());
     self.* = .{
@@ -111,13 +114,13 @@ fn drawGprTab(self: *@This()) void {
 pub fn update(self: *@This()) void {
     if (zgui.begin("CPU", .{})) {
         _ = zgui.checkbox("Pause", .{
-            .v = &self.bus.debug_paused,
+            .v = &self.paused,
         });
 
-        if (self.bus.debug_paused) {
+        if (self.paused) {
             zgui.sameLine(.{});
             if (zgui.button("Step", .{})) {
-                self.bus.debugStep();
+                self.step_requested = true;
             }
         }
 

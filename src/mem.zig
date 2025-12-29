@@ -155,8 +155,6 @@ pub const Bus = struct {
     irq_mask: u32 = 0,
     irq_stat: u32 = 0,
 
-    debug_paused: bool = false,
-
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
@@ -185,8 +183,6 @@ pub const Bus = struct {
     }
 
     pub fn tick(self: *@This()) void {
-        if (self.debug_paused) return;
-
         self.dev.cpu.tick();
         inline for (0..5) |_| self.dev.gpu.tick();
         self.dev.timers.tick();
@@ -206,12 +202,6 @@ pub const Bus = struct {
         if (timer_events.t0_fired) self.setInterrupt(Interrupt.tmr0);
         if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);
         if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
-    }
-
-    pub fn debugStep(self: *@This()) void {
-        self.debug_paused = false;
-        self.tick();
-        self.debug_paused = true;
     }
 
     pub fn readByte(self: *@This(), addr: u32) u8 {
