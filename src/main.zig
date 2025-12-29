@@ -4,6 +4,7 @@ const mem = @import("mem.zig");
 const timer_mod = @import("timer.zig");
 const disasm_mod = @import("disasm.zig");
 const gpu_mod = @import("gpu.zig");
+const cdrom_mod = @import("cdrom.zig");
 
 const Args = @import("args.zig").Args;
 const CPU = @import("cpu.zig").CPU;
@@ -16,6 +17,7 @@ const GPU = gpu_mod.GPU;
 const GPUEvent = gpu_mod.GPUEvent;
 const Disasm = disasm_mod.Disasm;
 const Timers = timer_mod.Timers;
+const CDROM = cdrom_mod.CDROM;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -57,12 +59,16 @@ pub fn main() !void {
     const timers = Timers.init(allocator);
     defer timers.deinit();
 
+    const cdrom = CDROM.init(allocator);
+    defer cdrom.deinit();
+
     bus.connect(.{
         .cpu = cpu,
         .bios = bios,
         .ram = ram,
         .gpu = gpu,
         .dma = dma,
+        .cdrom = cdrom,
         .timers = timers,
         .scratchpad = scratchpad,
     });

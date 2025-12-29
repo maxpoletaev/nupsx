@@ -1,5 +1,5 @@
 const std = @import("std");
-const mem = @import("mem.zig");
+const mem_mod = @import("mem.zig");
 
 const log = std.log.scoped(.bios);
 
@@ -38,13 +38,13 @@ pub const BIOS = struct {
     }
 
     pub inline fn readByte(self: *@This(), addr: u32) u8 {
-        return mem.read(u8, self.rom, addr - addr_start);
+        return mem_mod.read(u8, self.rom, addr - addr_start);
     }
     pub inline fn readHalf(self: *@This(), addr: u32) u16 {
-        return mem.read(u16, self.rom, addr - addr_start);
+        return mem_mod.read(u16, self.rom, addr - addr_start);
     }
     pub inline fn readWord(self: *@This(), addr: u32) u32 {
-        return mem.read(u32, self.rom, addr - addr_start);
+        return mem_mod.read(u32, self.rom, addr - addr_start);
     }
 
     pub inline fn writeByte(_: *@This(), _: u32, _: u8) void {

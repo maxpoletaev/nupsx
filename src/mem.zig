@@ -5,6 +5,7 @@ const BIOS = @import("bios.zig").BIOS;
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const CPU = @import("cpu.zig").CPU;
+const CDROM = @import("cdrom.zig").CDROM;
 const Timers = @import("timer.zig").Timers;
 
 const expectEqual = std.testing.expectEqual;
@@ -111,6 +112,7 @@ pub const Devices = struct {
     ram: *RAM,
     gpu: *GPU,
     dma: *DMA,
+    cdrom: *CDROM,
     timers: *Timers,
     scratchpad: *Scratchpad,
 };
@@ -140,8 +142,8 @@ pub fn unhandledRead(comptime T: anytype, addr: u32) T {
     return v;
 }
 
-pub fn unhandledWrite(comptime T: anytype, addr: u32, value: T) void {
-    log.warn("unhandled write at {x}={x}", .{ addr, value });
+pub fn unhandledWrite(comptime T: anytype, addr: u32, v: T) void {
+    log.warn("unhandled write ({s}) at {x}={x}", .{ @typeName(T), addr, v });
 }
 
 const addr_irq_stat: u32 = 0x1f801070;
@@ -212,6 +214,7 @@ pub const Bus = struct {
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readByte(masked_addr),
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.readByte(masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.readByte(masked_addr),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.readByte(masked_addr),
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
@@ -235,6 +238,7 @@ pub const Bus = struct {
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readHalf(masked_addr),
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.readHalf(masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.readHalf(masked_addr),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.readHalf(masked_addr),
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
@@ -260,6 +264,7 @@ pub const Bus = struct {
             GPU.addr_start...GPU.addr_end => self.dev.gpu.readWord(masked_addr),
             DMA.addr_start...DMA.addr_end => self.dev.dma.readWord(masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.readWord(masked_addr),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.readWord(masked_addr),
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
@@ -279,6 +284,7 @@ pub const Bus = struct {
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, v),
             Timers.addr_start...Timers.addr_end => self.dev.timers.writeByte(masked_addr, v),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.writeByte(masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
@@ -300,7 +306,7 @@ pub const Bus = struct {
     inline fn setIrqMask(self: *@This(), v: u32) void {
         self.irq_mask = v;
         self.updateInterruptPending();
-        // log.debug("irq_mask write: {x}", .{v});
+        log.debug("irq_mask write: {x}", .{v});
     }
 
     pub fn writeHalf(self: *@This(), addr: u32, v: u16) void {
@@ -313,6 +319,7 @@ pub const Bus = struct {
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeHalf(masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeHalf(masked_addr, v),
             Timers.addr_start...Timers.addr_end => self.dev.timers.writeHalf(masked_addr, v),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.writeHalf(masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
@@ -337,6 +344,7 @@ pub const Bus = struct {
             GPU.addr_start...GPU.addr_end => self.dev.gpu.writeWord(masked_addr, v),
             DMA.addr_start...DMA.addr_end => self.dev.dma.writeWord(masked_addr, v),
             Timers.addr_start...Timers.addr_end => self.dev.timers.writeWord(masked_addr, v),
+            CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.writeWord(masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
