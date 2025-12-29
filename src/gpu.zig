@@ -8,7 +8,7 @@ const Rasterizer = rasterizer.Rasterizer;
 const Color15 = rasterizer.Color15;
 const Color24 = rasterizer.Color24;
 const Vertex = rasterizer.Vertex;
-const ColorDepth = rasterizer.ColorDepth;
+const RasterDepth = rasterizer.ColorDepth;
 
 const log = std.log.scoped(.gpu);
 
@@ -26,13 +26,65 @@ const Fifo = struct {
     }
 };
 
+const Hres1 = enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 };
+const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
+const Vres = enum(u1) { @"240" = 0, @"480" = 1 };
+const VideoMode = enum(u1) { ntsc = 0, pal = 1 };
+const ColorDepth = enum(u1) { bit15 = 0, bit24 = 1 };
+const TexPageColors = enum(u2) { bit4 = 0, bit8 = 1, bit15 = 2 };
+const DmaDirection = enum(u2) { off = 0, fifo = 1, cpu_to_gp0 = 2, gpuread_to_cpu = 3 };
+
 const DisplayMode = packed struct(u32) {
-    hres: enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 },
-    vres: enum(u1) { @"240" = 0, @"480" = 1 },
-    video_mode: enum(u1) { ntsc = 0, pal = 1 },
-    color_depth: enum(u1) { bit15 = 0, bit24 = 1 },
-    interlace: u1,
+    hres: Hres1,
+    vres: Vres,
+    video_mode: VideoMode,
+    color_depth: ColorDepth,
+    interlace: bool,
     _pad0: u26,
+};
+
+const DrawMode = packed struct(u32) {
+    texture_page_x: u4,
+    texture_page_y: u1,
+    semi_transparency: u2,
+    texture_page_colors: TexPageColors,
+    dithering: bool,
+    drawing_to_display_area: bool,
+    texture_disable: bool,
+    texrect_xflip: bool,
+    texrect_yflip: bool,
+    _pad0: u18,
+};
+
+const GpuStat = packed struct(u32) {
+    texture_page_x: u4,
+    texture_page_y: u1,
+    semi_transparency: u2,
+    texture_page_colors: TexPageColors,
+    dithering: bool,
+    drawing_to_display_area: bool,
+
+    set_mask_bit: bool,
+    draw_pixels_masked: bool,
+
+    interlace_field: bool,
+    reverseflag: bool,
+    texture_disable: bool,
+    hres2: Hres2,
+    hres1: Hres1,
+    vres: Vres,
+    video_mode: VideoMode,
+    color_depth: ColorDepth,
+    vertical_interlace: bool,
+
+    display_enable: bool,
+    interrupt_request: bool,
+    dma_data_request: bool,
+    ready_receive_cmd: bool,
+    ready_send_vram_to_cpu: bool,
+    ready_receive_dma_block: bool,
+    dma_direction: DmaDirection,
+    interlace_odd_line: bool,
 };
 
 const CmdState = enum {
@@ -73,15 +125,15 @@ inline fn argClut(v: u32) struct { x: u16, y: u16 } {
 inline fn argTextpage(v: u32) struct {
     x: u16,
     y: u16,
-    depth: ColorDepth,
+    depth: RasterDepth,
 } {
     const texpage = v >> 16;
     const tpx = @as(u16, bits.field(texpage, 0, u4)) * 64;
     const tpy = @as(u16, bits.field(texpage, 4, u1)) * 256;
     const depth = switch (bits.field(texpage, 7, u2)) {
-        0 => ColorDepth.bit4,
-        1 => ColorDepth.bit8,
-        else => ColorDepth.bit15,
+        0 => RasterDepth.bit4,
+        1 => RasterDepth.bit8,
+        else => RasterDepth.bit15,
     };
     return .{ .x = tpx, .y = tpy, .depth = depth };
 }
@@ -105,13 +157,13 @@ pub const GPU = struct {
 
     vram: *align(16) [vram_size]u8,
     gpuread: u32,
-    gpustat: u32,
 
     gp0_state: CmdState,
     gp0_fifo: Fifo,
     gp0_cmd: u8,
     gp0_xcur: u16,
     gp0_ycur: u16,
+    gp0_draw_mode: DrawMode,
     gp0_draw_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_area_end: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_offset: packed struct(u32) { x: i11, y: i11, _pad: u10 },
@@ -121,7 +173,7 @@ pub const GPU = struct {
     gp1_display_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp1_display_range_x: packed struct(u32) { x1: u12, x2: u12, _pad: u8 },
     gp1_display_range_y: packed struct(u32) { y1: u11, y2: u11, _pad: u10 },
-    gp1_dma_direction: enum(u2) { off = 0, fifo = 1, cpu_to_gp0 = 2, gpuread_to_cpu = 3 },
+    gp1_dma_direction: DmaDirection,
     gp1_display_mode: DisplayMode,
     gp1_display_enable: bool,
     interrupt_request: bool,
@@ -144,11 +196,9 @@ pub const GPU = struct {
         self.* = std.mem.zeroInit(@This(), .{
             .allocator = allocator,
             .rasterizer = Rasterizer.init(vram),
-            .vram = vram,
-
-            .gpustat = 0x14802000,
             .gp0_state = .recv_command,
             .gp1_dma_direction = .off,
+            .vram = vram,
         });
         self.rasterizer.fill(.{ .r = 8, .g = 8, .b = 8 });
         return self;
@@ -186,7 +236,28 @@ pub const GPU = struct {
     }
 
     pub fn readGpustat(self: *@This()) u32 {
-        return self.gpustat | 0x1c000000;
+        var gpustat = std.mem.zeroes(GpuStat);
+
+        gpustat.texture_page_x = self.gp0_draw_mode.texture_page_x;
+        gpustat.texture_page_y = self.gp0_draw_mode.texture_page_y;
+        gpustat.semi_transparency = self.gp0_draw_mode.semi_transparency;
+        gpustat.texture_page_colors = self.gp0_draw_mode.texture_page_colors;
+        gpustat.dithering = self.gp0_draw_mode.dithering;
+        gpustat.drawing_to_display_area = self.gp0_draw_mode.drawing_to_display_area;
+        gpustat.texture_disable = self.gp0_draw_mode.texture_disable;
+
+        gpustat.display_enable = self.gp1_display_enable;
+        gpustat.interrupt_request = self.interrupt_request;
+        gpustat.dma_direction = self.gp1_dma_direction;
+        gpustat.hres1 = self.gp1_display_mode.hres;
+        gpustat.vres = .@"240"; // TODO: self.gp1_display_mode.vres does not work, why?
+        gpustat.video_mode = .ntsc;
+        gpustat.color_depth = self.gp1_display_mode.color_depth;
+        gpustat.ready_send_vram_to_cpu = true;
+        gpustat.ready_receive_dma_block = true;
+        gpustat.ready_receive_cmd = true;
+
+        return @as(u32, @bitCast(gpustat));
     }
 
     // -------------------------
@@ -275,7 +346,7 @@ pub const GPU = struct {
 
             0xa0 => self.cpuToVram(v),
             0xc0 => self.vramToCpu(v),
-            0xe1 => {}, // self.setDrawMode(v),
+            0xe1 => self.gp0_draw_mode = @bitCast(v),
             0xe2 => self.setTextureWindow(v),
             0xe3 => self.setDrawAreaStart(v),
             0xe4 => self.setDrawAreaEnd(v),
@@ -828,37 +899,4 @@ pub const GPU = struct {
             else => {},
         }
     }
-
-    // pub fn tick(self: *@This(), gpu_cycles: u32) void {
-    //     const prev_hblank = self.in_hblank;
-    //     self.cycle += @floatFromInt(gpu_cycles);
-
-    //     const curr_hblank = self.cycle >= gpu_cycles_per_hdraw_ntsc and
-    //         self.cycle < gpu_cycles_per_scanline_ntsc;
-
-    //     if (curr_hblank and !prev_hblank) {
-    //         self.in_hblank = true;
-    //         self.events.hblank_start = true;
-    //     }
-
-    //     if (!curr_hblank and prev_hblank) {
-    //         self.in_hblank = false;
-    //         self.events.hblank_end = true;
-
-    //         self.cycle -= gpu_cycles_per_scanline_ntsc;
-    //         self.scanline += 1;
-
-    //         if (self.scanline == gpu_scans_per_vdraw_ntsc) {
-    //             self.in_vblank = true;
-    //             self.frame_ready = true;
-    //             self.events.vblank_start = true;
-    //         }
-
-    //         if (self.scanline >= gpu_scans_per_frame_ntsc) {
-    //             self.scanline = 0;
-    //             self.in_vblank = false;
-    //             self.events.vblank_end = true;
-    //         }
-    //     }
-    // }
 };
