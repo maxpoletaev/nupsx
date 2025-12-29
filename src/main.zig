@@ -67,6 +67,10 @@ pub fn main() !void {
         .scratchpad = scratchpad,
     });
 
+    if (args.step_execute) {
+        bus.debug_paused = true;
+    }
+
     // const stdin = std.fs.File.stdin();
     // var stdin_buf: [1]u8 = undefined;
 
@@ -83,45 +87,54 @@ pub fn main() !void {
         const disasm = try Disasm.init(allocator);
         defer disasm.deinit();
 
-        while (true) {
-            bus.tick();
+        var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);
+        defer tty_buf.deinit(allocator);
 
-            if (args.disasm) {
-                const decoded = disasm.disassemble(cpu.instr);
-                std.log.debug("{x}\t {x}\t {s}", .{ cpu.instr_addr, cpu.instr.code, decoded });
-            }
-
-            // if (cpu.stall) {
-            //     _ = try stdin.read(&stdin_buf);
-            //     args.disasm = true;
-            //     cpu.step();
-            // }
-        }
-    } else if (args.debug_ui) {
-        const debug_ui = try DebugUI.init(allocator, cpu, bus);
-        defer debug_ui.deinit();
+        var stdout = std.fs.File.stdout();
 
         while (true) {
             bus.tick();
 
             if (captureTtyOutput(cpu)) |ch| {
-                try debug_ui.tty_view.writeChar(ch);
+                try tty_buf.append(allocator, ch);
+                if (ch == '\n' or tty_buf.items.len >= 1024) {
+                    try stdout.writeAll(tty_buf.items);
+                    tty_buf.clearRetainingCapacity();
+                }
             }
 
-            if (gpu.consumeFrameReady()) {
-                if (!debug_ui.is_running) {
-                    break;
+            if (args.disasm) {
+                const decoded = disasm.disassemble(cpu.instr);
+                std.log.debug("{x}\t {x}\t {s}", .{ cpu.instr_addr, cpu.instr.code, decoded });
+            }
+        }
+    } else if (args.debug_ui) {
+        const debug_ui = try DebugUI.init(allocator, cpu, bus);
+        defer debug_ui.deinit();
+
+        while (debug_ui.is_running) {
+            if (bus.debug_paused) {
+                debug_ui.updatePaused();
+            } else {
+                bus.tick();
+
+                if (captureTtyOutput(cpu)) |ch| {
+                    try debug_ui.tty_view.writeChar(ch);
                 }
-                debug_ui.update();
+
+                if (gpu.consumeFrameReady()) {
+                    debug_ui.update();
+                }
             }
         }
     } else {
         const display_ui = try UI.init(allocator, gpu);
         defer display_ui.deinit();
 
-        var stdout = std.fs.File.stdout();
         var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);
         defer tty_buf.deinit(allocator);
+
+        var stdout = std.fs.File.stdout();
 
         while (true) {
             bus.tick();

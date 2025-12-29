@@ -136,7 +136,7 @@ pub fn unhandledRead(comptime T: anytype, addr: u32) T {
         u32 => 0xacabacab,
         else => @compileError("unsupported type"),
     };
-    log.warn("unhandled read at {x}", .{addr});
+    log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
     return v;
 }
 
@@ -155,7 +155,7 @@ pub const Bus = struct {
     irq_mask: u32 = 0,
     irq_stat: u32 = 0,
 
-    debug_pause: bool = false,
+    debug_paused: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
@@ -175,7 +175,6 @@ pub const Bus = struct {
     }
 
     inline fn updateInterruptPending(self: *@This()) void {
-        // On every change to irq_stat or irq_mask, recalculate pending IRQs
         const pending = (self.irq_stat & self.irq_mask) != 0;
         self.dev.cpu.requestInterrupt(pending);
     }
@@ -186,8 +185,10 @@ pub const Bus = struct {
     }
 
     pub fn tick(self: *@This()) void {
+        if (self.debug_paused) return;
+
         self.dev.cpu.tick();
-        inline for (0..3) |_| self.dev.gpu.tick();
+        inline for (0..5) |_| self.dev.gpu.tick();
         self.dev.timers.tick();
 
         // GPU events dispatch
@@ -205,6 +206,12 @@ pub const Bus = struct {
         if (timer_events.t0_fired) self.setInterrupt(Interrupt.tmr0);
         if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);
         if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
+    }
+
+    pub fn debugStep(self: *@This()) void {
+        self.debug_paused = false;
+        self.tick();
+        self.debug_paused = true;
     }
 
     pub fn readByte(self: *@This(), addr: u32) u8 {
@@ -231,7 +238,8 @@ pub const Bus = struct {
         const masked_addr = maskAddr(addr);
 
         return switch (masked_addr) {
-            // addr_spu_stat => return 0x2007,
+            addr_irq_stat => @truncate(self.irq_stat),
+            addr_irq_mask => @truncate(self.irq_mask),
 
             RAM.addr_start...RAM.addr_end => self.dev.ram.readHalf(masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.readHalf(masked_addr),
@@ -274,13 +282,13 @@ pub const Bus = struct {
         };
     }
 
-    pub fn writeByte(self: *@This(), addr: u32, value: u8) void {
+    pub fn writeByte(self: *@This(), addr: u32, v: u8) void {
         const masked_addr = maskAddr(addr);
 
         switch (masked_addr) {
-            RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, value),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, value),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.writeByte(masked_addr, value),
+            RAM.addr_start...RAM.addr_end => self.dev.ram.writeByte(masked_addr, v),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeByte(masked_addr, v),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.writeByte(masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
@@ -289,17 +297,32 @@ pub const Bus = struct {
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2
 
-            else => unhandledWrite(u8, addr, value),
+            else => unhandledWrite(u8, addr, v),
         }
     }
 
-    pub fn writeHalf(self: *@This(), addr: u32, value: u16) void {
+    inline fn setIrqStat(self: *@This(), v: u32) void {
+        self.irq_stat &= v; // (0=acknowledge, 1=no change)`
+        self.updateInterruptPending();
+        // log.debug("irq_stat write: {x}", .{v});
+    }
+
+    inline fn setIrqMask(self: *@This(), v: u32) void {
+        self.irq_mask = v;
+        self.updateInterruptPending();
+        // log.debug("irq_mask write: {x}", .{v});
+    }
+
+    pub fn writeHalf(self: *@This(), addr: u32, v: u16) void {
         const masked_addr = maskAddr(addr);
 
         switch (masked_addr) {
-            RAM.addr_start...RAM.addr_end => self.dev.ram.writeHalf(masked_addr, value),
-            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeHalf(masked_addr, value),
-            Timers.addr_start...Timers.addr_end => self.dev.timers.writeHalf(masked_addr, value),
+            addr_irq_stat => self.setIrqStat(v),
+            addr_irq_mask => self.setIrqMask(v),
+
+            RAM.addr_start...RAM.addr_end => self.dev.ram.writeHalf(masked_addr, v),
+            Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeHalf(masked_addr, v),
+            Timers.addr_start...Timers.addr_end => self.dev.timers.writeHalf(masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
@@ -308,7 +331,7 @@ pub const Bus = struct {
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2
 
-            else => unhandledWrite(u16, addr, value),
+            else => unhandledWrite(u16, addr, v),
         }
     }
 
@@ -316,14 +339,8 @@ pub const Bus = struct {
         const masked_addr = maskAddr(addr);
 
         switch (masked_addr) {
-            addr_irq_stat => {
-                self.irq_stat &= v; // (0=acknowledge, 1=no change)`
-                self.updateInterruptPending();
-            },
-            addr_irq_mask => {
-                self.irq_mask = v;
-                self.updateInterruptPending();
-            },
+            addr_irq_stat => self.setIrqStat(v),
+            addr_irq_mask => self.setIrqMask(v),
 
             RAM.addr_start...RAM.addr_end => self.dev.ram.writeWord(masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.writeWord(masked_addr, v),

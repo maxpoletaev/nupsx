@@ -28,6 +28,7 @@ const logger = std.log.scoped(.debug);
 
 allocator: std.mem.Allocator,
 window: *glfw.Window,
+bus: *Bus,
 cpu_view: *CPUView,
 gpu_view: *GPUView,
 timer_view: *TimerView,
@@ -68,7 +69,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     _ = zgui.io.addFontFromMemory(default_font, default_font_size);
 
     const tty_view = try TTYView.init(allocator);
-    const cpu_view = try CPUView.init(allocator, cpu);
+    const cpu_view = try CPUView.init(allocator, cpu, bus);
     const gpu_view = try GPUView.init(allocator, bus.dev.gpu);
     const timer_view = try TimerView.init(allocator, bus.dev.timers);
     const assembly_view = try AssemblyView.init(allocator, cpu, bus);
@@ -77,6 +78,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     const self = try allocator.create(@This());
     self.* = .{
         .allocator = allocator,
+        .bus = bus,
         .cpu_view = cpu_view,
         .gpu_view = gpu_view,
         .timer_view = timer_view,
@@ -106,11 +108,25 @@ pub fn deinit(self: *@This()) void {
     allocator.destroy(self);
 }
 
-pub fn update(self: *@This()) void {
+pub fn updatePaused(self: *@This()) void {
     const now = glfw.getTime();
-    if ((now - self.last_update_time) < frame_time) {
+    const elapsed = now - self.last_update_time;
+
+    if (elapsed < frame_time) {
+        glfw.waitEventsTimeout(frame_time - elapsed);
         return;
     }
+
+    self.updateInternal(now);
+    self.handleInput();
+}
+
+pub fn update(self: *@This()) void {
+    const now = glfw.getTime();
+    const elapsed = now - self.last_update_time;
+
+    if (elapsed < frame_time) return;
+
     self.updateInternal(now);
     self.handleInput();
 }

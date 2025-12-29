@@ -262,7 +262,7 @@ pub const Cop0 = struct {
         return @ptrCast(&self.r[reg_cause]);
     }
 
-    pub fn push(self: *@This()) void {
+    pub fn pushException(self: *@This()) void {
         const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
         self.r[reg_status] &= ~@as(u32, 0x3f); // clear mode bits on the SR register
         self.r[reg_status] |= (mode << 2) & 0x3f; // shift mode stack 2 bits to the left
@@ -270,7 +270,7 @@ pub const Cop0 = struct {
         if (ov != 0) log.warn("cop0 exception stack overflow", .{});
     }
 
-    pub fn pop(self: *@This()) void {
+    pub fn popException(self: *@This()) void {
         const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
         self.r[reg_status] &= ~@as(u32, 0x0f); // clear mode bits on the SR register
         self.r[reg_status] |= (mode >> 2); // shift mode stack 2 bits to the right
@@ -352,15 +352,16 @@ pub const CPU = struct {
     }
 
     fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
-        self.cop0.r[Cop0.reg_epc] = self.instr_addr;
         self.cop0.cause().exc_code = exc_code;
-        self.cop0.push();
+        self.cop0.pushException();
 
-        // If we are in delay slot, EPC should point to the branch instruction
         if (self.in_delay_slot) {
             const branch_addr, _ = @subWithOverflow(self.instr_addr, 4);
             self.cop0.r[Cop0.reg_epc] = branch_addr;
             self.cop0.cause().epc_at_branch = true;
+        } else {
+            self.cop0.r[Cop0.reg_epc] = self.instr_addr;
+            self.cop0.cause().epc_at_branch = false;
         }
 
         // Jump to exception handler (no delay slot)
@@ -423,10 +424,8 @@ pub const CPU = struct {
 
     pub fn requestInterrupt(self: *@This(), v: bool) void {
         if (v) {
-            // Set Cause.bit10 on request
             self.cop0.r[Cop0.reg_cause] |= @as(u32, 1 << 10);
         } else {
-            // Clear Cause.bit10 on acknowledge
             self.cop0.r[Cop0.reg_cause] &= ~@as(u32, 1 << 10);
         }
     }
@@ -454,12 +453,12 @@ pub const CPU = struct {
         self.pc = self.next_pc;
         self.next_pc, _ = @addWithOverflow(self.pc, 4);
 
-        // Break if there is an interrupt
-        if (self.checkInterrupt()) return;
-
         // If the last instruction was a branch, then we are in delay slot
         self.in_delay_slot = self.in_branch;
         self.in_branch = false;
+
+        // Break if there is an interrupt
+        if (self.checkInterrupt()) return;
 
         // Execute the instruction
         switch (instr.opcode()) {
@@ -856,7 +855,7 @@ pub const CPU = struct {
     }
 
     fn rfe(self: *@This(), _: Instr) void {
-        self.cop0.pop();
+        self.cop0.popException();
 
         if (self.cop0.depth == 0) {
             self.in_exception = false;
