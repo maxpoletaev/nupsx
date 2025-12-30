@@ -60,6 +60,7 @@ pub const Rasterizer = struct {
     pixels: *align(16) [xres * yres]Color15,
     draw_area_start: [2]i32,
     draw_area_end: [2]i32,
+    draw_offset: [2]i32,
     texwin_mask: [2]u16,
     texwin_offset: [2]u16,
 
@@ -71,6 +72,7 @@ pub const Rasterizer = struct {
             .pixels = pixels[0 .. xres * yres],
             .texwin_mask = .{ 0, 0 },
             .texwin_offset = .{ 0, 0 },
+            .draw_offset = .{ 0, 0 },
             .draw_area_start = .{ 0, 0 },
             .draw_area_end = .{ xres - 1, yres - 1 },
         };
@@ -83,6 +85,10 @@ pub const Rasterizer = struct {
 
     pub inline fn setDrawAreaStart(self: *@This(), x: i32, y: i32) void {
         self.draw_area_start = .{ x, y };
+    }
+
+    pub inline fn setDrawOffset(self: *@This(), x: i32, y: i32) void {
+        self.draw_offset = .{ x, y };
     }
 
     pub inline fn setDrawAreaEnd(self: *@This(), x: i32, y: i32) void {
@@ -330,6 +336,43 @@ pub const Rasterizer = struct {
             while (xx < x_end) : (xx += 1) {
                 self.drawPixel24(xx, yy, c);
             }
+        }
+    }
+
+    pub fn drawRectTextured(
+        self: *@This(),
+        x_orig: i32,
+        y_orig: i32,
+        w: i32,
+        h: i32,
+        clutx: u16,
+        cluty: u16,
+        tpx: u16,
+        tpy: u16,
+        depth: ColorDepth,
+    ) void {
+        const x = x_orig + self.draw_offset[0];
+        const y = y_orig + self.draw_offset[1];
+        const x_end = @min(x + w, xres);
+        const y_end = @min(y + h, yres);
+
+        var tx: u16 = 0;
+        var ty: u16 = 0;
+
+        var py = y;
+        while (py < y_end) : (py += 1) {
+            var px = x;
+            while (px < x_end) : (px += 1) {
+                const texel = self.getTexel(tx, ty, tpx, tpy, clutx, cluty, depth);
+                if (@as(u16, @bitCast(texel)) != 0) {
+                    self.drawPixel15(px, py, texel);
+                }
+
+                tx += 1;
+            }
+
+            tx = 0;
+            ty += 1;
         }
     }
 

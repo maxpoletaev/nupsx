@@ -122,11 +122,13 @@ inline fn argClut(v: u32) struct { x: u16, y: u16 } {
     return .{ .x = x, .y = y };
 }
 
-inline fn argTextpage(v: u32) struct {
+const Textpage = struct {
     x: u16,
     y: u16,
     depth: RasterDepth,
-} {
+};
+
+inline fn argTextpage(v: u32) Textpage {
     const texpage = v >> 16;
     const tpx = @as(u16, bits.field(texpage, 0, u4)) * 64;
     const tpy = @as(u16, bits.field(texpage, 4, u1)) * 256;
@@ -337,12 +339,28 @@ pub const GPU = struct {
 
             0x60 => self.drawRectFlat(v),
             0x62 => self.drawRectFlat(v),
+            0x64 => self.drawRectTextured(v, null),
+            0x65 => self.drawRectTextured(v, null),
+            0x66 => self.drawRectTextured(v, null),
+            0x67 => self.drawRectTextured(v, null),
             0x6a => self.drawRect1x1(v),
             0x68 => self.drawRect1x1(v),
+            0x6c => self.drawRectTextured(v, 1),
+            0x6d => self.drawRectTextured(v, 1),
+            0x6e => self.drawRectTextured(v, 1),
+            0x6f => self.drawRectTextured(v, 1),
             0x70 => self.drawRectFixedFlat(v, 8),
             0x72 => self.drawRectFixedFlat(v, 8),
+            0x74 => self.drawRectTextured(v, 8),
+            0x75 => self.drawRectTextured(v, 8),
+            0x76 => self.drawRectTextured(v, 8),
+            0x77 => self.drawRectTextured(v, 8),
             0x78 => self.drawRectFixedFlat(v, 16),
             0x7a => self.drawRectFixedFlat(v, 16),
+            0x7c => self.drawRectTextured(v, 16),
+            0x7d => self.drawRectTextured(v, 16),
+            0x7e => self.drawRectTextured(v, 16),
+            0x7f => self.drawRectTextured(v, 16),
 
             0xa0 => self.cpuToVram(v),
             0xc0 => self.vramToCpu(v),
@@ -482,6 +500,23 @@ pub const GPU = struct {
         self.rasterizer.setDrawAreaEnd(self.gp0_draw_area_end.x, self.gp0_draw_area_end.y);
     }
 
+    fn setDrawOffset(self: *@This(), v: u32) void {
+        self.gp0_draw_offset = @bitCast(v);
+        self.rasterizer.setDrawOffset(self.gp0_draw_offset.x, self.gp0_draw_offset.y);
+    }
+
+    fn getTextpageFromDrawMode(self: *@This()) Textpage {
+        return .{
+            .x = @as(u16, self.gp0_draw_mode.texture_page_x) * 64,
+            .y = @as(u16, self.gp0_draw_mode.texture_page_y) * 256,
+            .depth = switch (self.gp0_draw_mode.texture_page_colors) {
+                .bit4 => RasterDepth.bit4,
+                .bit8 => RasterDepth.bit8,
+                else => RasterDepth.bit15,
+            },
+        };
+    }
+
     fn drawRect1x1(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
@@ -555,6 +590,32 @@ pub const GPU = struct {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertex(self.gp0_fifo.buf[1]);
                     self.rasterizer.drawRectFlat(pos.x, pos.y, wh, wh, color);
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    fn drawRectTextured(self: *@This(), v: u32, comptime hw: ?i32) void {
+        const need_args = if (hw != null) 3 else 4;
+
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.add(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.add(v);
+                if (self.gp0_fifo.len == need_args) {
+                    const pos = argVertex(self.gp0_fifo.buf[1]);
+                    const clut = argClut(self.gp0_fifo.buf[2]);
+
+                    const tp = self.getTextpageFromDrawMode();
+                    const size = if (hw) |vv| .{ .x = vv, .y = vv } else argVertex(self.gp0_fifo.buf[3]);
+
+                    self.rasterizer.drawRectTextured(pos.x, pos.y, size.x, size.y, clut.x, clut.y, tp.x, tp.y, tp.depth);
+
                     self.gp0_state = .recv_command;
                 }
             },

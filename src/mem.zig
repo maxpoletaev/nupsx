@@ -207,6 +207,7 @@ pub const Bus = struct {
         self.dev.cpu.tick();
         inline for (0..5) |_| self.dev.gpu.tick();
         self.dev.timers.tick();
+        self.dev.cdrom.tick();
 
         // GPU events dispatch
         const gpu_events = self.dev.gpu.consumeEvents();
@@ -223,6 +224,9 @@ pub const Bus = struct {
         if (timer_events.t0_fired) self.setInterrupt(Interrupt.tmr0);
         if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);
         if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
+
+        const cdrom_irq = self.dev.cdrom.consumeInterrupt();
+        if (cdrom_irq) self.setInterrupt(Interrupt.cdrom);
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
