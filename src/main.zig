@@ -22,6 +22,7 @@ const Disasm = disasm_mod.Disasm;
 const GPUEvent = gpu_mod.GPUEvent;
 const Timers = timer_mod.Timers;
 const CDROM = cdrom_mod.CDROM;
+const Disc = cdrom_mod.Disc;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -63,8 +64,16 @@ pub fn main() !void {
     const timers = Timers.init(allocator);
     defer timers.deinit();
 
+    var disc: ?Disc = null;
+    defer if (disc) |*d| d.deinit();
+
     const cdrom = CDROM.init(allocator);
     defer cdrom.deinit();
+
+    if (args.bin_path) |path| {
+        disc = try Disc.fromFile(allocator, path);
+        cdrom.insertDisc(disc.?);
+    }
 
     bus.connect(.{
         .cpu = cpu,
@@ -128,6 +137,10 @@ pub fn main() !void {
                 }
 
                 bus.tick();
+
+                // if (cpu.next_pc == 0x8004e740) {
+                //     debug_ui.cpu_view.paused = true;
+                // }
 
                 if (captureTtyOutput(cpu)) |ch| {
                     try debug_ui.tty_view.writeChar(ch);

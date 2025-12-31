@@ -169,8 +169,9 @@ pub const GPU = struct {
     gp0_draw_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_area_end: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_offset: packed struct(u32) { x: i11, y: i11, _pad: u10 },
-    gp0_texwin_mask: [2]u16,
-    gp0_texwin_offset: [2]u16,
+    gp0_textwin: packed struct(u32) { mask_x: u5, mask_y: u5, offset_x: u5, offset_y: u5, _pad: u12 },
+    gp0_texwin_mask: [2]u16, // todo: use gp0_textwin
+    gp0_texwin_offset: [2]u16, // todo: use gp0_textwin
 
     gp1_display_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp1_display_range_x: packed struct(u32) { x1: u12, x2: u12, _pad: u8 },
@@ -485,6 +486,7 @@ pub const GPU = struct {
         const mask_y = bits.field(v, 5, u5) * 8;
         const offset_x = bits.field(v, 10, u5) * 8;
         const offset_y = bits.field(v, 15, u5) * 8;
+        self.gp0_textwin = @bitCast(v);
         self.gp0_texwin_mask = .{ mask_x, mask_y };
         self.gp0_texwin_offset = .{ offset_x, offset_y };
         self.rasterizer.setTextureWindow(self.gp0_texwin_mask, self.gp0_texwin_offset);
@@ -908,7 +910,11 @@ pub const GPU = struct {
     fn readRegister(self: *@This(), v: u32) void {
         const reg = @as(u8, @truncate(v));
         self.gpuread = switch (reg) {
-            6, 7 => 0x00000000, // GPU Version
+            0, 1, 6, 7 => self.gpuread, // noop (remains unchanged)
+            2 => @bitCast(self.gp0_textwin),
+            3 => @bitCast(self.gp0_draw_area_start),
+            4 => @bitCast(self.gp0_draw_area_end),
+            5 => @bitCast(self.gp0_draw_offset),
             else => std.debug.panic("unknown gp1 read register: 0x{x}", .{reg}),
         };
     }

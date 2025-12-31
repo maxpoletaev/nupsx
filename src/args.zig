@@ -7,6 +7,7 @@ pub const Args = struct {
 
     bios_path: []const u8,
     exe_path: ?[]const u8,
+    bin_path: ?[]const u8,
 
     no_ui: bool = false,
     debug_ui: bool = false,
@@ -36,6 +37,9 @@ pub const Args = struct {
             }
             if (std.mem.eql(u8, arg, "--exe")) {
                 args.exe_path = iter.next() orelse return error.InvalidArgument;
+            }
+            if (std.mem.eql(u8, arg, "--bin")) {
+                args.bin_path = iter.next() orelse return error.InvalidArgument;
             }
             if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
                 return error.InvalidArgument;

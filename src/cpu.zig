@@ -344,11 +344,13 @@ pub const CPU = struct {
         self.next_pc = self.pc + 4;
     }
 
-    fn unhandled(_: *@This(), code: u32) void {
+    fn unhandled(self: *@This(), code: u32) void {
         if (code == 0 or code == 1) {
             return;
         }
-        std.debug.panic("unhandled instruction: {x}", .{code});
+        // std.debug.panic("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
+        // log.err("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
+        _ = self;
     }
 
     fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
@@ -553,7 +555,8 @@ pub const CPU = struct {
     // --------------------------------------
 
     fn cop2(_: *@This(), instr: Instr) void {
-        log.warn("unhandled gte {x}", .{instr.code});
+        // log.warn("unhandled gte {x}", .{instr.code});
+        _ = instr;
     }
 
     fn lui(self: *@This(), instr: Instr) void {

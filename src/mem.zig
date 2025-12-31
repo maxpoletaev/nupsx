@@ -157,12 +157,15 @@ fn unhandledRead(comptime T: anytype, addr: u32) T {
         u32 => 0xacabacab,
         else => @compileError("unsupported type"),
     };
-    log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
+    _ = addr;
+    // log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
     return v;
 }
 
 fn unhandledWrite(comptime T: anytype, addr: u32, v: T) void {
-    log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
+    _ = addr;
+    _ = v;
+    // log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
 }
 
 const addr_irq_stat: u32 = 0x1f801070;
@@ -225,8 +228,11 @@ pub const Bus = struct {
         if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);
         if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
 
-        const cdrom_irq = self.dev.cdrom.consumeInterrupt();
-        if (cdrom_irq) self.setInterrupt(Interrupt.cdrom);
+        const cdrom_events = self.dev.cdrom.consumeEvents();
+        if (cdrom_events.interrupt) self.setInterrupt(Interrupt.cdrom);
+
+        const dma_irq = self.dev.dma.consumeIrq();
+        if (dma_irq) self.setInterrupt(Interrupt.dma);
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
@@ -238,7 +244,7 @@ pub const Bus = struct {
     inline fn setIrqMask(self: *@This(), v: u32) void {
         self.irq_mask = v;
         self.updateInterruptPending();
-        log.debug("irq_mask write: {x}", .{v});
+        // log.debug("irq_mask write: {x}", .{v});
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -294,7 +300,7 @@ pub const Bus = struct {
     }
 };
 
-pub inline fn readBuf(comptime T: type, buf: []u8, offset: u32) T {
+pub inline fn readBuf(comptime T: type, buf: []const u8, offset: u32) T {
     const t_size = @sizeOf(T);
 
     if (comptime builtin.mode == .Debug) {
