@@ -229,6 +229,7 @@ pub const DMA = struct {
             switch (chan_id) {
                 2 => self.doGpu(),
                 3 => self.doCdrom(),
+                4 => self.doSpu(),
                 6 => self.doOtc(),
                 else => std.debug.panic("DMA channel {d} start not implemented", .{chan_id}),
             }
@@ -301,6 +302,18 @@ pub const DMA = struct {
 
             addr = hdr & 0xffffff;
         }
+    }
+
+    fn doSpu(self: *@This()) void {
+        const chan = &self.channels[ChanId.spu];
+
+        if (!chan.ctrl.isActive()) return;
+
+        log.warn("DMA SPU not implemented", .{});
+
+        self.setIrqOnCompletion(ChanId.spu);
+
+        chan.ctrl.resetActive();
     }
 
     fn doCdrom(self: *@This()) void {

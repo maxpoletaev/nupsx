@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const GPU = @import("gpu.zig").GPU;
 const DMA = @import("dma.zig").DMA;
 const CPU = @import("cpu.zig").CPU;
+const SPU = @import("spu.zig").SPU;
 const CDROM = @import("cdrom.zig").CDROM;
 const Timers = @import("timer.zig").Timers;
 
@@ -131,6 +132,7 @@ pub const Devices = struct {
     ram: *RAM,
     gpu: *GPU,
     dma: *DMA,
+    spu: *SPU,
     cdrom: *CDROM,
     timers: *Timers,
     scratchpad: *Scratchpad,
@@ -261,10 +263,10 @@ pub const Bus = struct {
             Timers.addr_start...Timers.addr_end => self.dev.timers.read(T, masked_addr),
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.read(T, masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.read(T, masked_addr),
+            SPU.addr_start...SPU.addr_end => self.dev.spu.read(T, masked_addr),
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
-            0x1f801c00...0x1f801e7f => 0, // spu
             0xfffe0130...0xfffe0133 => 0, // cachectl
             0x1f000000...0x1f0000ff => 0, // expansion 1
             0x1f802000...0x1f802041 => 0, // expansion 2
@@ -287,10 +289,10 @@ pub const Bus = struct {
             Timers.addr_start...Timers.addr_end => self.dev.timers.write(T, masked_addr, v),
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.write(T, masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.write(T, masked_addr, v),
+            SPU.addr_start...SPU.addr_end => self.dev.spu.write(T, masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
-            0x1f801c00...0x1f801e7f => {}, // spu
             0xfffe0130...0xfffe0133 => {}, // cachectl
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2

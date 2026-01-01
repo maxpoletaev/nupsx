@@ -589,10 +589,8 @@ const commands = opaque {
                 self.stat.motor_on = true;
 
                 if (self.seekloc) |loc| { // unacknowledged seek
-                    log.debug(
-                        "CDROM READN seek to {d}:{d}:{d} (lba={d})",
-                        .{ loc.minute, loc.second, loc.sector, loc.lba() },
-                    );
+                    log.debug("CDROM READN seek to {d}:{d}:{d} (lba={d})", .{ loc.minute, loc.second, loc.sector, loc.lba() });
+                    self.delay += cdrom_seekl_delay_cycles;
                     self.disc.?.seek(loc);
                     self.seekloc = null;
                 }

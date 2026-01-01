@@ -109,8 +109,6 @@ const Timer = struct {
         // depending on the sync mode, the timer may start paused
         if (self.mode.sync_enable) {
             switch (self.getSyncMode()) {
-                .reset_and_pause_outside_vblank => self.paused = in_vblank,
-                .reset_and_pause_outside_hblank => self.paused = in_hblank,
                 .pause_during_hblank => self.paused = in_hblank,
                 .pause_during_vblank => self.paused = in_vblank,
                 .pause_until_hblank => self.paused = !in_hblank,
