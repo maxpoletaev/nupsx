@@ -411,4 +411,23 @@ pub const Rasterizer = struct {
             }
         }
     }
+
+    pub fn copyRect(
+        self: *@This(),
+        src_x: i32,
+        src_y: i32,
+        dest_x: i32,
+        dest_y: i32,
+        w: i32,
+        h: i32,
+    ) void {
+        var y: i32 = 0;
+        while (y < h) : (y += 1) {
+            var x: i32 = 0;
+            while (x < w) : (x += 1) {
+                const pixel = self.getPixel(src_x + x, src_y + y);
+                self.drawPixel15(dest_x + x, dest_y + y, pixel);
+            }
+        }
+    }
 };

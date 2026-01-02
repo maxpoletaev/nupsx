@@ -3,7 +3,9 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
 const gpu_mod = @import("gpu.zig");
+const joy_mod = @import("joy.zig");
 const GPU = gpu_mod.GPU;
+const Joypad = joy_mod.Joypad;
 
 const gl = zopengl.bindings;
 const logger = std.log.scoped(.ui);
@@ -65,6 +67,7 @@ pub const UI = struct {
     allocator: std.mem.Allocator,
     window: *glfw.Window,
     gpu: *GPU,
+    joy: *Joypad,
     texture_id: gl.Uint,
     vao: gl.Uint,
     vbo: gl.Uint,
@@ -84,7 +87,7 @@ pub const UI = struct {
         1.0, 1.0, 1.0, 0.0, // top right
     };
 
-    pub fn init(allocator: std.mem.Allocator, gpu: *GPU) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, gpu: *GPU, joy: *Joypad) !*@This() {
         try glfw.init();
         glfw.windowHint(.context_version_major, gl_version[0]);
         glfw.windowHint(.context_version_minor, gl_version[1]);
@@ -143,6 +146,7 @@ pub const UI = struct {
             .allocator = allocator,
             .window = window,
             .gpu = gpu,
+            .joy = joy,
             .texture_id = texture_id,
             .vao = vao,
             .vbo = vbo,
@@ -176,12 +180,38 @@ pub const UI = struct {
         self.handleInput();
     }
 
+    const KeyMapping = struct { glfw.Key, joy_mod.ButtonId };
+    const key_mappings = [_]KeyMapping{
+        .{ glfw.Key.w, .up },
+        .{ glfw.Key.a, .left },
+        .{ glfw.Key.s, .down },
+        .{ glfw.Key.d, .right },
+
+        .{ glfw.Key.k, .cross },
+        .{ glfw.Key.l, .circle },
+        .{ glfw.Key.j, .square },
+        .{ glfw.Key.i, .triangle },
+
+        .{ glfw.Key.q, .l1 },
+        .{ glfw.Key.e, .l2 },
+        .{ glfw.Key.u, .r1 },
+        .{ glfw.Key.o, .r2 },
+
+        .{ glfw.Key.enter, .start },
+        .{ glfw.Key.right_shift, .select },
+    };
+
     fn handleInput(self: *@This()) void {
         if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
             glfw.setWindowShouldClose(self.window, true);
         }
         if (self.window.shouldClose()) {
             self.is_running = false;
+        }
+        inline for (key_mappings) |mapping| {
+            const key_state = glfw.getKey(self.window, mapping[0]);
+            const pressed = key_state == .press or key_state == .repeat;
+            self.joy.setButtonState(mapping[1], pressed);
         }
     }
 

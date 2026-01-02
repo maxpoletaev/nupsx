@@ -6,6 +6,7 @@ const disasm_mod = @import("disasm.zig");
 const gpu_mod = @import("gpu.zig");
 const cdrom_mod = @import("cdrom.zig");
 const spu_mod = @import("spu.zig");
+const joy_mod = @import("joy.zig");
 
 const Args = @import("args.zig").Args;
 const CPU = @import("cpu.zig").CPU;
@@ -25,6 +26,7 @@ const Timers = timer_mod.Timers;
 const CDROM = cdrom_mod.CDROM;
 const Disc = cdrom_mod.Disc;
 const SPU = spu_mod.SPU;
+const Joypad = joy_mod.Joypad;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -69,6 +71,9 @@ pub fn main() !void {
     const spu = SPU.init(allocator);
     defer spu.deinit();
 
+    const joy = Joypad.init(allocator);
+    defer joy.deinit();
+
     var disc: ?Disc = null;
     defer if (disc) |*d| d.deinit();
 
@@ -87,6 +92,7 @@ pub fn main() !void {
         .gpu = gpu,
         .dma = dma,
         .spu = spu,
+        .joy = joy,
         .cdrom = cdrom,
         .timers = timers,
         .scratchpad = scratchpad,
@@ -158,7 +164,7 @@ pub fn main() !void {
             }
         }
     } else {
-        const display_ui = try UI.init(allocator, gpu);
+        const display_ui = try UI.init(allocator, gpu, joy);
         defer display_ui.deinit();
 
         var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);

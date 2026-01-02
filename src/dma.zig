@@ -163,7 +163,7 @@ pub const DMA = struct {
             addr_dicr => {
                 var new_dicr: IntterruptReg = @bitCast(@as(u32, v));
                 new_dicr.irq_flags = self.dicr.irq_flags & ~new_dicr.irq_flags; // write 1 to clear
-                new_dicr.master_enable = self.dicr.master_enable; // bit 31 is read-only
+                new_dicr.master_irq = self.dicr.master_irq; // bit 31 is read-only
                 self.dicr = new_dicr;
                 self.dicr.updateMaster();
             },
@@ -246,10 +246,6 @@ pub const DMA = struct {
             .linked_list => self.doGpuSyncModeLinkedList(),
             else => std.debug.panic("not implemented gpu sync mode: {d}", .{chan.ctrl.sync_mode}),
         }
-
-        chan.ctrl.resetActive();
-
-        self.setIrqOnCompletion(ChanId.gpu);
     }
 
     fn doGpuSyncModeSlice(self: *@This()) void {
@@ -281,14 +277,18 @@ pub const DMA = struct {
                 }
             },
         }
+
+        chan.ctrl.resetActive();
+
+        self.setIrqOnCompletion(ChanId.gpu);
     }
 
     fn doGpuSyncModeLinkedList(self: *@This()) void {
         const chan = &self.channels[ChanId.gpu];
 
-        var addr = chan.maddr;
+        var addr = chan.maddr & 0x1ffffc;
 
-        while (addr != 0xffffff) {
+        while (true) {
             const hdr = self.bus.read(u32, addr);
             const word_count = hdr >> 24;
 
@@ -300,8 +300,14 @@ pub const DMA = struct {
 
             self.setIrqOnBlockReady(ChanId.gpu);
 
-            addr = hdr & 0xffffff;
+            const next_addr = hdr & 0xffffff;
+            if (next_addr & 0x800000 != 0) break; // bit 23 = end marker
+            addr = next_addr;
         }
+
+        chan.ctrl.resetActive();
+
+        self.setIrqOnCompletion(ChanId.gpu);
     }
 
     fn doSpu(self: *@This()) void {
@@ -362,5 +368,7 @@ pub const DMA = struct {
         }
 
         chan.ctrl.resetActive();
+
+        self.setIrqOnCompletion(ChanId.otc);
     }
 };

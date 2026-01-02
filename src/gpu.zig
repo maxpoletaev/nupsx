@@ -363,6 +363,7 @@ pub const GPU = struct {
             0x7e => self.drawRectTextured(v, 16),
             0x7f => self.drawRectTextured(v, 16),
 
+            0x80 => self.vramToVram(v),
             0xa0 => self.cpuToVram(v),
             0xc0 => self.vramToCpu(v),
             0xe1 => self.gp0_draw_mode = @bitCast(v),
@@ -374,6 +375,27 @@ pub const GPU = struct {
             0xe6 => {}, // self.setBitMask(v),
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
             else => std.debug.panic("unknown gp0 command: 0x{x}", .{self.gp0_cmd}),
+        }
+    }
+
+    fn vramToVram(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.add(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.add(v);
+                if (self.gp0_fifo.len == 4) {
+                    const src = argVertex(self.gp0_fifo.buf[0]);
+                    const dest = argVertex(self.gp0_fifo.buf[1]);
+                    const size = argVertex(self.gp0_fifo.buf[2]);
+
+                    self.rasterizer.copyRect(src.x, src.y, dest.x, dest.y, size.x, size.y);
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
         }
     }
 
@@ -482,10 +504,10 @@ pub const GPU = struct {
     }
 
     fn setTextureWindow(self: *@This(), v: u32) void {
-        const mask_x = bits.field(v, 0, u5) * 8;
-        const mask_y = bits.field(v, 5, u5) * 8;
-        const offset_x = bits.field(v, 10, u5) * 8;
-        const offset_y = bits.field(v, 15, u5) * 8;
+        const mask_x = bits.field(v, 0, u5) *% 8;
+        const mask_y = bits.field(v, 5, u5) *% 8;
+        const offset_x = bits.field(v, 10, u5) *% 8;
+        const offset_y = bits.field(v, 15, u5) *% 8;
         self.gp0_textwin = @bitCast(v);
         self.gp0_texwin_mask = .{ mask_x, mask_y };
         self.gp0_texwin_offset = .{ offset_x, offset_y };
@@ -915,6 +937,7 @@ pub const GPU = struct {
             3 => @bitCast(self.gp0_draw_area_start),
             4 => @bitCast(self.gp0_draw_area_end),
             5 => @bitCast(self.gp0_draw_offset),
+            8 => @bitCast(self.gp1_display_mode),
             else => std.debug.panic("unknown gp1 read register: 0x{x}", .{reg}),
         };
     }

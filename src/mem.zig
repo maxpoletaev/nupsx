@@ -7,6 +7,7 @@ const CPU = @import("cpu.zig").CPU;
 const SPU = @import("spu.zig").SPU;
 const CDROM = @import("cdrom.zig").CDROM;
 const Timers = @import("timer.zig").Timers;
+const Joypad = @import("joy.zig").Joypad;
 
 const expectEqual = std.testing.expectEqual;
 const log = std.log.scoped(.mem);
@@ -133,6 +134,7 @@ pub const Devices = struct {
     gpu: *GPU,
     dma: *DMA,
     spu: *SPU,
+    joy: *Joypad,
     cdrom: *CDROM,
     timers: *Timers,
     scratchpad: *Scratchpad,
@@ -146,29 +148,11 @@ pub const Interrupt = opaque {
     pub const tmr0: u32 = 1 << 4;
     pub const tmr1: u32 = 1 << 5;
     pub const tmr2: u32 = 1 << 6;
-    pub const ctrl_mc_byte: u32 = 1 << 7;
+    pub const joy_mc_byte: u32 = 1 << 7;
     pub const sio: u32 = 1 << 8;
     pub const spu: u32 = 1 << 9;
     pub const lightpen: u32 = 1 << 10;
 };
-
-fn unhandledRead(comptime T: anytype, addr: u32) T {
-    const v = switch (T) {
-        u8 => 0xac,
-        u16 => 0xacab,
-        u32 => 0xacabacab,
-        else => @compileError("unsupported type"),
-    };
-    _ = addr;
-    // log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
-    return v;
-}
-
-fn unhandledWrite(comptime T: anytype, addr: u32, v: T) void {
-    _ = addr;
-    _ = v;
-    // log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
-}
 
 const addr_irq_stat: u32 = 0x1f801070;
 const addr_irq_mask: u32 = 0x1f801074;
@@ -213,6 +197,7 @@ pub const Bus = struct {
         inline for (0..5) |_| self.dev.gpu.tick();
         self.dev.timers.tick();
         self.dev.cdrom.tick();
+        self.dev.joy.tick();
 
         // GPU events dispatch
         const gpu_events = self.dev.gpu.consumeEvents();
@@ -235,6 +220,12 @@ pub const Bus = struct {
 
         const dma_irq = self.dev.dma.consumeIrq();
         if (dma_irq) self.setInterrupt(Interrupt.dma);
+
+        const joy_irq = self.dev.joy.consumeIrq();
+        if (joy_irq) {
+            self.setInterrupt(Interrupt.joy_mc_byte);
+            // log.debug("Joypad IRQ set", .{});
+        }
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
@@ -264,6 +255,7 @@ pub const Bus = struct {
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.read(T, masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.read(T, masked_addr),
             SPU.addr_start...SPU.addr_end => self.dev.spu.read(T, masked_addr),
+            Joypad.addr_start...Joypad.addr_end => self.dev.joy.read(T, masked_addr),
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
@@ -271,7 +263,16 @@ pub const Bus = struct {
             0x1f000000...0x1f0000ff => 0, // expansion 1
             0x1f802000...0x1f802041 => 0, // expansion 2
 
-            else => unhandledRead(T, addr),
+            else => blk: {
+                const v = switch (T) {
+                    u8 => 0xac,
+                    u16 => 0xacab,
+                    u32 => 0xacabacab,
+                    else => @compileError("unsupported type"),
+                };
+                std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
+                break :blk v;
+            },
         };
     }
 
@@ -290,6 +291,7 @@ pub const Bus = struct {
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.write(T, masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.write(T, masked_addr, v),
             SPU.addr_start...SPU.addr_end => self.dev.spu.write(T, masked_addr, v),
+            Joypad.addr_start...Joypad.addr_end => self.dev.joy.write(T, masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
@@ -297,7 +299,7 @@ pub const Bus = struct {
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2
 
-            else => unhandledWrite(T, addr, v),
+            else => std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v }),
         }
     }
 };
