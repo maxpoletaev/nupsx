@@ -222,10 +222,7 @@ pub const Bus = struct {
         if (dma_irq) self.setInterrupt(Interrupt.dma);
 
         const joy_irq = self.dev.joy.consumeIrq();
-        if (joy_irq) {
-            self.setInterrupt(Interrupt.joy_mc_byte);
-            // log.debug("Joypad IRQ set", .{});
-        }
+        if (joy_irq) self.setInterrupt(Interrupt.joy_mc_byte);
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {

@@ -29,6 +29,14 @@ const Disc = cdrom_mod.Disc;
 const SPU = spu_mod.SPU;
 const Joypad = joy_mod.Joypad;
 
+pub const std_options = std.Options{
+    .log_level = .info,
+    .log_scope_levels = &[_]std.log.ScopeLevel{
+        // .{ .scope = .gpu, .level = .debug },
+        // .{ .scope = .dma, .level = .debug },
+    },
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) {

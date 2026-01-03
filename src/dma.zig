@@ -250,7 +250,10 @@ pub const DMA = struct {
 
     fn doGpuSyncModeSlice(self: *@This()) void {
         const chan = &self.channels[ChanId.gpu];
+
         const transfer_len = chan.block.size * chan.block.count;
+
+        log.debug("DMA GPU transfer slice, size={x}", .{transfer_len});
 
         const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
             .incr => @as(i32, 4),
@@ -288,7 +291,9 @@ pub const DMA = struct {
 
         var addr = chan.maddr & 0x1ffffc;
 
-        while (true) {
+        log.debug("DMA GPU transfer linked list, start_addr={x}", .{addr});
+
+        while (addr != 0xffffff) {
             const hdr = self.bus.read(u32, addr);
             const word_count = hdr >> 24;
 
@@ -300,9 +305,7 @@ pub const DMA = struct {
 
             self.setIrqOnBlockReady(ChanId.gpu);
 
-            const next_addr = hdr & 0xffffff;
-            if (next_addr & 0x800000 != 0) break; // bit 23 = end marker
-            addr = next_addr;
+            addr = hdr & 0xffffff;
         }
 
         chan.ctrl.resetActive();
@@ -334,6 +337,8 @@ pub const DMA = struct {
 
         const transfer_len = chan.block.size * chan.block.count;
 
+        log.debug("DMA CDROM transfer, size={x}", .{transfer_len});
+
         switch (chan.ctrl.direction) {
             .to_ram => for (0..transfer_len) |i| {
                 const v = self.bus.dev.cdrom.consumeSectorData(u32);
@@ -357,12 +362,15 @@ pub const DMA = struct {
 
         if (!chan.ctrl.isActive()) return;
 
-        var addr = chan.maddr;
-        const len = chan.block.size;
+        const transfer_len = chan.block.size;
 
-        for (0..len) |i| {
+        log.debug("DMA OTC transfer, size={x}", .{transfer_len});
+
+        var addr = chan.maddr;
+
+        for (0..transfer_len) |i| {
             const next_addr = (addr - 4) & 0xffffff;
-            const hdr: u32 = if (i == len - 1) 0xffffff else next_addr;
+            const hdr: u32 = if (i == transfer_len - 1) 0xffffff else next_addr;
             self.bus.write(u32, addr, hdr);
             addr = next_addr;
         }

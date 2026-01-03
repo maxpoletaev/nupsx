@@ -33,60 +33,60 @@ const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
 const Vres = enum(u1) { @"240" = 0, @"480" = 1 };
 const VideoMode = enum(u1) { ntsc = 0, pal = 1 };
 const ColorDepth = enum(u1) { bit15 = 0, bit24 = 1 };
-const TexPageColors = enum(u2) { bit4 = 0, bit8 = 1, bit15 = 2 };
+const TexpageColorMode = enum(u2) { bit4 = 0, bit8 = 1, bit15 = 2 };
 const DmaDirection = enum(u2) { off = 0, fifo = 1, cpu_to_gp0 = 2, gpuread_to_cpu = 3 };
 
 const DisplayMode = packed struct(u32) {
-    hres: Hres1,
-    vres: Vres,
-    video_mode: VideoMode,
-    color_depth: ColorDepth,
-    interlace: bool,
-    _pad0: u26,
+    hres: Hres1, // 0-1
+    vres: Vres, // 2
+    video_mode: VideoMode, // 3
+    color_depth: ColorDepth, // 4
+    interlace: bool, // 5
+    _pad0: u26, // 6-31
 };
 
 const DrawMode = packed struct(u32) {
-    texture_page_x: u4,
-    texture_page_y: u1,
-    semi_transparency: u2,
-    texture_page_colors: TexPageColors,
-    dithering: bool,
-    drawing_to_display_area: bool,
-    texture_disable: bool,
-    texrect_xflip: bool,
-    texrect_yflip: bool,
+    texpage_x: u4, // 0-3
+    texpage_y: u1, // 4
+    semi_transparency: u2, // 5-6
+    texpage_color_mode: TexpageColorMode, // 7-8
+    dithering: bool, // 9
+    draw_to_display_area: bool, // 10
+    texture_disable: bool, // 11
+    texrect_xflip: bool, // 12
+    texrect_yflip: bool, // 13
     _pad0: u18,
 };
 
 const GpuStat = packed struct(u32) {
-    texture_page_x: u4,
-    texture_page_y: u1,
-    semi_transparency: u2,
-    texture_page_colors: TexPageColors,
-    dithering: bool,
-    drawing_to_display_area: bool,
+    texpage_x: u4, // 0-3
+    texpage_y: u1, // 4
+    semi_transparency: u2, // 5-6
+    texpage_color_mode: TexpageColorMode, // 7-8
+    dithering: bool, // 9
+    drawing_to_display_area: bool, // 10
 
-    set_mask_bit: bool,
-    draw_pixels_masked: bool,
+    set_mask_bit: bool, // 11
+    draw_pixels_masked: bool, // 12
 
-    interlace_field: bool,
-    reverseflag: bool,
-    texture_disable: bool,
-    hres2: Hres2,
-    hres1: Hres1,
-    vres: Vres,
-    video_mode: VideoMode,
-    color_depth: ColorDepth,
-    vertical_interlace: bool,
+    interlace_field: bool, // 13
+    reverseflag: bool, // 14
+    texture_disable: bool, // 15
+    hres2: Hres2, // 16
+    hres1: Hres1, // 18
+    vres: Vres, // 20
+    video_mode: VideoMode, // 21
+    color_depth: ColorDepth, // 22
+    vertical_interlace: bool, // 23
 
-    display_enable: bool,
-    interrupt_request: bool,
-    dma_data_request: bool,
-    ready_receive_cmd: bool,
-    ready_send_vram_to_cpu: bool,
-    ready_receive_dma_block: bool,
-    dma_direction: DmaDirection,
-    interlace_odd_line: bool,
+    display_enable: bool, // 24
+    interrupt_request: bool, // 25
+    dma_data_request: bool, // 26
+    ready_receive_cmd: bool, // 27
+    ready_send_vram_to_cpu: bool, // 28
+    ready_receive_dma_block: bool, // 29
+    dma_direction: DmaDirection, // 30-31
+    interlace_odd_line: bool, // 32
 };
 
 const CmdState = enum {
@@ -111,6 +111,12 @@ inline fn argVertex(v: u32) struct { x: i16, y: i16 } {
     return .{ .x = x, .y = y };
 }
 
+inline fn argVertexU(v: u32) struct { x: u16, y: u16 } {
+    const x = bits.field(v, 0, u16) & 0x3ff;
+    const y = bits.field(v, 16, u16) & 0x1ff;
+    return .{ .x = x, .y = y };
+}
+
 inline fn argTexcoord(v: u32) struct { x: u8, y: u8 } {
     const x = @as(u8, @truncate(v >> 0));
     const y = @as(u8, @truncate(v >> 8));
@@ -132,14 +138,14 @@ const Textpage = struct {
 
 inline fn argTextpage(v: u32) Textpage {
     const texpage = v >> 16;
-    const tpx = @as(u16, bits.field(texpage, 0, u4)) * 64;
-    const tpy = @as(u16, bits.field(texpage, 4, u1)) * 256;
+    const base_x = @as(u16, bits.field(texpage, 0, u4)) * 64;
+    const base_y = @as(u16, bits.field(texpage, 4, u1)) * 256;
     const depth = switch (bits.field(texpage, 7, u2)) {
         0 => RasterDepth.bit4,
         1 => RasterDepth.bit8,
         else => RasterDepth.bit15,
     };
-    return .{ .x = tpx, .y = tpy, .depth = depth };
+    return .{ .x = base_x, .y = base_y, .depth = depth };
 }
 
 pub const GPUEvents = packed struct(u4) {
@@ -150,7 +156,7 @@ pub const GPUEvents = packed struct(u4) {
 };
 
 pub const GPU = struct {
-    pub const vram_size = 0x100000;
+    pub const vram_size = 1024 * 512;
     pub const addr_gp0: u32 = 0x1f801810;
     pub const addr_gp1: u32 = 0x1f801814;
     pub const addr_start: u32 = 0x1f801810;
@@ -159,14 +165,15 @@ pub const GPU = struct {
     allocator: std.mem.Allocator,
     rasterizer: Rasterizer,
 
-    vram: *align(16) [vram_size]u8,
+    vram: *align(16) [vram_size]u16,
     gpuread: u32,
 
     gp0_state: CmdState,
     gp0_fifo: Fifo,
     gp0_cmd: u8,
-    gp0_xcur: u16,
-    gp0_ycur: u16,
+    gp0_prev_cmd: u8,
+    gp0_blit_x: u16,
+    gp0_blit_y: u16,
     gp0_draw_mode: DrawMode,
     gp0_draw_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_area_end: packed struct(u32) { x: u10, y: u9, _pad: u13 },
@@ -193,7 +200,7 @@ pub const GPU = struct {
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
 
-        const vram_buf = try allocator.alignedAlloc(u8, .@"16", vram_size);
+        const vram_buf = try allocator.alignedAlloc(u16, .@"16", vram_size);
         const vram = vram_buf[0..vram_size];
 
         self.* = std.mem.zeroInit(@This(), .{
@@ -241,12 +248,12 @@ pub const GPU = struct {
     pub fn readGpustat(self: *@This()) u32 {
         var gpustat = std.mem.zeroes(GpuStat);
 
-        gpustat.texture_page_x = self.gp0_draw_mode.texture_page_x;
-        gpustat.texture_page_y = self.gp0_draw_mode.texture_page_y;
+        gpustat.texpage_x = self.gp0_draw_mode.texpage_x;
+        gpustat.texpage_y = self.gp0_draw_mode.texpage_y;
         gpustat.semi_transparency = self.gp0_draw_mode.semi_transparency;
-        gpustat.texture_page_colors = self.gp0_draw_mode.texture_page_colors;
+        gpustat.texpage_color_mode = self.gp0_draw_mode.texpage_color_mode;
         gpustat.dithering = self.gp0_draw_mode.dithering;
-        gpustat.drawing_to_display_area = self.gp0_draw_mode.drawing_to_display_area;
+        gpustat.drawing_to_display_area = self.gp0_draw_mode.draw_to_display_area;
         gpustat.texture_disable = self.gp0_draw_mode.texture_disable;
 
         gpustat.display_enable = self.gp1_display_enable;
@@ -262,10 +269,6 @@ pub const GPU = struct {
 
         return @as(u32, @bitCast(gpustat));
     }
-
-    // -------------------------
-    // Debugger Helpers
-    // -------------------------
 
     pub fn getDisplayRes(self: *@This()) [2]u16 {
         const w: u16 = switch (self.gp1_display_mode.hres) {
@@ -287,15 +290,16 @@ pub const GPU = struct {
 
     pub fn gp0write(self: *@This(), v: u32) void {
         if (self.gp0_state == .recv_command) {
+            self.gp0_prev_cmd = self.gp0_cmd;
             self.gp0_cmd = @as(u8, @truncate(v >> 24));
             self.gp0_fifo.reset();
         }
 
-        // switch (self.gp0_state) {
-        //     .recv_command => log.debug("gp0 - cmd: {x}", .{self.gp0_cmd}),
-        //     .recv_args => log.debug("gp0 - arg: {x}", .{v}),
-        //     else => {},
-        // }
+        switch (self.gp0_state) {
+            .recv_command => log.debug("gp0 - cmd: {x}", .{self.gp0_cmd}),
+            // .recv_args => log.debug("gp0 - arg: {x}", .{v}),
+            else => {},
+        }
 
         self.stepCommandState(v);
     }
@@ -304,7 +308,7 @@ pub const GPU = struct {
         switch (self.gp0_cmd) {
             0x00 => {},
             0x01 => {}, // self.clearCache(v),
-            0x02 => self.drawRectFlat(v),
+            0x02 => self.drawRectFlat(v, null),
             0x1f => self.interrupt_request = true,
 
             0x20 => self.drawPoly3Flat(v),
@@ -338,26 +342,26 @@ pub const GPU = struct {
             // 0x58 => {}, // self.drawPolyLineShaded(v),
             // 0x5a => {}, // self.drawPolyLineShaded(v),
 
-            0x60 => self.drawRectFlat(v),
-            0x62 => self.drawRectFlat(v),
+            0x60 => self.drawRectFlat(v, null),
+            0x62 => self.drawRectFlat(v, null),
             0x64 => self.drawRectTextured(v, null),
             0x65 => self.drawRectTextured(v, null),
             0x66 => self.drawRectTextured(v, null),
             0x67 => self.drawRectTextured(v, null),
-            0x6a => self.drawRect1x1(v),
-            0x68 => self.drawRect1x1(v),
+            0x68 => self.drawRectFlat(v, 1),
+            0x6a => self.drawRectFlat(v, 1),
             0x6c => self.drawRectTextured(v, 1),
             0x6d => self.drawRectTextured(v, 1),
             0x6e => self.drawRectTextured(v, 1),
             0x6f => self.drawRectTextured(v, 1),
-            0x70 => self.drawRectFixedFlat(v, 8),
-            0x72 => self.drawRectFixedFlat(v, 8),
+            0x70 => self.drawRectFlat(v, 8),
+            0x72 => self.drawRectFlat(v, 8),
             0x74 => self.drawRectTextured(v, 8),
             0x75 => self.drawRectTextured(v, 8),
             0x76 => self.drawRectTextured(v, 8),
             0x77 => self.drawRectTextured(v, 8),
-            0x78 => self.drawRectFixedFlat(v, 16),
-            0x7a => self.drawRectFixedFlat(v, 16),
+            0x78 => self.drawRectFlat(v, 16),
+            0x7a => self.drawRectFlat(v, 16),
             0x7c => self.drawRectTextured(v, 16),
             0x7d => self.drawRectTextured(v, 16),
             0x7e => self.drawRectTextured(v, 16),
@@ -366,16 +370,85 @@ pub const GPU = struct {
             0x80 => self.vramToVram(v),
             0xa0 => self.cpuToVram(v),
             0xc0 => self.vramToCpu(v),
-            0xe1 => self.gp0_draw_mode = @bitCast(v),
+
+            0xe1 => self.setDrawMode(v),
             0xe2 => self.setTextureWindow(v),
             0xe3 => self.setDrawAreaStart(v),
             0xe4 => self.setDrawAreaEnd(v),
-            0xe5 => self.gp0_draw_offset = @bitCast(v),
-
+            0xe5 => self.setDrawOffset(v),
             0xe6 => {}, // self.setBitMask(v),
+
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
-            else => std.debug.panic("unknown gp0 command: 0x{x}", .{self.gp0_cmd}),
+            0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0), // 0x0 rectangles?
+            else => std.debug.panic("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd }),
         }
+    }
+
+    fn setTextureWindow(self: *@This(), v: u32) void {
+        self.gp0_textwin = @bitCast(v);
+        const mask_x = self.gp0_textwin.mask_x *% 8;
+        const mask_y = self.gp0_textwin.mask_y *% 8;
+        const offset_x = self.gp0_textwin.offset_x *% 8;
+        const offset_y = self.gp0_textwin.offset_y *% 8;
+        self.rasterizer.setTextureWindow(mask_x, mask_y, offset_x, offset_y);
+    }
+
+    fn setDrawMode(self: *@This(), v: u32) void {
+        self.gp0_draw_mode = @bitCast(v);
+        log.debug("setDrawMode: {any}", .{self.gp0_draw_mode});
+    }
+
+    fn setDrawModeFromArg(self: *@This(), v: u32) void {
+        const texp = v >> 16;
+        self.gp0_draw_mode.texpage_x = bits.field(texp, 0, u4);
+        self.gp0_draw_mode.texpage_y = bits.field(texp, 4, u1);
+        self.gp0_draw_mode.texpage_color_mode = @enumFromInt(bits.field(texp, 7, u2));
+    }
+
+    fn setDrawAreaStart(self: *@This(), v: u32) void {
+        self.gp0_draw_area_start = @bitCast(v);
+        self.rasterizer.setDrawAreaStart(self.gp0_draw_area_start.x, self.gp0_draw_area_start.y);
+        log.debug("setDrawAreaStart: ({}, {})", .{ self.gp0_draw_area_start.x, self.gp0_draw_area_start.y });
+    }
+
+    fn setDrawAreaEnd(self: *@This(), v: u32) void {
+        self.gp0_draw_area_end = @bitCast(v);
+        self.rasterizer.setDrawAreaEnd(self.gp0_draw_area_end.x, self.gp0_draw_area_end.y);
+        log.debug("setDrawAreaEnd: ({}, {})", .{ self.gp0_draw_area_end.x, self.gp0_draw_area_end.y });
+    }
+
+    fn setDrawOffset(self: *@This(), v: u32) void {
+        self.gp0_draw_offset = @bitCast(v);
+        self.rasterizer.setDrawOffset(self.gp0_draw_offset.x, self.gp0_draw_offset.y);
+        log.debug("setDrawOffset: ({}, {})", .{ self.gp0_draw_offset.x, self.gp0_draw_offset.y });
+    }
+
+    fn getTexpage(self: *@This()) Textpage {
+        return .{
+            .x = @as(u16, self.gp0_draw_mode.texpage_x) * 64,
+            .y = @as(u16, self.gp0_draw_mode.texpage_y) * 256,
+            .depth = switch (self.gp0_draw_mode.texpage_color_mode) {
+                .bit4 => RasterDepth.bit4,
+                .bit8 => RasterDepth.bit8,
+                else => RasterDepth.bit15,
+            },
+        };
+    }
+
+    // -------------------------
+    // GP0 Memory Transfers
+    // -------------------------
+
+    inline fn readVram(self: *@This(), x: u16, y: u16) u16 {
+        const xx = @as(u32, x) & 0x3ff; // 0..1023
+        const yy = @as(u32, y) & 0x1ff; // 0..511
+        return self.vram[yy * 1024 + xx];
+    }
+
+    inline fn writeVram(self: *@This(), x: u16, y: u16, v: u16) void {
+        const xx = @as(u32, x) & 0x3ff; // 0..1023
+        const yy = @as(u32, y) & 0x1ff; // 0..511
+        self.vram[yy * 1024 + xx] = v;
     }
 
     fn vramToVram(self: *@This(), v: u32) void {
@@ -387,12 +460,23 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 4) {
-                    const src = argVertex(self.gp0_fifo.buf[0]);
-                    const dest = argVertex(self.gp0_fifo.buf[1]);
-                    const size = argVertex(self.gp0_fifo.buf[2]);
+                    const src = argVertexU(self.gp0_fifo.buf[1]);
+                    const dest = argVertexU(self.gp0_fifo.buf[2]);
+                    const size = argVertexU(self.gp0_fifo.buf[3]);
 
-                    self.rasterizer.copyRect(src.x, src.y, dest.x, dest.y, size.x, size.y);
+                    const width: u16 = if (size.x == 0) 1024 else size.x;
+                    const height: u16 = if (size.y == 0) 512 else size.y;
+
+                    for (0..height) |y| {
+                        const src_start = (src.y + y) * 1024 + src.x;
+                        const dst_start = (dest.y + y) * 1024 + dest.x;
+                        const src_slice = self.vram[src_start..][0..width];
+                        const dst_slice = self.vram[dst_start..][0..width];
+                        std.mem.copyForwards(u16, dst_slice, src_slice);
+                    }
+
                     self.gp0_state = .recv_command;
+                    log.debug("vramToVram: src=({}, {}), dest=({}, {}), size=({}, {})", .{ src.x, src.y, dest.x, dest.y, width, height });
                 }
             },
             else => unreachable,
@@ -409,37 +493,37 @@ pub const GPU = struct {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 3) {
                     self.gp0_state = .recv_data;
-                    self.gp0_ycur = 0;
-                    self.gp0_xcur = 0;
+                    self.gp0_blit_y = 0;
+                    self.gp0_blit_x = 0;
+
+                    const pos = argVertexU(self.gp0_fifo.buf[1]);
+                    const size = argVertexU(self.gp0_fifo.buf[2]);
+
+                    log.debug("cpuToVram: pos=({}, {}), size=({}, {})", .{ pos.x, pos.y, size.x, size.y });
                 }
             },
             .recv_data => {
-                const arg_xpos = @as(u16, @truncate(self.gp0_fifo.buf[1] >> 0)) & 0x3ff;
-                const arg_ypos = @as(u16, @truncate(self.gp0_fifo.buf[1] >> 16)) & 0x1ff;
-                var arg_xsiz = @as(u16, @truncate(self.gp0_fifo.buf[2] >> 0)) & 0x3ff;
-                var arg_ysiz = @as(u16, @truncate(self.gp0_fifo.buf[2] >> 16)) & 0x1ff;
+                const pos = argVertexU(self.gp0_fifo.buf[1]);
+                const size = argVertexU(self.gp0_fifo.buf[2]);
 
                 // 0 is treated as max possible value
-                if (arg_xsiz == 0) arg_xsiz = 1024;
-                if (arg_ysiz == 0) arg_ysiz = 512;
+                const size_x: u16 = if (size.x == 0) 1024 else size.x;
+                const size_y: u16 = if (size.y == 0) 512 else size.y;
 
                 for (0..2) |i| {
                     const shift = @as(u5, @truncate(i * 16));
-                    const halfword = @as(u16, @truncate(v >> shift));
+                    const hw = @as(u16, @truncate(v >> shift));
+                    const x = (pos.x + self.gp0_blit_x) & 0x3ff;
+                    const y = (pos.y + self.gp0_blit_y) & 0x1ff;
+                    self.writeVram(x, y, hw);
 
-                    const x = @as(u32, (arg_xpos + self.gp0_xcur) & 0x3ff);
-                    const y = @as(u32, (arg_ypos + self.gp0_ycur) & 0x1ff);
+                    self.gp0_blit_x += 1;
 
-                    const addr = 2 * (1024 * y + x);
-                    mem.writeBuf(u16, self.vram, addr, halfword);
+                    if (self.gp0_blit_x == size_x) {
+                        self.gp0_blit_x = 0;
+                        self.gp0_blit_y += 1;
 
-                    self.gp0_xcur += 1;
-
-                    if (self.gp0_xcur == arg_xsiz) {
-                        self.gp0_xcur = 0;
-                        self.gp0_ycur += 1;
-
-                        if (self.gp0_ycur == arg_ysiz) {
+                        if (self.gp0_blit_y == size_y) {
                             self.gp0_state = .recv_command;
                             break;
                         }
@@ -460,39 +544,39 @@ pub const GPU = struct {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 3) {
                     self.gp0_state = .send_data;
-                    self.gp0_ycur = 0;
-                    self.gp0_xcur = 0;
+                    self.gp0_blit_y = 0;
+                    self.gp0_blit_x = 0;
+
+                    const pos = argVertexU(self.gp0_fifo.buf[1]);
+                    const size = argVertexU(self.gp0_fifo.buf[2]);
+                    log.debug("vramToCpu: pos=({}, {}), size=({}, {})", .{ pos.x, pos.y, size.x, size.y });
                 }
             },
             .send_data => {
                 self.gpuread = 0;
 
-                const arg_xpos = @as(u16, @truncate(self.gp0_fifo.buf[1] >> 0)) & 0x3ff;
-                const arg_ypos = @as(u16, @truncate(self.gp0_fifo.buf[1] >> 16)) & 0x1ff;
-                var arg_xsiz = @as(u16, @truncate(self.gp0_fifo.buf[2] >> 0)) & 0x3ff;
-                var arg_ysiz = @as(u16, @truncate(self.gp0_fifo.buf[2] >> 16)) & 0x1ff;
+                const pos = argVertexU(self.gp0_fifo.buf[1]);
+                const size = argVertexU(self.gp0_fifo.buf[2]);
 
                 // 0 is treated as max possible value
-                if (arg_xsiz == 0) arg_xsiz = 1024;
-                if (arg_ysiz == 0) arg_ysiz = 512;
+                const size_x: u16 = if (size.x == 0) 1024 else size.x;
+                const size_y: u16 = if (size.y == 0) 512 else size.y;
 
                 for (0..2) |i| {
                     const shift = @as(u5, @truncate(i * 16));
+                    const x = (pos.x + self.gp0_blit_x) & 0x3ff;
+                    const y = (pos.y + self.gp0_blit_y) & 0x1ff;
+                    const hw = self.readVram(x, y);
 
-                    const x = @as(u32, (arg_xpos + self.gp0_xcur) & 0x3ff);
-                    const y = @as(u32, (arg_ypos + self.gp0_ycur) & 0x1ff);
+                    self.gpuread |= @as(u32, hw) << shift;
 
-                    const addr = 2 * (1024 * y + x);
-                    const halfword = mem.readBuf(u16, self.vram, addr);
+                    self.gp0_blit_x += 1;
 
-                    self.gpuread |= @as(u32, halfword) << shift;
-                    self.gp0_xcur += 1;
+                    if (self.gp0_blit_x == size_x) {
+                        self.gp0_blit_x = 0;
+                        self.gp0_blit_y += 1;
 
-                    if (self.gp0_xcur == arg_xsiz) {
-                        self.gp0_xcur = 0;
-                        self.gp0_ycur += 1;
-
-                        if (self.gp0_ycur == arg_ysiz) {
+                        if (self.gp0_blit_y == size_y) {
                             self.gp0_state = .recv_command;
                             break;
                         }
@@ -503,62 +587,9 @@ pub const GPU = struct {
         }
     }
 
-    fn setTextureWindow(self: *@This(), v: u32) void {
-        self.gp0_textwin = @bitCast(v);
-        const mask_x = self.gp0_textwin.mask_x *% 8;
-        const mask_y = self.gp0_textwin.mask_y *% 8;
-        const offset_x = self.gp0_textwin.offset_x *% 8;
-        const offset_y = self.gp0_textwin.offset_y *% 8;
-        self.rasterizer.setTextureWindow(mask_x, mask_y, offset_x, offset_y);
-    }
-
-    fn setDrawAreaStart(self: *@This(), v: u32) void {
-        self.gp0_draw_area_start = @bitCast(v);
-        self.rasterizer.setDrawAreaStart(self.gp0_draw_area_start.x, self.gp0_draw_area_start.y);
-    }
-
-    fn setDrawAreaEnd(self: *@This(), v: u32) void {
-        self.gp0_draw_area_end = @bitCast(v);
-        self.rasterizer.setDrawAreaEnd(self.gp0_draw_area_end.x, self.gp0_draw_area_end.y);
-    }
-
-    fn setDrawOffset(self: *@This(), v: u32) void {
-        self.gp0_draw_offset = @bitCast(v);
-        self.rasterizer.setDrawOffset(self.gp0_draw_offset.x, self.gp0_draw_offset.y);
-    }
-
-    fn getTextpageFromDrawMode(self: *@This()) Textpage {
-        return .{
-            .x = @as(u16, self.gp0_draw_mode.texture_page_x) * 64,
-            .y = @as(u16, self.gp0_draw_mode.texture_page_y) * 256,
-            .depth = switch (self.gp0_draw_mode.texture_page_colors) {
-                .bit4 => RasterDepth.bit4,
-                .bit8 => RasterDepth.bit8,
-                else => RasterDepth.bit15,
-            },
-        };
-    }
-
-    fn drawRect1x1(self: *@This(), v: u32) void {
-        switch (self.gp0_state) {
-            .recv_command => {
-                self.gp0_fifo.add(v);
-                self.gp0_state = .recv_args;
-            },
-            .recv_args => {
-                self.gp0_fifo.add(v);
-                if (self.gp0_fifo.len == 2) {
-                    const color = argColor(self.gp0_fifo.buf[0]);
-                    const pos = argVertex(self.gp0_fifo.buf[1]);
-                    const x = pos.x + self.gp0_draw_offset.x;
-                    const y = pos.y + self.gp0_draw_offset.y;
-                    self.rasterizer.drawPixel24(x, y, color);
-                    self.gp0_state = .recv_command;
-                }
-            },
-            else => unreachable,
-        }
-    }
+    // -------------------------
+    // GP0 Rendering Commands
+    // -------------------------
 
     fn drawLineFlat(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
@@ -580,47 +611,8 @@ pub const GPU = struct {
         }
     }
 
-    fn drawRectFlat(self: *@This(), v: u32) void {
-        switch (self.gp0_state) {
-            .recv_command => {
-                self.gp0_fifo.add(v);
-                self.gp0_state = .recv_args;
-            },
-            .recv_args => {
-                self.gp0_fifo.add(v);
-                if (self.gp0_fifo.len == 3) {
-                    const color = argColor(self.gp0_fifo.buf[0]);
-                    const pos = argVertex(self.gp0_fifo.buf[1]);
-                    const size = argVertex(self.gp0_fifo.buf[2]);
-                    self.rasterizer.drawRectFlat(pos.x, pos.y, size.x, size.y, color);
-                    self.gp0_state = .recv_command;
-                }
-            },
-            else => unreachable,
-        }
-    }
-
-    fn drawRectFixedFlat(self: *@This(), v: u32, wh: u16) void {
-        switch (self.gp0_state) {
-            .recv_command => {
-                self.gp0_fifo.add(v);
-                self.gp0_state = .recv_args;
-            },
-            .recv_args => {
-                self.gp0_fifo.add(v);
-                if (self.gp0_fifo.len == 3) {
-                    const color = argColor(self.gp0_fifo.buf[0]);
-                    const pos = argVertex(self.gp0_fifo.buf[1]);
-                    self.rasterizer.drawRectFlat(pos.x, pos.y, wh, wh, color);
-                    self.gp0_state = .recv_command;
-                }
-            },
-            else => unreachable,
-        }
-    }
-
-    fn drawRectTextured(self: *@This(), v: u32, comptime hw: ?i32) void {
-        const need_args = if (hw != null) 3 else 4;
+    fn drawRectFlat(self: *@This(), v: u32, comptime fix_size: ?u16) void {
+        const need_args = if (fix_size != null) 2 else 3;
 
         switch (self.gp0_state) {
             .recv_command => {
@@ -630,14 +622,37 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == need_args) {
+                    const color = argColor(self.gp0_fifo.buf[0]);
+                    const pos = argVertex(self.gp0_fifo.buf[1]);
+                    const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[2]);
+                    self.rasterizer.drawRectFlat(pos.x, pos.y, size.x, size.y, color);
+                    log.debug("drawRectFlat: pos=({}, {}), size=({}, {}), color={x}", .{ pos.x, pos.y, size.x, size.y, @as(u24, @bitCast(color)) });
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    fn drawRectTextured(self: *@This(), v: u32, comptime fix_size: ?u16) void {
+        const need_args = if (fix_size != null) 3 else 4;
+
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.add(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.add(v);
+                if (self.gp0_fifo.len == need_args) {
+                    const texp = self.getTexpage();
                     const pos = argVertex(self.gp0_fifo.buf[1]);
                     const clut = argClut(self.gp0_fifo.buf[2]);
+                    const uv = argTexcoord(self.gp0_fifo.buf[2]);
+                    const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[3]);
 
-                    const tp = self.getTextpageFromDrawMode();
-                    const size = if (hw) |vv| .{ .x = vv, .y = vv } else argVertex(self.gp0_fifo.buf[3]);
-
-                    self.rasterizer.drawRectTextured(pos.x, pos.y, size.x, size.y, clut.x, clut.y, tp.x, tp.y, tp.depth);
-
+                    log.debug("drawRectTextured: pos=({}, {}), size=({}, {}), clut=({}, {}), tp=({}, {}, {s})", .{ pos.x, pos.y, size.x, size.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth) });
+                    self.rasterizer.drawRectTextured(pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, texp.depth);
                     self.gp0_state = .recv_command;
                 }
             },
@@ -681,16 +696,16 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 6) {
-                    const c0 = argColor(self.gp0_fifo.buf[0]);
+                    const color0 = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
-                    const c1 = argColor(self.gp0_fifo.buf[2]);
+                    const color1 = argColor(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
-                    const c2 = argColor(self.gp0_fifo.buf[4]);
+                    const color2 = argColor(self.gp0_fifo.buf[4]);
                     const pos2 = argVertex(self.gp0_fifo.buf[5]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .color = c0 };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .color = c1 };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = c2 };
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .color = color0 };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .color = color1 };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
 
                     self.rasterizer.drawTriangleShaded(v0, v1, v2);
 
@@ -740,19 +755,19 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 8) {
-                    const c0 = argColor(self.gp0_fifo.buf[0]);
+                    const color0 = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
-                    const c1 = argColor(self.gp0_fifo.buf[2]);
+                    const color1 = argColor(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
-                    const c2 = argColor(self.gp0_fifo.buf[4]);
+                    const color2 = argColor(self.gp0_fifo.buf[4]);
                     const pos2 = argVertex(self.gp0_fifo.buf[5]);
-                    const c3 = argColor(self.gp0_fifo.buf[6]);
+                    const color3 = argColor(self.gp0_fifo.buf[6]);
                     const pos3 = argVertex(self.gp0_fifo.buf[7]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .color = c0 };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .color = c1 };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = c2 };
-                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .color = c3 };
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .color = color0 };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .color = color1 };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
+                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .color = color3 };
 
                     self.rasterizer.drawTriangleShaded(v0, v1, v2);
                     self.rasterizer.drawTriangleShaded(v1, v3, v2);
@@ -774,20 +789,27 @@ pub const GPU = struct {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 7) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
-                    const tx0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
-                    const tx1 = argTexcoord(self.gp0_fifo.buf[4]);
+                    const uv1 = argTexcoord(self.gp0_fifo.buf[4]);
                     const pos2 = argVertex(self.gp0_fifo.buf[5]);
-                    const tx2 = argTexcoord(self.gp0_fifo.buf[6]);
+                    const uv2 = argTexcoord(self.gp0_fifo.buf[6]);
 
                     const clut = argClut(self.gp0_fifo.buf[2]);
-                    const tp = argTextpage(self.gp0_fifo.buf[4]);
+                    const texp = argTextpage(self.gp0_fifo.buf[4]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .tx = tx0.x, .ty = tx0.y };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .tx = tx1.x, .ty = tx1.y };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .tx = tx2.x, .ty = tx2.y };
+                    self.setDrawModeFromArg(self.gp0_fifo.buf[4]);
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
+
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
+
+                    log.debug(
+                        "drawPoly3Textured: v0=({}, {}, {}, {}), v1=({}, {}, {}, {}), v2=({}, {}, {}, {}), clut=({}, {}), tp=({}, {}, {s})",
+                        .{ v0.x, v0.y, v0.u, v0.v, v1.x, v1.y, v1.u, v1.v, v2.x, v2.y, v2.u, v2.v, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth) },
+                    );
 
                     self.gp0_state = .recv_command;
                 }
@@ -806,24 +828,26 @@ pub const GPU = struct {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 9) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
-                    const tx0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
-                    const tx1 = argTexcoord(self.gp0_fifo.buf[4]);
+                    const uv1 = argTexcoord(self.gp0_fifo.buf[4]);
                     const pos2 = argVertex(self.gp0_fifo.buf[5]);
-                    const tx2 = argTexcoord(self.gp0_fifo.buf[6]);
+                    const uv2 = argTexcoord(self.gp0_fifo.buf[6]);
                     const pos3 = argVertex(self.gp0_fifo.buf[7]);
-                    const tx3 = argTexcoord(self.gp0_fifo.buf[8]);
+                    const uv3 = argTexcoord(self.gp0_fifo.buf[8]);
 
                     const clut = argClut(self.gp0_fifo.buf[2]);
-                    const tp = argTextpage(self.gp0_fifo.buf[4]);
+                    const texp = argTextpage(self.gp0_fifo.buf[4]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .tx = tx0.x, .ty = tx0.y };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .tx = tx1.x, .ty = tx1.y };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .tx = tx2.x, .ty = tx2.y };
-                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .tx = tx3.x, .ty = tx3.y };
+                    self.setDrawModeFromArg(self.gp0_fifo.buf[4]);
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
-                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
+                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y };
+
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
+                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
 
                     self.gp0_state = .recv_command;
                 }
@@ -842,20 +866,22 @@ pub const GPU = struct {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 8) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
-                    const tx0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[4]);
-                    const tx1 = argTexcoord(self.gp0_fifo.buf[5]);
+                    const uv1 = argTexcoord(self.gp0_fifo.buf[5]);
                     const pos2 = argVertex(self.gp0_fifo.buf[7]);
-                    const tx2 = argTexcoord(self.gp0_fifo.buf[8]);
+                    const uv2 = argTexcoord(self.gp0_fifo.buf[8]);
 
                     const clut = argClut(self.gp0_fifo.buf[2]);
-                    const tp = argTextpage(self.gp0_fifo.buf[5]);
+                    const texp = argTextpage(self.gp0_fifo.buf[5]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .tx = tx0.x, .ty = tx0.y };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .tx = tx1.x, .ty = tx1.y };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .tx = tx2.x, .ty = tx2.y };
+                    self.setDrawModeFromArg(self.gp0_fifo.buf[5]);
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
+
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
 
                     self.gp0_state = .recv_command;
                 }
@@ -874,24 +900,26 @@ pub const GPU = struct {
                 self.gp0_fifo.add(v);
                 if (self.gp0_fifo.len == 12) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
-                    const tx0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[4]);
-                    const tx1 = argTexcoord(self.gp0_fifo.buf[5]);
+                    const uv1 = argTexcoord(self.gp0_fifo.buf[5]);
                     const pos2 = argVertex(self.gp0_fifo.buf[7]);
-                    const tx2 = argTexcoord(self.gp0_fifo.buf[8]);
+                    const uv2 = argTexcoord(self.gp0_fifo.buf[8]);
                     const pos3 = argVertex(self.gp0_fifo.buf[10]);
-                    const tx3 = argTexcoord(self.gp0_fifo.buf[11]);
+                    const uv3 = argTexcoord(self.gp0_fifo.buf[11]);
 
                     const clut = argClut(self.gp0_fifo.buf[2]);
-                    const tp = argTextpage(self.gp0_fifo.buf[5]);
+                    const texp = argTextpage(self.gp0_fifo.buf[5]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .tx = tx0.x, .ty = tx0.y };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .tx = tx1.x, .ty = tx1.y };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .tx = tx2.x, .ty = tx2.y };
-                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .tx = tx3.x, .ty = tx3.y };
+                    self.setDrawModeFromArg(self.gp0_fifo.buf[5]);
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
-                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, tp.x, tp.y, tp.depth);
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
+                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y };
+
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
+                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
 
                     self.gp0_state = .recv_command;
                 }
@@ -905,8 +933,9 @@ pub const GPU = struct {
     // -------------------------
 
     pub fn gp1write(self: *@This(), v: u32) void {
-        // log.debug("gp1 - write: {x}", .{v});
         const cmd = @as(u8, @truncate(v >> 24)) & 0x3f;
+        // log.debug("gp1 - command: {x}", .{cmd});
+
         switch (cmd) {
             0x00 => {}, // self.reset(v),
             0x01 => self.clearFifo(v),
