@@ -6,6 +6,7 @@ const log = std.log.scoped(.cdrom);
 
 const cdrom_sector_size_cue = 2352;
 const cdrom_file_offset_sectors_cue = 150;
+const cdrom_file_offset_bytes_cue = cdrom_file_offset_sectors_cue * cdrom_sector_size_cue;
 const cdrom_avg_delay_cycles = 50_000;
 const cdrom_seekl_delay_cycles = 450_000;
 const cdrom_read_delay_cycles = (33868800 / 75);
@@ -123,9 +124,8 @@ pub const Disc = struct {
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const pad_size = cdrom_file_offset_sectors_cue;
-        const buffer = try allocator.alloc(u8, file_size + pad_size);
-        _ = try file.readAll(buffer[pad_size .. pad_size + file_size]);
+        const buffer = try allocator.alloc(u8, file_size);
+        _ = try file.readAll(buffer[0..file_size]);
 
         log.info("loaded disc image: {s} ({d} bytes)", .{ path, file_size });
 
@@ -141,6 +141,7 @@ pub const Disc = struct {
 
     pub fn seek(self: *@This(), loc: SeekLocation) void {
         self.pos = loc.lba() * cdrom_sector_size_cue;
+        self.pos -= cdrom_file_offset_bytes_cue;
     }
 
     pub fn readSector(self: *@This(), sector_size: SectorSize) []const u8 {
@@ -292,9 +293,10 @@ pub const CDROM = struct {
     pub fn tick(self: *@This(), cyc: u32) void {
         if (self.delay > 0) {
             self.delay -|= cyc;
-            if (self.delay == 0) {
-                if (self.cmd) |cmd| self.stepCommand(cmd);
-            }
+            if (self.delay > 0) return;
+        }
+        if (self.cmd) |cmd| {
+            self.stepCommand(cmd);
         }
     }
 

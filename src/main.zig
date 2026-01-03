@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const args_mod = @import("args.zig");
 const mem_mod = @import("mem.zig");
 const timer_mod = @import("timer.zig");
 const disasm_mod = @import("disasm.zig");
@@ -8,10 +9,10 @@ const cdrom_mod = @import("cdrom.zig");
 const spu_mod = @import("spu.zig");
 const joy_mod = @import("joy.zig");
 
-const Args = @import("args.zig").Args;
 const CPU = @import("cpu.zig").CPU;
 const DMA = @import("dma.zig").DMA;
 const DebugUI = @import("debug_ui/DebugUI.zig");
+const Args = @import("args.zig").Args;
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
 
@@ -38,7 +39,10 @@ pub fn main() !void {
 
     var args = Args.parse(allocator) catch |err| {
         switch (err) {
-            error.InvalidArgument => std.process.exit(1),
+            error.InvalidArgument => {
+                Args.printHelp();
+                std.process.exit(1);
+            },
             else => return err,
         }
     };
@@ -80,7 +84,7 @@ pub fn main() !void {
     const cdrom = CDROM.init(allocator);
     defer cdrom.deinit();
 
-    if (args.bin_path) |path| {
+    if (args.cd_image_path) |path| {
         disc = try Disc.fromFile(allocator, path);
         cdrom.insertDisc(disc.?);
     }
