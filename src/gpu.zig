@@ -12,6 +12,8 @@ const RasterDepth = rasterizer.ColorDepth;
 
 const log = std.log.scoped(.gpu);
 
+const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
+
 const Fifo = struct {
     buf: [16]u32,
     len: u32,
@@ -170,8 +172,6 @@ pub const GPU = struct {
     gp0_draw_area_end: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_offset: packed struct(u32) { x: i11, y: i11, _pad: u10 },
     gp0_textwin: packed struct(u32) { mask_x: u5, mask_y: u5, offset_x: u5, offset_y: u5, _pad: u12 },
-    gp0_texwin_mask: [2]u16, // todo: use gp0_textwin
-    gp0_texwin_offset: [2]u16, // todo: use gp0_textwin
 
     gp1_display_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp1_display_range_x: packed struct(u32) { x1: u12, x2: u12, _pad: u8 },
@@ -181,7 +181,7 @@ pub const GPU = struct {
     gp1_display_enable: bool,
     interrupt_request: bool,
 
-    cycle: u32 = 0,
+    cycle_f: f32 = 0.0,
     scanline: u32 = 0,
     in_hblank: bool = false,
     in_vblank: bool = false,
@@ -504,14 +504,12 @@ pub const GPU = struct {
     }
 
     fn setTextureWindow(self: *@This(), v: u32) void {
-        const mask_x = bits.field(v, 0, u5) *% 8;
-        const mask_y = bits.field(v, 5, u5) *% 8;
-        const offset_x = bits.field(v, 10, u5) *% 8;
-        const offset_y = bits.field(v, 15, u5) *% 8;
         self.gp0_textwin = @bitCast(v);
-        self.gp0_texwin_mask = .{ mask_x, mask_y };
-        self.gp0_texwin_offset = .{ offset_x, offset_y };
-        self.rasterizer.setTextureWindow(self.gp0_texwin_mask, self.gp0_texwin_offset);
+        const mask_x = self.gp0_textwin.mask_x *% 8;
+        const mask_y = self.gp0_textwin.mask_y *% 8;
+        const offset_x = self.gp0_textwin.offset_x *% 8;
+        const offset_y = self.gp0_textwin.offset_y *% 8;
+        self.rasterizer.setTextureWindow(mask_x, mask_y, offset_x, offset_y);
     }
 
     fn setDrawAreaStart(self: *@This(), v: u32) void {
@@ -958,35 +956,31 @@ pub const GPU = struct {
         return ready;
     }
 
-    pub fn tick(self: *@This()) void {
-        self.cycle += 1;
+    pub fn tick(self: *@This(), cyc: u32) void {
+        self.cycle_f += @as(f32, @floatFromInt(cyc)) * gpu_cycles_per_cpu_cycle;
 
-        switch (self.cycle) {
-            gpu_cycles_hblank_start_ntsc => {
-                self.in_hblank = true;
-                self.events.hblank_start = true;
-            },
-            gpu_cycles_hblank_end_ntsc => {
-                self.in_hblank = false;
-                self.events.hblank_end = true;
-                self.scanline += 1;
-                self.cycle = 0;
+        if (!self.in_hblank and self.cycle_f >= gpu_cycles_hblank_start_ntsc) {
+            self.in_hblank = true;
+            self.events.hblank_start = true;
+        } else if (self.in_hblank and self.cycle_f >= gpu_cycles_hblank_end_ntsc) {
+            self.scanline += 1;
+            self.in_hblank = false;
+            self.cycle_f -= gpu_cycles_hblank_end_ntsc;
+            self.events.hblank_end = true;
 
-                switch (self.scanline) {
-                    gpu_scans_vblank_start_ntsc => {
-                        self.in_vblank = true;
-                        self.frame_ready = true;
-                        self.events.vblank_start = true;
-                    },
-                    gpu_scans_vblank_end_ntsc => {
-                        self.scanline = 0;
-                        self.in_vblank = false;
-                        self.events.vblank_end = true;
-                    },
-                    else => {},
-                }
-            },
-            else => {},
+            switch (self.scanline) {
+                gpu_scans_vblank_start_ntsc => {
+                    self.in_vblank = true;
+                    self.frame_ready = true;
+                    self.events.vblank_start = true;
+                },
+                gpu_scans_vblank_end_ntsc => {
+                    self.scanline = 0;
+                    self.in_vblank = false;
+                    self.events.vblank_end = true;
+                },
+                else => {},
+            }
         }
     }
 };

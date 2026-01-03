@@ -172,9 +172,9 @@ pub const Joypad = struct {
         return was_pending;
     }
 
-    pub fn tick(self: *@This()) void {
+    pub fn tick(self: *@This(), cpu_cyc: u32) void {
         if (self.irq_delay > 0) {
-            self.irq_delay -= 1;
+            self.irq_delay -|= cpu_cyc;
 
             if (self.irq_delay == 0) {
                 self.irq_pending = true;
@@ -218,13 +218,11 @@ pub const Joypad = struct {
     fn writeData(self: *@This(), comptime T: type, v: T) void {
         switch (T) {
             u8 => {
-                // log.debug("JOY writeData (u8): {x}", .{v});
                 self.tx_data.push(@as(u8, v)) catch unreachable;
             },
             u16 => {
                 const low = bits.field(@as(u16, v), 0, u8);
                 const high = bits.field(@as(u16, v), 8, u8);
-                // log.debug("JOY writeData (u16): low={x} high={x}", .{ low, high });
                 self.tx_data.push(low) catch unreachable;
                 self.tx_data.push(high) catch unreachable;
             },

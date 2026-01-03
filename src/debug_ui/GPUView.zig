@@ -54,12 +54,6 @@ pub fn update(self: *@This()) void {
             zgui.text("Resolution: {d}x{d}", .{ display_res[0], display_res[1] });
         }
 
-        // Texture Window
-        if (zgui.collapsingHeader("Texture Window", .{})) {
-            zgui.text("Mask: ({d}, {d})", .{ self.gpu.gp0_texwin_mask[0], self.gpu.gp0_texwin_mask[1] });
-            zgui.text("Offset: ({d}, {d})", .{ self.gpu.gp0_texwin_offset[0], self.gpu.gp0_texwin_offset[1] });
-        }
-
         // Status
         if (zgui.collapsingHeader("Status", .{})) {
             zgui.text("DMA Direction: {s}", .{@tagName(self.gpu.gp1_dma_direction)});

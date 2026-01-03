@@ -78,9 +78,9 @@ pub const Rasterizer = struct {
         };
     }
 
-    pub inline fn setTextureWindow(self: *@This(), mask: [2]u16, offset: [2]u16) void {
-        self.texwin_mask = mask;
-        self.texwin_offset = offset;
+    pub inline fn setTextureWindow(self: *@This(), mask_x: u16, mask_y: u16, offset_x: u16, offset_y: u16) void {
+        self.texwin_mask = .{ mask_x, mask_y };
+        self.texwin_offset = .{ offset_x, offset_y };
     }
 
     pub inline fn setDrawAreaStart(self: *@This(), x: i32, y: i32) void {

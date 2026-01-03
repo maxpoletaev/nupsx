@@ -76,6 +76,8 @@ pub const UI = struct {
     uniform_display_size: gl.Int,
     uniform_vram_size: gl.Int,
     last_update_time: f64 = 0,
+    last_fps_update_time: f64 = 0,
+    frame_count: u64 = 0,
     is_running: bool = true,
 
     const vertices = [_]f32{ // [x, y, u, v]
@@ -217,6 +219,17 @@ pub const UI = struct {
 
     fn updateInternal(self: *@This(), now: f64) void {
         glfw.pollEvents();
+
+        self.frame_count += 1;
+        const fps_elapsed = now - self.last_fps_update_time;
+        if (fps_elapsed >= 1.0) {
+            var title_buf: [64]u8 = undefined;
+            const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
+            const title = std.fmt.bufPrintZ(&title_buf, "{s} ({d:.1} FPS)", .{ window_title, fps }) catch unreachable;
+            self.window.setTitle(title);
+            self.last_fps_update_time = now;
+            self.frame_count = 0;
+        }
 
         // Clear and render
         gl.clearColor(0.0, 0.0, 0.0, 1.0);

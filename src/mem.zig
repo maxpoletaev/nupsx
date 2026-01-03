@@ -190,14 +190,15 @@ pub const Bus = struct {
     pub fn setInterrupt(self: *@This(), v: u32) void {
         self.irq_stat |= v;
         self.updateInterruptPending();
+        log.debug("irq_stat set: {x}", .{v});
     }
 
     pub fn tick(self: *@This()) void {
-        self.dev.cpu.tick();
-        inline for (0..5) |_| self.dev.gpu.tick();
-        self.dev.timers.tick();
-        self.dev.cdrom.tick();
-        self.dev.joy.tick();
+        const cyc = self.dev.cpu.tick();
+        self.dev.gpu.tick(cyc);
+        self.dev.cdrom.tick(cyc);
+        self.dev.joy.tick(cyc);
+        self.dev.timers.tick(cyc);
 
         // GPU events dispatch
         const gpu_events = self.dev.gpu.consumeEvents();

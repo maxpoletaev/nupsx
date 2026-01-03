@@ -167,7 +167,7 @@ pub const Instr = struct {
 };
 
 pub const Cop0 = struct {
-    const write_mask_table = [16]u32{
+    const reg_write_mask = [16]u32{
         0x00000000,
         0x00000000,
         0x00000000,
@@ -251,7 +251,7 @@ pub const Cop0 = struct {
     }
 
     pub inline fn setReg(self: *@This(), reg: u8, v: u32) void {
-        self.r[reg] = v & write_mask_table[reg];
+        self.r[reg] = v & reg_write_mask[reg];
     }
 
     pub inline fn status(self: *@This()) *Status {
@@ -303,6 +303,7 @@ pub const CPU = struct {
     in_delay_slot: bool,
     in_exception: bool,
     in_branch: bool,
+    cycles: u8,
     lo: u32,
     hi: u32,
 
@@ -323,6 +324,7 @@ pub const CPU = struct {
             .in_delay_slot = false,
             .in_exception = false,
             .branch_taken = false,
+            .cycles = 0,
             .lo = 0,
             .hi = 0,
         };
@@ -419,9 +421,9 @@ pub const CPU = struct {
         };
     }
 
-    pub fn forceSetPC(self: *@This(), pc: u32) void {
+    pub fn resetPC(self: *@This(), pc: u32) void {
         self.pc = pc;
-        self.next_pc, _ = @addWithOverflow(pc, 4);
+        self.next_pc = pc +% 4;
     }
 
     pub fn requestInterrupt(self: *@This(), v: bool) void {
@@ -444,23 +446,28 @@ pub const CPU = struct {
         return false;
     }
 
-    pub fn tick(self: *@This()) void {
+    pub fn tick(self: *@This()) u8 {
         self.gpr[0] = 0;
 
-        const instr_code = self.mem.read(u32, self.pc);
+        const instr_code = self.memRead(u32, self.pc);
         const instr = Instr{ .code = instr_code };
         self.instr_addr = self.pc;
         self.instr = instr;
 
         self.pc = self.next_pc;
-        self.next_pc, _ = @addWithOverflow(self.pc, 4);
+        self.next_pc = self.pc +% 4;
+
+        // Each instruction is 2 cycles on average
+        self.cycles = 2;
 
         // If the last instruction was a branch, then we are in delay slot
         self.in_delay_slot = self.in_branch;
         self.in_branch = false;
 
         // Break if there is an interrupt
-        if (self.checkInterrupt()) return;
+        if (self.checkInterrupt()) {
+            return self.cycles;
+        }
 
         // Execute the instruction
         switch (instr.opcode()) {
@@ -548,6 +555,16 @@ pub const CPU = struct {
         self.gpr[self.delay_load.r] = self.delay_load.v;
         self.delay_load = self.delay_load_next;
         self.delay_load_next.clear();
+
+        return self.cycles;
+    }
+
+    inline fn memRead(self: *@This(), comptime T: type, addr: u32) T {
+        return self.mem.read(T, addr);
+    }
+
+    inline fn memWrite(self: *@This(), comptime T: type, addr: u32, v: T) void {
+        self.mem.write(T, addr, v);
     }
 
     // --------------------------------------
@@ -588,7 +605,7 @@ pub const CPU = struct {
             return;
         }
 
-        self.mem.write(u32, addr, self.gpr[instr.rt()]);
+        self.memWrite(u32, addr, self.gpr[instr.rt()]);
     }
 
     fn addiu(self: *@This(), instr: Instr) void {
@@ -657,13 +674,13 @@ pub const CPU = struct {
             return;
         }
 
-        self.writeGprDelay(instr.rt(), self.mem.read(u32, addr));
+        self.writeGprDelay(instr.rt(), self.memRead(u32, addr));
     }
 
     fn lb(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
         const addr, _ = add32s(base, instr.imm_s());
-        const v = signExtend(u8, self.mem.read(u8, addr));
+        const v = signExtend(u8, self.memRead(u8, addr));
 
         self.writeGprDelay(instr.rt(), v);
     }
@@ -671,7 +688,7 @@ pub const CPU = struct {
     fn lbu(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
         const addr, _ = add32s(base, instr.imm_s());
-        const v = self.mem.read(u8, addr);
+        const v = self.memRead(u8, addr);
 
         self.writeGprDelay(instr.rt(), v);
     }
@@ -707,7 +724,7 @@ pub const CPU = struct {
         }
 
         const v = self.gpr[instr.rt()];
-        self.mem.write(u16, addr, @truncate(v));
+        self.memWrite(u16, addr, @truncate(v));
     }
 
     fn sb(self: *@This(), instr: Instr) void {
@@ -715,7 +732,7 @@ pub const CPU = struct {
         const addr, _ = add32s(base, instr.imm_s());
         const v = self.gpr[instr.rt()];
 
-        self.mem.write(u8, addr, @truncate(v));
+        self.memWrite(u8, addr, @truncate(v));
     }
 
     fn jal(self: *@This(), instr: Instr) void {
@@ -885,7 +902,7 @@ pub const CPU = struct {
             return;
         }
 
-        const v = self.mem.read(u16, addr);
+        const v = self.memRead(u16, addr);
         self.writeGprDelay(instr.rt(), v);
     }
 
@@ -910,7 +927,7 @@ pub const CPU = struct {
             return;
         }
 
-        const v = signExtend(u16, self.mem.read(u16, addr));
+        const v = signExtend(u16, self.memRead(u16, addr));
         self.writeGprDelay(instr.rt(), v);
     }
 
@@ -1008,7 +1025,7 @@ pub const CPU = struct {
         const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
-        const load_v = self.mem.read(u32, aligned_addr);
+        const load_v = self.memRead(u32, aligned_addr);
         var curr_v = self.gpr[instr.rt()];
 
         if (self.delay_load.r == instr.rt()) {
@@ -1031,7 +1048,7 @@ pub const CPU = struct {
         const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
-        const load_v = self.mem.read(u32, aligned_addr);
+        const load_v = self.memRead(u32, aligned_addr);
         var curr_v = self.gpr[instr.rt()];
 
         if (self.delay_load.r == instr.rt()) {
@@ -1054,7 +1071,7 @@ pub const CPU = struct {
         const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
-        const curr_v = self.mem.read(u32, aligned_addr);
+        const curr_v = self.memRead(u32, aligned_addr);
         const store_v = self.gpr[instr.rt()];
 
         const v = switch (addr & 0x3) {
@@ -1065,7 +1082,7 @@ pub const CPU = struct {
             else => unreachable,
         };
 
-        self.mem.write(u32, aligned_addr, v);
+        self.memWrite(u32, aligned_addr, v);
     }
 
     fn swr(self: *@This(), instr: Instr) void {
@@ -1073,7 +1090,7 @@ pub const CPU = struct {
         const addr, _ = add32s(base, instr.imm_s());
         const aligned_addr = addr & ~@as(u32, 0x3);
 
-        const curr_v = self.mem.read(u32, aligned_addr);
+        const curr_v = self.memRead(u32, aligned_addr);
         const store_v = self.gpr[instr.rt()];
 
         const v = switch (addr & 0x03) {
@@ -1084,7 +1101,7 @@ pub const CPU = struct {
             else => unreachable,
         };
 
-        self.mem.write(u32, aligned_addr, v);
+        self.memWrite(u32, aligned_addr, v);
     }
 };
 

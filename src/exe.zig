@@ -17,8 +17,8 @@ const Header = struct {
             .magic = buf[0x00..0x08].*,
             .initial_pc = std.mem.readInt(u32, buf[0x10..0x14], .little),
             .initial_gp = std.mem.readInt(u32, buf[0x14..0x18], .little),
-            .ram_addr = std.mem.readInt(u32, buf[0x18..0x1C], .little),
-            .exe_size = std.mem.readInt(u32, buf[0x1C..0x20], .little),
+            .ram_addr = std.mem.readInt(u32, buf[0x18..0x1c], .little),
+            .exe_size = std.mem.readInt(u32, buf[0x1c..0x20], .little),
             .initial_sp = std.mem.readInt(u32, buf[0x30..0x34], .little),
             .sp_offset = std.mem.readInt(u32, buf[0x34..0x38], .little),
         };
@@ -55,7 +55,7 @@ pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *
     }
 
     // Set initial register values
-    cpu.forceSetPC(hdr.initial_pc);
+    cpu.resetPC(hdr.initial_pc);
     cpu.gpr[28] = hdr.initial_gp;
     if (hdr.initial_sp != 0) {
         cpu.gpr[29] = hdr.initial_sp + hdr.sp_offset;

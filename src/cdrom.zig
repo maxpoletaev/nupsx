@@ -4,14 +4,16 @@ const mem_mod = @import("mem.zig");
 
 const log = std.log.scoped(.cdrom);
 
-const cdrom_date_version = [_]u8{ 0x94, 0x09, 0x19, 0xC0 };
 const cdrom_sector_size_cue = 2352;
+const cdrom_file_offset_sectors_cue = 150;
 const cdrom_avg_delay_cycles = 50_000;
 const cdrom_seekl_delay_cycles = 450_000;
-const cdrom_read_normal_delay_cycles = (33868800 / 75);
-const cdrom_read_double_delay_cycles = (33868800 / (75));
+const cdrom_read_delay_cycles = (33868800 / 75);
+const cdrom_read_2x_delay_cycles = (33868800 / (75 * 2));
 const cdrom_getid_nodisk = [_]u8{ 0x08, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-const cdrom_getid_licensed = [_]u8{ 0x02, 0x00, 0x20, 0x00, 'S', 'C', 'E', 'A' };
+const cdrom_getid_region = 'A'; // A=America, I=Japan, E=Europe
+const cdrom_getid_licensed = [_]u8{ 0x02, 0x00, 0x20, 0x00, 'S', 'C', 'E', cdrom_getid_region };
+const cdrom_date_version = [_]u8{ 0x94, 0x09, 0x19, 0xC0 };
 
 const AddressReg = packed struct(u8) {
     bank_index: u2 = 0, // RA
@@ -121,7 +123,7 @@ pub const Disc = struct {
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const pad_size = 150 * cdrom_sector_size_cue; // 150 sectors gap (missing in images)
+        const pad_size = cdrom_file_offset_sectors_cue;
         const buffer = try allocator.alloc(u8, file_size + pad_size);
         _ = try file.readAll(buffer[pad_size .. pad_size + file_size]);
 
@@ -155,13 +157,6 @@ pub const Disc = struct {
             .data_only => sector[24 .. 24 + 2048],
             .whole_sector => @panic("whole_sector not implemented"),
         };
-
-        // log.debug("disc sector read at {x} ({x}), mode={s} - {x}", .{
-        //     self.pos,
-        //     self.pos - (150 * cdrom_sector_size_cue),
-        //     @tagName(sector_size),
-        //     v[0..16],
-        // });
 
         self.pos += cdrom_sector_size_cue;
         return v;
@@ -294,13 +289,12 @@ pub const CDROM = struct {
         return v;
     }
 
-    pub fn tick(self: *@This()) void {
+    pub fn tick(self: *@This(), cyc: u32) void {
         if (self.delay > 0) {
-            self.delay -= 1;
-            return;
-        }
-        if (self.cmd) |cmd| {
-            self.stepCommand(cmd);
+            self.delay -|= cyc;
+            if (self.delay == 0) {
+                if (self.cmd) |cmd| self.stepCommand(cmd);
+            }
         }
     }
 
@@ -425,7 +419,7 @@ pub const CDROM = struct {
 const commands = opaque {
     const table = init: {
         const CmdPtr = *const fn (self: *CDROM) void;
-        var cmds: [256]?CmdPtr = undefined;
+        var cmds = std.mem.zeroes([256]?CmdPtr);
 
         cmds[Opcode.GET_STAT] = getStat;
         cmds[Opcode.SET_LOC] = setLoc;
@@ -599,8 +593,8 @@ const commands = opaque {
                 log.debug("CDROM READN", .{});
                 self.results.writeByte(@bitCast(self.stat));
                 self.delay = switch (self.mode.speed) {
-                    .normal => cdrom_read_normal_delay_cycles,
-                    .double => cdrom_read_double_delay_cycles,
+                    .normal => cdrom_read_delay_cycles,
+                    .double => cdrom_read_2x_delay_cycles,
                 };
                 self.cmd_state = .read;
                 self.setInterrupt(3);
@@ -610,8 +604,8 @@ const commands = opaque {
                 const sect_buf = self.disc.?.readSector(self.mode.sector_size);
                 self.setSectorData(sect_buf);
                 self.delay = switch (self.mode.speed) {
-                    .normal => cdrom_read_normal_delay_cycles,
-                    .double => cdrom_read_double_delay_cycles,
+                    .normal => cdrom_read_delay_cycles,
+                    .double => cdrom_read_2x_delay_cycles,
                 };
                 self.addr.data_request = true;
                 self.setInterrupt(1);
