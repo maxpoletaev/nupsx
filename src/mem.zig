@@ -190,7 +190,6 @@ pub const Bus = struct {
     pub fn setInterrupt(self: *@This(), v: u32) void {
         self.irq_stat |= v;
         self.updateInterruptPending();
-        log.debug("irq_stat set: {x}", .{v});
     }
 
     pub fn tick(self: *@This()) void {

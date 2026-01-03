@@ -77,6 +77,9 @@ const Timer = struct {
     }
 
     fn increment(self: *@This(), v: u16) bool {
+        var hit_ffff = false;
+        var hit_target = false;
+
         for (0..v) |_| {
             if (self.mode.reset_on_target and self.target != 0 and self.current == self.target) {
                 self.current = 0;
@@ -85,14 +88,16 @@ const Timer = struct {
             self.current +%= 1;
             if (self.target != 0 and self.current == self.target) {
                 self.mode.reached_target = true;
+                hit_target = true;
             }
             if (self.current == 0xffff) {
                 self.mode.reached_ffff = true;
+                hit_ffff = true;
             }
         }
 
-        const fired = (self.mode.irq_on_ffff and self.mode.reached_ffff) or
-            (self.mode.irq_on_target and self.mode.reached_target);
+        const fired = (self.mode.irq_on_ffff and hit_ffff) or
+            (self.mode.irq_on_target and hit_target);
 
         if (fired and !self.mode.irq_repeat) {
             self.paused = true;

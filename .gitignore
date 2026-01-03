@@ -2,4 +2,6 @@
 /zig-out
 /imgui.ini
 /cpu.log
-/bios.bin
+/tests
+/games
+/bios
