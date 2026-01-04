@@ -12,7 +12,7 @@ const logger = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
-const frame_time: f64 = 1.0 / 60.0;
+const target_frame_time: f64 = 1.0 / 60.0;
 
 const vertex_shader_source = @embedFile("shaders/vertex.glsl");
 const fragment_shader_source = @embedFile("shaders/fragment.glsl");
@@ -75,10 +75,10 @@ pub const UI = struct {
     uniform_display_offset: gl.Int,
     uniform_display_size: gl.Int,
     uniform_vram_size: gl.Int,
-    last_update_time: f64 = 0,
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
     is_running: bool = true,
+    next_frame_time: f64 = 0,
 
     const vertices = [_]f32{ // [x, y, u, v]
         -1.0, 1.0, 0.0, 0.0, // top left
@@ -105,7 +105,7 @@ pub const UI = struct {
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);
-        glfw.swapInterval(1); // vsync
+        glfw.swapInterval(0); // disable vsync, we handle frame timing manually
 
         try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
 
@@ -175,8 +175,17 @@ pub const UI = struct {
 
     pub fn update(self: *@This()) void {
         const now = glfw.getTime();
-        self.updateInternal(now);
+
+        if (self.next_frame_time > now) {
+            const sleep_seconds = self.next_frame_time - now;
+            std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
+        }
+
+        self.updateInternal(glfw.getTime());
         self.handleInput();
+
+        const after = glfw.getTime();
+        self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
     }
 
     const KeyMapping = struct { glfw.Key, joy_mod.ButtonId };
@@ -254,6 +263,5 @@ pub const UI = struct {
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
         self.window.swapBuffers();
-        self.last_update_time = now;
     }
 };

@@ -19,7 +19,7 @@ const TimerView = @import("TimerView.zig");
 
 const default_font = @embedFile("../assets/freepixel.ttf");
 const default_font_size = 16.0;
-const frame_time: f64 = 1.0 / 60.0;
+const target_frame_time: f64 = 1.0 / 60.0;
 const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
@@ -35,7 +35,8 @@ timer_view: *TimerView,
 assembly_view: *AssemblyView,
 vram_view: *VramView,
 tty_view: *TTYView,
-last_update_time: f64 = 0,
+last_frame_time: f64 = 0,
+next_frame_time: f64 = 0,
 is_running: bool = true,
 
 pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
@@ -110,10 +111,10 @@ pub fn deinit(self: *@This()) void {
 
 pub fn updatePaused(self: *@This()) void {
     const now = glfw.getTime();
-    const elapsed = now - self.last_update_time;
+    const elapsed = now - self.last_frame_time;
 
-    if (elapsed < frame_time) {
-        glfw.waitEventsTimeout(frame_time - elapsed);
+    if (elapsed < target_frame_time) {
+        glfw.waitEventsTimeout(target_frame_time - elapsed);
         return;
     }
 
@@ -123,8 +124,17 @@ pub fn updatePaused(self: *@This()) void {
 
 pub fn update(self: *@This()) void {
     const now = glfw.getTime();
+
+    if (self.next_frame_time > now) {
+        const sleep_seconds = self.next_frame_time - now;
+        std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
+    }
+
     self.updateInternal(now);
     self.handleInput();
+
+    const after = glfw.getTime();
+    self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
 }
 
 inline fn handleInput(self: *@This()) void {
@@ -155,11 +165,11 @@ inline fn updateInternal(self: *@This(), now: f64) void {
 
     zgui.backend.draw();
     self.window.swapBuffers();
-    self.last_update_time = now;
+    self.last_frame_time = now;
 }
 
 fn updateFrameRate(self: *@This(), now: f64) void {
-    const delta = now - self.last_update_time;
+    const delta = now - self.last_frame_time;
     const fps = 1.0 / delta;
     const cur_frame_time = delta * 1000.0;
 

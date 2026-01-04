@@ -331,7 +331,9 @@ pub const GPU = struct {
             0x3e => self.drawPoly4ShadedTextured(v),
 
             0x30 => self.drawPoly3Shaded(v),
+            0x32 => self.drawPoly3Shaded(v),
             0x38 => self.drawPoly4Shaded(v),
+            0x3a => self.drawPoly4Shaded(v),
 
             0x40 => self.drawLineFlat(v),
             0x42 => self.drawLineFlat(v),
