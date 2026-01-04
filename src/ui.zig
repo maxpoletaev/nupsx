@@ -175,9 +175,6 @@ pub const UI = struct {
 
     pub fn update(self: *@This()) void {
         const now = glfw.getTime();
-        if ((now - self.last_update_time) < frame_time) {
-            return;
-        }
         self.updateInternal(now);
         self.handleInput();
     }

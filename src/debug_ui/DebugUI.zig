@@ -54,7 +54,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
 
     const window = try glfw.Window.create(video_mode.width, video_mode.height, window_title, null);
     glfw.makeContextCurrent(window);
-    glfw.swapInterval(0);
+    glfw.swapInterval(1); // vsync
 
     try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
 
@@ -123,10 +123,6 @@ pub fn updatePaused(self: *@This()) void {
 
 pub fn update(self: *@This()) void {
     const now = glfw.getTime();
-    const elapsed = now - self.last_update_time;
-
-    if (elapsed < frame_time) return;
-
     self.updateInternal(now);
     self.handleInput();
 }

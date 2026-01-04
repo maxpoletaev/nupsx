@@ -243,19 +243,19 @@ pub const Rasterizer = struct {
         const v: u8 = @truncate((v_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
 
         switch (depth) {
-            .bit4 => { // 4-bit
+            .bit4 => {
                 const texel = self.vram[toVramAddr(texp_x + u / 4, texp_y + v)];
                 const shift = @as(u4, @truncate((u % 4) * 4));
-                const idx = (texel >> shift) & 0xf;
-                return self.vram[toVramAddr(clutx + idx, clut_y)];
+                const offset = (texel >> shift) & 0xf;
+                return self.vram[toVramAddr(clutx + offset, clut_y)];
             },
-            .bit8 => { // 8-bit
+            .bit8 => {
                 const texel = self.vram[toVramAddr(texp_x + u / 2, texp_y + v)];
                 const shift = @as(u4, @truncate((u % 2) * 8));
-                const idx = (texel >> shift) & 0xff;
-                return self.vram[toVramAddr(clutx + idx, clut_y)];
+                const offset = (texel >> shift) & 0xff;
+                return self.vram[toVramAddr(clutx + offset, clut_y)];
             },
-            .bit15 => { // 15-bit
+            .bit15 => {
                 return self.vram[toVramAddr(texp_x + u, texp_y + v)];
             },
         }

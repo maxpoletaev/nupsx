@@ -88,9 +88,9 @@ pub const Joypad = struct {
     ctrl: CotrolReg,
 
     state: enum { idle, id_lo, id_hi, btn_lo, btn_hi } = .idle,
+    buttons: [2]ButtonState = .{ .{}, .{} },
     tx_data: fifo.StaticFifo(u8, 16),
     rx_data: fifo.StaticFifo(u8, 16),
-    buttons: ButtonState = .{},
 
     irq_pending: bool = false,
     irq_delay: u32 = 0,
@@ -188,12 +188,14 @@ pub const Joypad = struct {
 
         const tx_byte = self.tx_data.pop() orelse return;
 
+        const btns = self.buttons[self.ctrl.joy_select];
+
         const rx_byte: u8 = switch (self.state) {
             .idle => 0xff,
             .id_lo => joy_id_digital_lo,
             .id_hi => joy_id_digital_hi,
-            .btn_lo => @truncate(@as(u16, @bitCast(self.buttons)) >> 0),
-            .btn_hi => @truncate(@as(u16, @bitCast(self.buttons)) >> 8),
+            .btn_lo => @truncate(@as(u16, @bitCast(btns)) >> 0),
+            .btn_hi => @truncate(@as(u16, @bitCast(btns)) >> 8),
         };
 
         self.state = switch (self.state) {
@@ -248,6 +250,6 @@ pub const Joypad = struct {
     }
 
     pub inline fn setButtonState(self: *@This(), button: ButtonId, pressed: bool) void {
-        @field(self.buttons, @tagName(button)) = !pressed; // 1=not pressed
+        @field(self.buttons[0], @tagName(button)) = !pressed; // 1=not pressed
     }
 };

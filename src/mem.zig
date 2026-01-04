@@ -182,14 +182,14 @@ pub const Bus = struct {
         self.dev = dev;
     }
 
-    inline fn updateInterruptPending(self: *@This()) void {
+    inline fn updateCpuIRQ(self: *@This()) void {
         const pending = (self.irq_stat & self.irq_mask) != 0;
         self.dev.cpu.requestInterrupt(pending);
     }
 
     pub fn setInterrupt(self: *@This(), v: u32) void {
         self.irq_stat |= v;
-        self.updateInterruptPending();
+        self.updateCpuIRQ();
     }
 
     pub fn tick(self: *@This()) void {
@@ -227,13 +227,13 @@ pub const Bus = struct {
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`
-        self.updateInterruptPending();
+        self.updateCpuIRQ();
         // log.debug("irq_stat write: {x}", .{v});
     }
 
     inline fn setIrqMask(self: *@This(), v: u32) void {
         self.irq_mask = v;
-        self.updateInterruptPending();
+        self.updateCpuIRQ();
         // log.debug("irq_mask write: {x}", .{v});
     }
 
