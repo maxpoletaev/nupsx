@@ -1,6 +1,7 @@
 const std = @import("std");
 const bits = @import("bits.zig");
 const mem_mod = @import("mem.zig");
+const cue_mod = @import("cue.zig");
 
 const log = std.log.scoped(.cdrom);
 
@@ -119,7 +120,7 @@ pub const Disc = struct {
     data: []const u8,
     pos: u32 = 0,
 
-    pub fn fromFile(allocator: std.mem.Allocator, path: []const u8) !@This() {
+    pub fn fromBinFile(allocator: std.mem.Allocator, path: []const u8) !@This() {
         const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
         defer file.close();
 
@@ -133,6 +134,14 @@ pub const Disc = struct {
             .allocator = allocator,
             .data = buffer,
         };
+    }
+
+    pub fn fromCueFile(allocator: std.mem.Allocator, cue_path: []const u8) !@This() {
+        var cue_sheet = try cue_mod.parse(allocator, cue_path);
+        defer cue_sheet.deinit();
+
+        const bin_path = cue_sheet.files[0].path;
+        return try fromBinFile(allocator, bin_path);
     }
 
     pub fn deinit(self: *@This()) void {

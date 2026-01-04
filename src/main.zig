@@ -32,6 +32,8 @@ const Joypad = joy_mod.Joypad;
 pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .cdrom, .level = .debug },
+        .{ .scope = .cue, .level = .debug },
         // .{ .scope = .gpu, .level = .debug },
         // .{ .scope = .dma, .level = .debug },
     },
@@ -93,7 +95,14 @@ pub fn main() !void {
     defer cdrom.deinit();
 
     if (args.cd_image_path) |path| {
-        disc = try Disc.fromFile(allocator, path);
+        if (std.mem.endsWith(u8, path, ".cue")) {
+            disc = try Disc.fromCueFile(allocator, path);
+        } else if (std.mem.endsWith(u8, path, ".bin")) {
+            disc = try Disc.fromBinFile(allocator, path);
+        } else {
+            std.log.err("unsupported cd image format: {s}", .{path});
+            std.process.exit(1);
+        }
         cdrom.insertDisc(disc.?);
     }
 
