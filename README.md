@@ -20,6 +20,25 @@ cd nupsx
 zig build --release=fast
 ./zig-out/bin/nupsx --bios SCPH1001.bin
 ```
+
+## Command Line Options
+
+```
+nuPSX - A PlayStation emulator
+
+Usage: nupsx --bios <path> [options]
+
+Options:
+  --bios <path>        Path to BIOS file (required)
+  --exe <path>         Path to executable file to run
+  --cdrom <path>       Path to CD-ROM image file (.cue/.bin)
+  --no-ui              Run without a graphical user interface
+  --debug-ui           Enable debug user interface
+  --disasm             Enable disassembly output
+  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
+  -h, --help           Show this help message
+```
+
 ## References
 
 > Special thanks to [EmuDev Discord](https://discord.gg/dkmJAes) which has accumulated a lot of undocumented knowledge and got me unstuck multiple times.

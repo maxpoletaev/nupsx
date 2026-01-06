@@ -193,9 +193,7 @@ pub const Rasterizer = struct {
             while (x <= x_max) : (x += 1) {
                 const inside = if (abc > 0) (abp >= 0 and bcp >= 0 and cap >= 0) else (abp <= 0 and bcp <= 0 and cap <= 0);
 
-                if (inside) {
-                    self.vram[toVramAddr(x, y)] = @bitCast(c15);
-                }
+                if (inside) self.vram[toVramAddr(x, y)] = @bitCast(c15);
 
                 abp += abp_dx;
                 bcp += bcp_dx;

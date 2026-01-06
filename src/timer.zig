@@ -118,6 +118,10 @@ const Timer = struct {
         const prev = self.mode;
         self.mode = @bitCast(v);
 
+        if (self.getClockSource() == .dotclock) {
+            log.warn("timer set to dotclock source; unimplemented behavior", .{});
+        }
+
         // reached bits are preserved during mode write
         self.mode.reached_target = prev.reached_target;
         self.mode.reached_ffff = prev.reached_ffff;

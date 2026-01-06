@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = @import("mem.zig");
 const bits = @import("bits.zig");
+const GTE = @import("gte.zig").GTE;
 
 const log = std.log.scoped(.cpu);
 const reset_addr = 0xbfc00000; // start of the BIOS
@@ -291,6 +292,7 @@ const LoadSlot = struct {
 pub const CPU = struct {
     allocator: std.mem.Allocator,
     mem: *mem.Bus,
+    gte: GTE,
     pc: u32,
     next_pc: u32,
     gpr: [32]u32,
@@ -311,6 +313,7 @@ pub const CPU = struct {
         const self = try allocator.create(@This());
         self.* = .{
             .mem = memory,
+            .gte = .init(),
             .allocator = allocator,
             .instr = Instr{ .code = 0 },
             .instr_addr = 0,
@@ -346,13 +349,15 @@ pub const CPU = struct {
         self.next_pc = self.pc + 4;
     }
 
-    fn unhandled(self: *@This(), code: u32) void {
-        if (code == 0 or code == 1) {
-            return;
-        }
-        // std.debug.panic("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
+    fn unhandled(self: *@This(), instr: Instr) void {
+        if (instr.code <= 1) return; // NOP
+
+        std.debug.panic(
+            "unhandled instruction at {x}: opcode={x} cop_opcode={x}",
+            .{ self.instr_addr, instr.opcode(), instr.copOpcode() },
+        );
         // log.err("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
-        _ = self;
+        // _ = self;
     }
 
     fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
@@ -449,8 +454,8 @@ pub const CPU = struct {
     pub fn tick(self: *@This()) u8 {
         self.gpr[0] = 0;
 
-        const instr_code = self.memRead(u32, self.pc);
-        const instr = Instr{ .code = instr_code };
+        const v = self.memRead(u32, self.pc);
+        const instr = Instr{ .code = v };
         self.instr_addr = self.pc;
         self.instr = instr;
 
@@ -500,13 +505,20 @@ pub const CPU = struct {
                 .break_ => self.break_(instr),
                 .mult => self.mult(instr),
                 .sub => self.sub(instr),
-                else => self.unhandled(instr.code),
+                else => self.unhandled(instr),
             },
             .cop0 => switch (instr.copOpcode()) {
                 .mtc => self.mtc0(instr),
                 .mfc => self.mfc0(instr),
                 .rfe => self.rfe(instr),
-                else => self.unhandled(instr.code),
+                else => self.unhandled(instr),
+            },
+            .cop2 => switch (instr.copOpcode()) {
+                .mfc => self.mfc2(instr),
+                .mtc => self.mtc2(instr),
+                .cfc => self.cfc2(instr),
+                .ctc => self.ctc2(instr),
+                else => self.cop2cmd(instr),
             },
             .bcondz => switch (instr.bcond()) {
                 .bltz => self.bltz(instr),
@@ -546,9 +558,10 @@ pub const CPU = struct {
             .swl => self.swl(instr),
             .swr => self.swr(instr),
             .cop1 => self.exception(.cop_unusable),
-            .cop2 => self.cop2(instr),
             .cop3 => self.exception(.cop_unusable),
-            else => self.unhandled(instr.code),
+            .lwc2 => self.lwc2(instr),
+            .swc2 => self.swc2(instr),
+            else => self.unhandled(instr),
         }
 
         // Handle delayed loads
@@ -568,13 +581,66 @@ pub const CPU = struct {
     }
 
     // --------------------------------------
-    // Instructions
+    // Coprocessor instructions
     // --------------------------------------
 
-    fn cop2(_: *@This(), instr: Instr) void {
-        // log.warn("unhandled gte {x}", .{instr.code});
-        _ = instr;
+    fn lwc2(self: *@This(), instr: Instr) void {
+        const base = self.gpr[instr.rs()];
+        const addr, _ = add32s(base, instr.imm_s());
+
+        if (addr % 4 != 0) {
+            @branchHint(.unlikely);
+            self.exception(.addr_load);
+            return;
+        }
+
+        const v = self.memRead(u32, addr);
+        self.gte.writeReg(instr.rt(), v);
     }
+
+    fn swc2(self: *@This(), instr: Instr) void {
+        const base = self.gpr[instr.rs()];
+        const addr, _ = add32s(base, instr.imm_s());
+
+        if (addr % 4 != 0) {
+            @branchHint(.unlikely);
+            self.exception(.addr_store);
+            return;
+        }
+
+        const v = self.gte.readReg(instr.rt());
+        self.memWrite(u32, addr, v);
+    }
+
+    fn mfc2(self: *@This(), instr: Instr) void {
+        const gte_reg: u8 = @intCast(instr.rd());
+        const v = self.gte.readReg(gte_reg);
+        self.writeGpr(instr.rt(), v);
+    }
+
+    fn mtc2(self: *@This(), instr: Instr) void {
+        const gte_reg: u8 = @intCast(instr.rd());
+        self.gte.writeReg(gte_reg, self.gpr[instr.rt()]);
+    }
+
+    fn cfc2(self: *@This(), instr: Instr) void {
+        const gte_reg: u8 = 32 + @as(u8, instr.rd());
+        const v = self.gte.readReg(gte_reg);
+        self.writeGpr(instr.rt(), v);
+    }
+
+    fn ctc2(self: *@This(), instr: Instr) void {
+        const gte_reg: u8 = 32 + @as(u8, instr.rd());
+        self.gte.writeReg(gte_reg, self.gpr[instr.rt()]);
+    }
+
+    fn cop2cmd(self: *@This(), instr: Instr) void {
+        self.gte.exec(instr.code);
+    }
+
+    // --------------------------------------
+    // Instructions
+    // --------------------------------------
 
     fn lui(self: *@This(), instr: Instr) void {
         self.writeGpr(instr.rt(), instr.imm() << 16);
