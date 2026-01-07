@@ -188,6 +188,9 @@ pub const Bus = struct {
     }
 
     pub fn setInterrupt(self: *@This(), v: u32) void {
+        if (v & Interrupt.cdrom != 0) {
+            log.debug("CPU interrupt set {x}", .{v});
+        }
         self.irq_stat |= v;
         self.updateCpuIRQ();
     }
@@ -226,9 +229,11 @@ pub const Bus = struct {
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
+        if (~v & Interrupt.cdrom != 0) {
+            log.debug("CPU interrupt ack: {x}", .{~v});
+        }
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`
         self.updateCpuIRQ();
-        // log.debug("irq_stat write: {x}", .{v});
     }
 
     inline fn setIrqMask(self: *@This(), v: u32) void {

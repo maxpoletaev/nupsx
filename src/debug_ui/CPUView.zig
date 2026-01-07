@@ -55,41 +55,20 @@ fn drawCop0Tab(self: *@This()) void {
         zgui.text("Exception Depth: {d}", .{self.cpu.cop0.depth});
         zgui.text("Exc Code: {s} ({d})", .{ if (exc_tag) |t| t else "unknown", @intFromEnum(exc_code) });
 
-        // Key registers
-        zgui.separatorText("Registers");
-        zgui.text("SR (12):    0x{X:0>8}", .{self.cpu.cop0.r[12]});
-        zgui.text("Cause (13): 0x{X:0>8}", .{self.cpu.cop0.r[13]});
-        zgui.text("EPC (14):   0x{X:0>8}", .{self.cpu.cop0.r[14]});
+        var interrupt_mask: u32 = status.interrupt_mask;
+        var interrupt_pending: u32 = cause.interrupt_pending;
 
-        // Status register details
-        zgui.separatorText("Status Register");
-        zgui.text("Int Enable (curr/prev/old): {d}/{d}/{d}", .{
-            @intFromBool(status.curr_int_enable),
-            @intFromBool(status.prev_int_enable),
-            @intFromBool(status.old_int_enable),
+        zgui.separatorText("Interrupts");
+        _ = zgui.inputInt("Mask", .{
+            .step = 0,
+            .flags = hex_field_flags_ro,
+            .v = @ptrCast(&interrupt_mask),
         });
-        zgui.text("User Mode (curr/prev/old):  {d}/{d}/{d}", .{
-            @intFromBool(status.curr_user_mode),
-            @intFromBool(status.prev_user_mode),
-            @intFromBool(status.old_user_mode),
+        _ = zgui.inputInt("Pending", .{
+            .step = 0,
+            .flags = hex_field_flags_ro,
+            .v = @ptrCast(&interrupt_pending),
         });
-        zgui.text("Interrupt Mask: 0x{X:0>2}", .{status.interrupt_mask});
-        zgui.text("Isolate Cache: {s}", .{if (status.isolate_cache) "Yes" else "No"});
-        zgui.text("Swap Caches: {s}", .{if (status.swap_caches) "Yes" else "No"});
-        zgui.text("Boot Vectors: {s}", .{if (status.boot_vectors != 0) "BEV" else "Normal"});
-        zgui.text("COP Enable: 0:{d} 1:{d} 2:{d} 3:{d}", .{
-            @intFromBool(status.cop0_enable),
-            @intFromBool(status.cop1_enable),
-            @intFromBool(status.cop2_enable),
-            @intFromBool(status.cop3_enable),
-        });
-
-        // Cause register details
-        zgui.separatorText("Cause Register");
-        zgui.text("Interrupt Pending: 0x{X:0>2}", .{cause.interrupt_pending});
-        zgui.text("Coprocessor #: {d}", .{cause.cop_number});
-        zgui.text("Branch Taken: {s}", .{if (cause.branch_taken) "Yes" else "No"});
-        zgui.text("EPC at Branch: {s}", .{if (cause.epc_at_branch) "Yes" else "No"});
     }
 }
 

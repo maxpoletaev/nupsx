@@ -24,7 +24,7 @@ pub const Color15 = packed struct {
     r: u5,
     g: u5,
     b: u5,
-    a: u1 = 1,
+    a: u1 = 0,
 
     pub fn init(r: u5, g: u5, b: u5) @This() {
         return .{ .r = r, .g = g, .b = b };

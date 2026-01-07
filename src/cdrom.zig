@@ -71,7 +71,7 @@ const SeekLocation = struct {
     second: u8 = 0,
     sector: u8 = 0,
 
-    inline fn lba(self: SeekLocation) u32 {
+    pub fn lba(self: SeekLocation) u32 {
         const m = @as(u32, self.minute);
         const s = @as(u32, self.second);
         const f = @as(u32, self.sector);
@@ -200,7 +200,7 @@ pub const CDROM = struct {
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
-        // log.debug("cdrom read: {x}", .{addr});
+        // log.debug("CDROM read: {x}", .{addr});
 
         const reg_id = bits.field(addr, 0, u2);
         const bank_index = self.addr.bank_index;
@@ -279,9 +279,12 @@ pub const CDROM = struct {
             std.debug.panic("unacknowledged interrupt: {x} -> {x}", .{ self.irq_pending.ints, it });
         }
         self.irq_pending.ints = it;
+
         if (@as(u8, @bitCast(self.irq_pending)) & @as(u8, @bitCast(self.irq_mask)) != 0) {
             self.events.interrupt = true;
         }
+
+        log.debug("CDROM interrupt set {x}", .{it});
     }
 
     fn ackInterrupt(self: *@This(), v: u8) void {
@@ -293,6 +296,8 @@ pub const CDROM = struct {
         } = @bitCast(v);
 
         self.irq_pending.ints &= ~ack.ack_int;
+
+        log.debug("CDROM interrupt ack {x}", .{ack.ack_int});
 
         if (ack.clear_params) self.params.clear();
 
@@ -326,11 +331,20 @@ pub const CDROM = struct {
                 3 => log.warn("ATV3: {x}", .{v}),
             },
             3 => switch (bank_index) {
-                0 => self.req = @bitCast(val),
+                0 => self.writeRequest(val),
                 1 => self.ackInterrupt(val),
                 2 => log.warn("ATV1: {x}", .{v}),
                 3 => log.warn("ADPCTL: {x}", .{v}),
             },
+        }
+    }
+
+    fn writeRequest(self: *@This(), v: u8) void {
+        const req: RequestReg = @bitCast(v);
+        self.req = req;
+
+        if (!req.want_data) {
+            self.sect_pos = 0;
         }
     }
 

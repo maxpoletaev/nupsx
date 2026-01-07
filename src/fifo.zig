@@ -4,7 +4,7 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
     return struct {
         const Self = @This();
 
-        buffer: [capacity]T = undefined,
+        buf: [capacity]T = undefined,
         head: usize = 0,
         tail: usize = 0,
         len: usize = 0,
@@ -25,7 +25,7 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
             if (self.isFull()) {
                 return error.FifoFull;
             }
-            self.buffer[self.tail] = item;
+            self.buf[self.tail] = item;
             self.tail = (self.tail + 1) % capacity;
             self.len += 1;
         }
@@ -34,7 +34,7 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
             if (self.isEmpty()) {
                 return null;
             }
-            const item = self.buffer[self.head];
+            const item = self.buf[self.head];
             self.head = (self.head + 1) % capacity;
             self.len -= 1;
             return item;
@@ -44,7 +44,7 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
             if (self.isEmpty()) {
                 return null;
             }
-            return self.buffer[self.head];
+            return self.buf[self.head];
         }
 
         pub fn clear(self: *@This()) void {
