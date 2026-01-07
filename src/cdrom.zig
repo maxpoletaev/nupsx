@@ -2,6 +2,7 @@ const std = @import("std");
 const bits = @import("bits.zig");
 const mem_mod = @import("mem.zig");
 const cue_mod = @import("cue.zig");
+const fifo = @import("fifo.zig");
 
 const log = std.log.scoped(.cdrom);
 
@@ -20,10 +21,10 @@ const cdrom_date_version = [_]u8{ 0x94, 0x09, 0x19, 0xC0 };
 const AddressReg = packed struct(u8) {
     bank_index: u2 = 0, // RA
     adpcm_busy: bool = false, // ADPBUSY
-    param_empty: bool = true, // PRMEMPT
-    param_ready: bool = true, // PRMWRDY
+    param_not_full: bool = true, // PRMWRDY (set on read)
+    param_empty: bool = true, // PRMEMPT (set on read)
     result_ready: bool = false, // RSLRRDY
-    data_request: bool = false, // DRQSTS
+    data_ready: bool = false, // DRQSTS
     busy_status: bool = false, // BUSYSTS
 };
 
@@ -56,9 +57,8 @@ const ModeReg = packed struct(u8) {
 
 const RequestReg = packed struct(u8) {
     _pad: u5 = 0, // 0-4 (always 0)
-    smen: bool = false, // 5
-    bfwr: bool = false, // 6
-    bfrd: bool = false, // 7
+    _unused: u2 = 0, // 5-6 (smen and bfwr)
+    want_data: bool = false, // 7
 };
 
 const CdromEvents = packed struct(u8) {
@@ -76,42 +76,6 @@ const SeekLocation = struct {
         const s = @as(u32, self.second);
         const f = @as(u32, self.sector);
         return (m * 60 + s) * 75 + f;
-    }
-};
-
-const Fifo = struct {
-    data: [16]u8 = std.mem.zeroes([16]u8),
-    read_pos: u4 = 0,
-    write_pos: u4 = 0,
-
-    pub fn init() Fifo {
-        return Fifo{};
-    }
-
-    fn clear(self: *Fifo) void {
-        self.read_pos = 0;
-        self.write_pos = 0;
-    }
-
-    fn isEmpty(self: *Fifo) bool {
-        return self.read_pos == self.write_pos;
-    }
-
-    fn writeByte(self: *Fifo, byte: u8) void {
-        self.data[self.write_pos] = byte;
-        self.write_pos +%= 1;
-    }
-
-    fn writeSlice(self: *Fifo, bytes: []const u8) void {
-        for (bytes) |b| {
-            self.writeByte(b);
-        }
-    }
-
-    fn readByte(self: *Fifo) u8 {
-        const byte = self.data[self.read_pos];
-        self.read_pos +%= 1;
-        return byte;
     }
 };
 
@@ -180,18 +144,6 @@ const CmdState = enum {
     read,
 };
 
-const Opcode = opaque {
-    pub const GET_STAT: u8 = 0x01;
-    pub const SET_LOC: u8 = 0x02;
-    pub const READ_N: u8 = 0x06;
-    pub const PAUSE: u8 = 0x09;
-    pub const INIT: u8 = 0x0a;
-    pub const SET_MODE: u8 = 0x0e;
-    pub const GET_ID: u8 = 0x1a;
-    pub const SEEK_L: u8 = 0x15;
-    pub const TEST: u8 = 0x19;
-};
-
 pub const CDROM = struct {
     pub const addr_start: u32 = 0x1f801800;
     pub const addr_end: u32 = 0x1f801803;
@@ -200,20 +152,22 @@ pub const CDROM = struct {
     addr: AddressReg,
     stat: StatusReg,
     mode: ModeReg,
-    params: Fifo,
-    results: Fifo,
+    req: RequestReg,
+    params: fifo.StaticFifo(u8, 16),
+    results: fifo.StaticFifo(u8, 16),
     delay: u32 = 0,
     cmd: ?u8,
     cmd_state: CmdState = .recv_cmd,
     events: CdromEvents,
+    mute: bool = false,
 
     disc: ?Disc,
     seekloc: ?SeekLocation,
     sect_buf: ?[]const u8,
     sect_pos: u32 = 0,
 
-    hintmsk: packed struct(u8) { enint: u3 = 0, enbfempt: u1 = 0, enbfwrdy: u1 = 0, _pad: u3 = 0 },
-    hintsts: packed struct(u8) { intsts: u3 = 0, bffempt: u1 = 0, bffwrdy: u1 = 0, _pad: u3 = 0 },
+    irq_mask: packed struct(u8) { int_enable: u3 = 0, _pad: u5 = 0 },
+    irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
         const self = allocator.create(@This()) catch unreachable;
@@ -222,8 +176,8 @@ pub const CDROM = struct {
             .allocator = allocator,
             .params = .init(),
             .results = .init(),
-            .hintmsk = std.mem.zeroes(@TypeOf(self.hintmsk)),
-            .hintsts = std.mem.zeroes(@TypeOf(self.hintsts)),
+            .irq_mask = std.mem.zeroes(@TypeOf(self.irq_mask)),
+            .irq_pending = std.mem.zeroes(@TypeOf(self.irq_pending)),
             .cmd = null,
             .disc = null,
             .sect_buf = null,
@@ -232,6 +186,7 @@ pub const CDROM = struct {
             .events = .{},
             .stat = .{},
             .addr = .{},
+            .req = .{},
         };
         return self;
     }
@@ -255,8 +210,8 @@ pub const CDROM = struct {
             1 => self.consumeResultByte(),
             2 => self.consumeSectorData(T),
             3 => switch (bank_index) {
-                0, 2 => @as(u8, @bitCast(self.hintmsk)),
-                1, 3 => @as(u8, @bitCast(self.hintsts)) | 0xe0, // bits 5-7 always read as 1
+                0, 2 => @as(u8, @bitCast(self.irq_mask)),
+                1, 3 => @as(u8, @bitCast(self.irq_pending)) | 0xe0, // bits 5-7 always read as 1
             },
         };
     }
@@ -271,7 +226,8 @@ pub const CDROM = struct {
         self.sect_pos += @sizeOf(T);
 
         if (self.sect_pos >= buf.len) {
-            self.addr.data_request = false;
+            self.addr.data_ready = false;
+            self.sect_buf = null;
             self.sect_pos = 0;
         }
 
@@ -286,16 +242,19 @@ pub const CDROM = struct {
     fn readAddressReg(self: *@This()) u8 {
         const addr = self.addr;
         addr.param_empty = self.params.isEmpty();
+        addr.param_not_full = !self.params.isFull();
         addr.result_ready = !self.results.isEmpty();
-        addr.param_ready = true; // always ready for params
+        addr.data_ready = self.req.want_data and (self.sect_buf != null);
         return @bitCast(addr);
     }
 
     fn consumeResultByte(self: *@This()) u8 {
-        const v = self.results.readByte();
         if (self.results.isEmpty()) {
-            self.addr.result_ready = false;
+            log.warn("cdrom: read from empty result fifo", .{});
+            return 0;
         }
+        const v = self.results.pop() orelse 0;
+        log.debug("CDROM result byte: {x}", .{v});
         return v;
     }
 
@@ -316,36 +275,28 @@ pub const CDROM = struct {
     }
 
     fn setInterrupt(self: *@This(), it: u3) void {
-        // log.debug("set interrupt: {x}", .{it});
-        if (self.hintsts.intsts != 0) {
-            std.debug.panic("overwriting unacknowledged interrupt: {x} -> {x}", .{ self.hintsts.intsts, it });
+        if (self.irq_pending.ints != 0) {
+            std.debug.panic("unacknowledged interrupt: {x} -> {x}", .{ self.irq_pending.ints, it });
         }
-
-        self.hintsts.intsts = it;
-        if (@as(u8, @bitCast(self.hintsts)) & @as(u8, @bitCast(self.hintmsk)) != 0) {
+        self.irq_pending.ints = it;
+        if (@as(u8, @bitCast(self.irq_pending)) & @as(u8, @bitCast(self.irq_mask)) != 0) {
             self.events.interrupt = true;
         }
     }
 
-    fn clearInterrupt(self: *@This(), v: u8) void {
-        const clr: packed struct(u8) {
-            clrint: u3,
-            clrbffempt: u1,
-            clrbffwrdy: u1,
-            smadpclr: u1,
-            clrprm: u1,
-            chpclr: u1,
+    fn ackInterrupt(self: *@This(), v: u8) void {
+        const ack: packed struct(u8) {
+            ack_int: u3,
+            _pad: u3,
+            clear_params: bool,
+            reset_chip: bool,
         } = @bitCast(v);
 
-        const before = self.hintsts.intsts;
-        self.hintsts.intsts &= ~clr.clrint;
-        self.hintsts.bffempt &= ~clr.clrbffempt;
-        self.hintsts.bffwrdy &= ~clr.clrbffwrdy;
-        if (clr.clrprm == 1) self.params.clear();
+        self.irq_pending.ints &= ~ack.ack_int;
 
-        if (before != self.hintsts.intsts) {
-            // log.debug("interrupt ack: {x} -> {x}", .{ before, self.hintsts.intsts });
-        }
+        if (ack.clear_params) self.params.clear();
+
+        self.results.clear();
     }
 
     pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
@@ -370,22 +321,13 @@ pub const CDROM = struct {
             },
             2 => switch (bank_index) {
                 0 => self.writePram(val),
-                1 => self.hintmsk = @bitCast(val),
+                1 => self.irq_mask = @bitCast(val),
                 2 => log.warn("ATV0: {x}", .{v}),
                 3 => log.warn("ATV3: {x}", .{v}),
             },
             3 => switch (bank_index) {
-                0 => {
-                    const req: packed struct(u8) {
-                        _pad: u5, // 0-4 (always 0)
-                        smen: u1, // 5
-                        bfwr: u1, // 6
-                        bfrd: u1, // 7
-                    } = @bitCast(val);
-                    self.hintsts.bffempt = req.bfrd;
-                    self.hintsts.bffwrdy = req.bfwr;
-                },
-                1 => self.clearInterrupt(val),
+                0 => self.req = @bitCast(val),
+                1 => self.ackInterrupt(val),
                 2 => log.warn("ATV1: {x}", .{v}),
                 3 => log.warn("ADPCTL: {x}", .{v}),
             },
@@ -393,19 +335,20 @@ pub const CDROM = struct {
     }
 
     fn writePram(self: *@This(), v: u8) void {
-        self.params.writeByte(v);
+        self.params.push(v) catch {
+            std.debug.panic("cdrom: parameter fifo overflow", .{});
+        };
     }
 
-    fn writeCommand(self: *@This(), v: u8) void {
-        // log.debug("cdrom command: {x}", .{v});
-
-        if (self.cmd != null and v != Opcode.PAUSE) {
-            log.warn("another command in progress ({x}) while writing {x}", .{ self.cmd.?, v });
+    fn writeCommand(self: *@This(), opcode: u8) void {
+        if (self.cmd != null and opcode != commands.PAUSE) {
+            std.debug.panic("cdrom: new command ({x}) while another command in progress ({x})", .{ opcode, self.cmd.? });
+        } else if (!self.results.isEmpty()) {
+            std.debug.panic("cdrom: new command ({x}) while having unread results", .{opcode});
         }
-
-        self.cmd = v;
+        self.cmd = opcode;
         self.cmd_state = .recv_cmd;
-        self.stepCommand(v);
+        self.stepCommand(opcode);
     }
 
     fn stepCommand(self: *@This(), cmd: u8) void {
@@ -425,22 +368,46 @@ pub const CDROM = struct {
         self.stat.seek = false;
         self.stat.err = false;
     }
+
+    fn pushResultByte(self: *@This(), byte: u8) void {
+        self.results.push(byte) catch {
+            std.debug.panic("cdrom: result fifo overflow", .{});
+        };
+    }
+
+    fn pushResultSlice(self: *@This(), bytes: []const u8) void {
+        for (bytes) |b| {
+            self.pushResultByte(b);
+        }
+    }
 };
 
 const commands = opaque {
+    const GET_STAT: u8 = 0x01;
+    const SET_LOC: u8 = 0x02;
+    const READ_N: u8 = 0x06;
+    const PAUSE: u8 = 0x09;
+    const INIT: u8 = 0x0a;
+    const DEMUTE: u8 = 0x0c;
+    const SET_MODE: u8 = 0x0e;
+    const GET_ID: u8 = 0x1a;
+    const SEEK_L: u8 = 0x15;
+    const TEST: u8 = 0x19;
+
     const table = init: {
         const CmdPtr = *const fn (self: *CDROM) void;
         var cmds = std.mem.zeroes([256]?CmdPtr);
 
-        cmds[Opcode.GET_STAT] = getStat;
-        cmds[Opcode.SET_LOC] = setLoc;
-        cmds[Opcode.READ_N] = readN;
-        cmds[Opcode.PAUSE] = pause;
-        cmds[Opcode.INIT] = initCmd;
-        cmds[Opcode.SET_MODE] = setMode;
-        cmds[Opcode.GET_ID] = getId;
-        cmds[Opcode.SEEK_L] = seekL;
-        cmds[Opcode.TEST] = testCmd;
+        cmds[GET_STAT] = getStat;
+        cmds[SET_LOC] = setLoc;
+        cmds[READ_N] = readN;
+        cmds[PAUSE] = pause;
+        cmds[INIT] = initCmd;
+        cmds[SET_MODE] = setMode;
+        cmds[GET_ID] = getId;
+        cmds[SEEK_L] = seekL;
+        cmds[TEST] = testCmd;
+        cmds[DEMUTE] = demute;
 
         break :init cmds;
     };
@@ -453,17 +420,17 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp2;
                 self.setInterrupt(3);
             },
             .resp2 => {
-                if (self.disc) |_| {
-                    self.results.writeSlice(&cdrom_getid_licensed);
+                if (self.disc != null) {
+                    self.pushResultSlice(&cdrom_getid_licensed);
                     self.setInterrupt(2);
                 } else {
-                    self.results.writeSlice(&cdrom_getid_nodisk);
+                    self.pushResultSlice(&cdrom_getid_nodisk);
                     self.setInterrupt(5);
                 }
                 self.resetCommand();
@@ -480,14 +447,14 @@ const commands = opaque {
             },
             .resp1 => {
                 log.debug("CDROM PAUSE", .{});
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.stat.read = false;
                 self.setInterrupt(3);
                 self.delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp2;
             },
             .resp2 => {
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.setInterrupt(2);
                 self.resetCommand();
             },
@@ -504,7 +471,7 @@ const commands = opaque {
             .resp1 => {
                 const stat = self.stat;
                 self.stat.shellopen = false; // reading stat resets shellopen bit
-                self.results.writeByte(@bitCast(stat));
+                self.pushResultByte(@bitCast(stat));
                 log.debug("CDROM GETSTAT: {x}", .{@as(u8, @bitCast(stat))});
                 self.setInterrupt(3);
                 self.resetCommand();
@@ -520,12 +487,16 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                const minute = bcdToDec(self.params.readByte());
-                const second = bcdToDec(self.params.readByte());
-                const sector = bcdToDec(self.params.readByte());
-                log.debug("CDROM SETLOC to {d}:{d}:{d}", .{ minute, second, sector });
+                std.debug.assert(self.params.len == 3);
+                const minute = bcdToDec(self.params.pop() orelse unreachable);
+                const second = bcdToDec(self.params.pop() orelse unreachable);
+                const sector = bcdToDec(self.params.pop() orelse unreachable);
+
                 self.seekloc = SeekLocation{ .minute = minute, .second = second, .sector = sector };
-                self.results.writeByte(@bitCast(self.stat));
+
+                log.debug("CDROM SETLOC to {d}:{d}:{d}", .{ minute, second, sector });
+
+                self.pushResultByte(@bitCast(self.stat));
                 self.setInterrupt(3);
                 self.resetCommand();
             },
@@ -540,10 +511,11 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                const mode_byte = self.params.readByte();
+                std.debug.assert(self.params.len == 1);
+                const mode_byte = self.params.pop() orelse unreachable;
                 self.mode = @bitCast(mode_byte);
                 log.debug("CDROM SETMODE: {x}", .{mode_byte});
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.setInterrupt(3);
                 self.resetCommand();
             },
@@ -568,7 +540,7 @@ const commands = opaque {
                     "CDROM SEEKL to {d}:{d}:{d} (lba={d})",
                     .{ loc.minute, loc.second, loc.sector, loc.lba() },
                 );
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.delay = cdrom_seekl_delay_cycles;
                 self.setInterrupt(3);
                 self.cmd_state = .resp2;
@@ -576,7 +548,7 @@ const commands = opaque {
             .resp2 => {
                 self.disc.?.seek(self.seekloc.?);
                 self.seekloc = null; // acknowledge seek
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.stat.seek = false;
                 self.setInterrupt(2);
                 self.resetCommand();
@@ -590,7 +562,6 @@ const commands = opaque {
             .recv_cmd => {
                 self.delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp1;
-                self.stat.read = true;
                 self.stat.motor_on = true;
 
                 if (self.seekloc) |loc| { // unacknowledged seek
@@ -598,27 +569,30 @@ const commands = opaque {
                     self.delay += cdrom_seekl_delay_cycles;
                     self.disc.?.seek(loc);
                     self.seekloc = null;
+                    self.stat.seek = true;
                 }
             },
             .resp1 => {
                 log.debug("CDROM READN", .{});
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.delay = switch (self.mode.speed) {
                     .normal => cdrom_read_delay_cycles,
                     .double => cdrom_read_2x_delay_cycles,
                 };
                 self.cmd_state = .read;
+                self.stat.seek = false;
+                self.stat.read = true;
                 self.setInterrupt(3);
             },
             .read => {
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 const sect_buf = self.disc.?.readSector(self.mode.sector_size);
                 self.setSectorData(sect_buf);
                 self.delay = switch (self.mode.speed) {
                     .normal => cdrom_read_delay_cycles,
                     .double => cdrom_read_2x_delay_cycles,
                 };
-                self.addr.data_request = true;
+                self.addr.data_ready = true;
                 self.setInterrupt(1);
             },
             else => unreachable,
@@ -636,12 +610,12 @@ const commands = opaque {
                 self.cmd_state = .resp2;
                 self.mode = @bitCast(@as(u8, 0x20));
                 self.stat.motor_on = true;
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.delay = cdrom_avg_delay_cycles;
                 self.setInterrupt(3);
             },
             .resp2 => {
-                self.results.writeByte(@bitCast(self.stat));
+                self.pushResultByte(@bitCast(self.stat));
                 self.setInterrupt(2);
                 self.resetCommand();
             },
@@ -656,11 +630,29 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                const sub_cmd = self.params.readByte();
+                std.debug.assert(self.params.len == 1);
+                const sub_cmd = self.params.pop() orelse unreachable;
                 switch (sub_cmd) {
-                    0x20 => self.results.writeSlice(&cdrom_date_version),
+                    0x20 => self.pushResultSlice(&cdrom_date_version),
                     else => log.warn("unhandled CDROM TEST sub-command: {x}", .{sub_cmd}),
                 }
+                self.setInterrupt(3);
+                self.resetCommand();
+            },
+            else => unreachable,
+        }
+    }
+
+    fn demute(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                log.debug("CDROM DEMUTE (stubbed)", .{});
+                self.mute = false;
+                self.pushResultByte(@bitCast(self.stat));
                 self.setInterrupt(3);
                 self.resetCommand();
             },

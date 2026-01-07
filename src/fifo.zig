@@ -30,12 +30,6 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
             self.len += 1;
         }
 
-        pub fn pushSlice(self: *@This(), items: []const T) !void {
-            for (items) |item| {
-                try self.push(item);
-            }
-        }
-
         pub fn pop(self: *@This()) ?T {
             if (self.isEmpty()) {
                 return null;
@@ -51,6 +45,12 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
                 return null;
             }
             return self.buffer[self.head];
+        }
+
+        pub fn clear(self: *@This()) void {
+            self.head = 0;
+            self.tail = 0;
+            self.len = 0;
         }
     };
 }
