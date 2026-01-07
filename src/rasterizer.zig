@@ -24,17 +24,18 @@ pub const Color15 = packed struct {
     r: u5,
     g: u5,
     b: u5,
-    a: u1 = 0,
+    mask_bit: bool,
 
-    pub fn init(r: u5, g: u5, b: u5) @This() {
-        return .{ .r = r, .g = g, .b = b };
+    pub fn init(r: u5, g: u5, b: u5, mask_bit: bool) @This() {
+        return .{ .r = r, .g = g, .b = b, .mask_bit = mask_bit };
     }
 
-    pub inline fn from24(v: Color24) @This() {
+    pub inline fn from24(v: Color24, mask_bit: bool) @This() {
         return .{
             .r = @truncate(v.r >> 3),
             .g = @truncate(v.g >> 3),
             .b = @truncate(v.b >> 3),
+            .mask_bit = mask_bit,
         };
     }
 };
@@ -66,6 +67,8 @@ pub const Rasterizer = struct {
     draw_offset: [2]i32,
     texwin_mask: [2]u16,
     texwin_offset: [2]u16,
+    force_mask_bit: bool = false,
+    check_mask_bit: bool = false,
 
     pub fn init(vram: *align(16) [vram_res_x * vram_res_y]u16) @This() {
         return .{
@@ -78,21 +81,26 @@ pub const Rasterizer = struct {
         };
     }
 
-    pub inline fn setTextureWindow(self: *@This(), mask_x: u16, mask_y: u16, offset_x: u16, offset_y: u16) void {
+    pub fn setTextureWindow(self: *@This(), mask_x: u16, mask_y: u16, offset_x: u16, offset_y: u16) void {
         self.texwin_mask = .{ mask_x, mask_y };
         self.texwin_offset = .{ offset_x, offset_y };
     }
 
-    pub inline fn setDrawAreaStart(self: *@This(), x: i32, y: i32) void {
+    pub fn setDrawAreaStart(self: *@This(), x: i32, y: i32) void {
         self.draw_area_start = .{ x, y };
     }
 
-    pub inline fn setDrawOffset(self: *@This(), x: i32, y: i32) void {
+    pub fn setDrawOffset(self: *@This(), x: i32, y: i32) void {
         self.draw_offset = .{ x, y };
     }
 
-    pub inline fn setDrawAreaEnd(self: *@This(), x: i32, y: i32) void {
+    pub fn setDrawAreaEnd(self: *@This(), x: i32, y: i32) void {
         self.draw_area_end = .{ x, y };
+    }
+
+    pub fn setMaskBitSetting(self: *@This(), force_mask_bit: bool, check_mask_bit: bool) void {
+        self.force_mask_bit = force_mask_bit;
+        self.check_mask_bit = check_mask_bit;
     }
 
     inline fn applyOffset(self: *@This(), v: Vertex) Vertex {
@@ -106,13 +114,23 @@ pub const Rasterizer = struct {
     }
 
     pub inline fn fill(self: *@This(), c: Color24) void {
-        @memset(self.vram, @bitCast(Color15.from24(c)));
+        @memset(self.vram, @bitCast(Color15.from24(c, false)));
     }
 
     inline fn toVramAddr(x: i32, y: i32) usize {
         const xx = @as(u32, @bitCast(x)) & 0x3ff; // 0..1023
         const yy = @as(u32, @bitCast(y)) & 0x1ff; // 0..511
         return xx + yy * vram_res_x;
+    }
+
+    pub inline fn setPixelMasked(self: *@This(), x: i32, y: i32, color: u16) void {
+        const addr = toVramAddr(x, y);
+        if (self.check_mask_bit) {
+            const curr = self.vram[addr];
+            if (curr & (1 << 15) != 0) return; // write-protected pixel
+        }
+        self.vram[addr] = color;
+        if (self.force_mask_bit) self.vram[addr] |= (1 << 15);
     }
 
     inline fn edgeFunc(a: Vertex, b: Vertex, c: Vertex) i32 {
@@ -161,7 +179,7 @@ pub const Rasterizer = struct {
         const v0 = self.applyOffset(v0_orig);
         const v1 = self.applyOffset(v1_orig);
         const v2 = self.applyOffset(v2_orig);
-        const c15 = Color15.from24(c);
+        const c15 = Color15.from24(c, false);
 
         const abc = edgeFunc(v0, v1, v2);
         if (abc == 0) return;
@@ -279,7 +297,7 @@ pub const Rasterizer = struct {
                         .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
                         .g = @truncate(@as(u32, @bitCast(g >> fp_bits))),
                         .b = @truncate(@as(u32, @bitCast(b >> fp_bits))),
-                    }));
+                    }, false));
                 }
 
                 abp += abp_dx;
@@ -377,7 +395,7 @@ pub const Rasterizer = struct {
                     );
 
                     if (texel != 0) {
-                        self.vram[toVramAddr(x, y)] = texel;
+                        self.setPixelMasked(x, y, texel);
                     }
                 }
 
@@ -406,7 +424,31 @@ pub const Rasterizer = struct {
     ) void {
         const x = x_orig + self.draw_offset[0];
         const y = y_orig + self.draw_offset[1];
-        const c15 = Color15.from24(c);
+        const c15 = Color15.from24(c, false);
+
+        const x_min = @max(x, self.draw_area_start[0], 0);
+        const y_min = @max(y, self.draw_area_start[1], 0);
+        const x_max = @min(x + w - 1, self.draw_area_end[0], vram_res_x - 1);
+        const y_max = @min(y + h - 1, self.draw_area_end[1], vram_res_y - 1);
+
+        var yy = y_min;
+        while (yy <= y_max) : (yy += 1) {
+            var xx = x_min;
+            while (xx <= x_max) : (xx += 1) {
+                self.setPixelMasked(xx, yy, @bitCast(c15));
+            }
+        }
+    }
+
+    pub fn fillRectUnmasked(
+        self: *@This(),
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        c: Color24,
+    ) void {
+        const c15 = Color15.from24(c, false);
 
         const x_min = @max(x, self.draw_area_start[0], 0);
         const y_min = @max(y, self.draw_area_start[1], 0);
@@ -418,6 +460,25 @@ pub const Rasterizer = struct {
             var xx = x_min;
             while (xx <= x_max) : (xx += 1) {
                 self.vram[toVramAddr(xx, yy)] = @bitCast(c15);
+            }
+        }
+    }
+
+    pub fn copyRect(
+        self: *@This(),
+        src_x: i32,
+        src_y: i32,
+        dest_x: i32,
+        dest_y: i32,
+        w: i32,
+        h: i32,
+    ) void {
+        var yy: i32 = 0;
+        while (yy < h) : (yy += 1) {
+            var xx: i32 = 0;
+            while (xx < w) : (xx += 1) {
+                const pixel = self.vram[toVramAddr(src_x + xx, src_y + yy)];
+                self.setPixelMasked(dest_x + xx, dest_y + yy, pixel);
             }
         }
     }
@@ -456,7 +517,7 @@ pub const Rasterizer = struct {
 
             while (px <= x_max) : (px += 1) {
                 const texel = self.sampleTexture(u_curr, v_curr, texp_x, texp_y, clut_x, clut_y, depth);
-                if (texel != 0) self.vram[toVramAddr(px, py)] = texel;
+                if (texel != 0) self.setPixelMasked(px, py, texel);
                 u_curr += 1;
             }
 
@@ -483,12 +544,12 @@ pub const Rasterizer = struct {
         const dx = x1 - x0;
         const dy = y1 - y0;
 
-        const c15 = Color15.from24(c);
+        const c15 = Color15.from24(c, false);
 
         const steps: i32 = @intCast(@max(@abs(dx), @abs(dy)));
 
         if (steps == 0) {
-            self.vram[toVramAddr(x0, y0)] = @bitCast(c15);
+            self.setPixelMasked(x0, y0, @bitCast(c15));
             return;
         }
 
@@ -503,7 +564,7 @@ pub const Rasterizer = struct {
             const x = x_fp >> fp_bits;
             const y = y_fp >> fp_bits;
 
-            self.vram[toVramAddr(x, y)] = @bitCast(c15);
+            self.setPixelMasked(x, y, @bitCast(c15));
 
             x_fp += x_dx;
             y_fp += y_dx;

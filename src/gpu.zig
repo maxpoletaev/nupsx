@@ -58,6 +58,12 @@ const DrawMode = packed struct(u32) {
     _pad0: u18,
 };
 
+const MaskBitSetting = packed struct(u32) {
+    force_mask_bit: bool, // 0
+    check_mask_bit: bool, // 1
+    _pad: u30,
+};
+
 const GpuStat = packed struct(u32) {
     texpage_x: u4, // 0-3
     texpage_y: u1, // 4
@@ -66,8 +72,8 @@ const GpuStat = packed struct(u32) {
     dithering: bool, // 9
     drawing_to_display_area: bool, // 10
 
-    set_mask_bit: bool, // 11
-    draw_pixels_masked: bool, // 12
+    force_mask_bit: bool, // 11
+    check_mask_bit: bool, // 12
 
     interlace_field: bool, // 13
     reverseflag: bool, // 14
@@ -175,6 +181,7 @@ pub const GPU = struct {
     gp0_blit_x: u16,
     gp0_blit_y: u16,
     gp0_draw_mode: DrawMode,
+    gp0_mask_bit: MaskBitSetting,
     gp0_draw_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_area_end: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp0_draw_offset: packed struct(u32) { x: i11, y: i11, _pad: u10 },
@@ -256,6 +263,9 @@ pub const GPU = struct {
         gpustat.drawing_to_display_area = self.gp0_draw_mode.draw_to_display_area;
         gpustat.texture_disable = self.gp0_draw_mode.texture_disable;
 
+        gpustat.force_mask_bit = self.gp0_mask_bit.force_mask_bit;
+        gpustat.check_mask_bit = self.gp0_mask_bit.check_mask_bit;
+
         gpustat.display_enable = self.gp1_display_enable;
         gpustat.interrupt_request = self.interrupt_request;
         gpustat.dma_direction = self.gp1_dma_direction;
@@ -308,7 +318,7 @@ pub const GPU = struct {
         switch (self.gp0_cmd) {
             0x00 => {},
             0x01 => {}, // self.clearCache(v),
-            0x02 => self.drawRectFlat(v, null),
+            0x02 => self.fillVram(v),
             0x1f => self.interrupt_request = true,
 
             0x20 => self.drawPoly3Flat(v),
@@ -378,7 +388,7 @@ pub const GPU = struct {
             0xe3 => self.setDrawAreaStart(v),
             0xe4 => self.setDrawAreaEnd(v),
             0xe5 => self.setDrawOffset(v),
-            0xe6 => {}, // self.setBitMask(v),
+            0xe6 => self.setMaskBitSetting(v),
 
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
             0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0), // 0x0 rectangles?
@@ -425,6 +435,12 @@ pub const GPU = struct {
         log.debug("setDrawOffset: ({}, {})", .{ self.gp0_draw_offset.x, self.gp0_draw_offset.y });
     }
 
+    fn setMaskBitSetting(self: *@This(), v: u32) void {
+        self.gp0_mask_bit = @bitCast(v);
+        self.rasterizer.setMaskBitSetting(self.gp0_mask_bit.force_mask_bit, self.gp0_mask_bit.check_mask_bit);
+        log.debug("setMaskBitSetting: {any}", .{self.gp0_mask_bit});
+    }
+
     fn getTexpage(self: *@This()) Textpage {
         return .{
             .x = @as(u16, self.gp0_draw_mode.texpage_x) * 64,
@@ -453,6 +469,26 @@ pub const GPU = struct {
         self.vram[yy * 1024 + xx] = v;
     }
 
+    fn fillVram(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.add(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.add(v);
+                if (self.gp0_fifo.len == 3) {
+                    const color = argColor(self.gp0_fifo.buf[0]);
+                    const pos = argVertexU(self.gp0_fifo.buf[1]);
+                    const size = argVertexU(self.gp0_fifo.buf[2]);
+                    self.rasterizer.fillRectUnmasked(pos.x, pos.y, size.x, size.y, color);
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
     fn vramToVram(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
@@ -469,13 +505,7 @@ pub const GPU = struct {
                     const width: u16 = if (size.x == 0) 1024 else size.x;
                     const height: u16 = if (size.y == 0) 512 else size.y;
 
-                    for (0..height) |y| {
-                        const src_start = (src.y + y) * 1024 + src.x;
-                        const dst_start = (dest.y + y) * 1024 + dest.x;
-                        const src_slice = self.vram[src_start..][0..width];
-                        const dst_slice = self.vram[dst_start..][0..width];
-                        std.mem.copyForwards(u16, dst_slice, src_slice);
-                    }
+                    self.rasterizer.copyRect(src.x, src.y, dest.x, dest.y, width, height);
 
                     self.gp0_state = .recv_command;
                     log.debug("vramToVram: src=({}, {}), dest=({}, {}), size=({}, {})", .{ src.x, src.y, dest.x, dest.y, width, height });
@@ -514,10 +544,13 @@ pub const GPU = struct {
 
                 for (0..2) |i| {
                     const shift = @as(u5, @truncate(i * 16));
-                    const hw = @as(u16, @truncate(v >> shift));
-                    const x = (pos.x + self.gp0_blit_x) & 0x3ff;
-                    const y = (pos.y + self.gp0_blit_y) & 0x1ff;
-                    self.writeVram(x, y, hw);
+                    const color = @as(u16, @truncate(v >> shift));
+
+                    self.rasterizer.setPixelMasked(
+                        pos.x + self.gp0_blit_x,
+                        pos.y + self.gp0_blit_y,
+                        color,
+                    );
 
                     self.gp0_blit_x += 1;
 

@@ -142,6 +142,8 @@ pub const DMA = struct {
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
+        std.debug.assert(T == u32);
+
         const v = switch (addr) {
             addr_dpcr => @as(u32, @bitCast(self.dpcr)),
             addr_dicr => @as(u32, @bitCast(self.dicr)),
@@ -156,6 +158,8 @@ pub const DMA = struct {
     }
 
     pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
+        std.debug.assert(T == u32);
+
         switch (addr) {
             addr_dpcr => {
                 self.dpcr = @bitCast(@as(u32, v));

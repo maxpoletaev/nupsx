@@ -32,9 +32,9 @@ const Joypad = joy_mod.Joypad;
 pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .cdrom, .level = .debug },
+        // .{ .scope = .cdrom, .level = .debug },
         .{ .scope = .cue, .level = .debug },
-        .{ .scope = .mem, .level = .debug },
+        // .{ .scope = .mem, .level = .debug },
         // .{ .scope = .gte, .level = .debug },
         // .{ .scope = .gpu, .level = .debug },
         // .{ .scope = .dma, .level = .debug },
