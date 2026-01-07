@@ -15,20 +15,6 @@ const log = std.log.scoped(.gpu);
 
 const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
 
-const Fifo = struct {
-    buf: [16]u32,
-    len: u32,
-
-    inline fn add(self: *@This(), v: u32) void {
-        self.buf[self.len] = v;
-        self.len += 1;
-    }
-
-    inline fn reset(self: *@This()) void {
-        self.len = 0;
-    }
-};
-
 const Hres1 = enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 };
 const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
 const Vres = enum(u1) { @"240" = 0, @"480" = 1 };
