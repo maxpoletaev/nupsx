@@ -66,22 +66,11 @@ const CdromEvents = packed struct(u8) {
     _pad: u7 = 0,
 };
 
-const SeekLocation = struct {
-    minute: u8 = 0,
-    second: u8 = 0,
-    sector: u8 = 0,
-
-    pub fn lba(self: SeekLocation) u32 {
-        const m = @as(u32, self.minute);
-        const s = @as(u32, self.second);
-        const f = @as(u32, self.sector);
-        return (m * 60 + s) * 75 + f;
-    }
-};
-
 pub const Disc = struct {
     allocator: std.mem.Allocator,
+    cue: ?cue_mod.CueSheet,
     data: []const u8,
+    track_count: u8,
     pos: u32 = 0,
 
     pub fn fromBinFile(allocator: std.mem.Allocator, path: []const u8) !@This() {
@@ -96,24 +85,36 @@ pub const Disc = struct {
 
         return .{
             .allocator = allocator,
+            .track_count = 1,
             .data = buffer,
+            .cue = null,
         };
     }
 
     pub fn fromCueFile(allocator: std.mem.Allocator, cue_path: []const u8) !@This() {
-        var cue_sheet = try cue_mod.parse(allocator, cue_path);
-        defer cue_sheet.deinit();
+        const cue_sheet = try cue_mod.parse(allocator, cue_path);
+
+        var track_count: u8 = 0;
+        for (cue_sheet.files) |file| {
+            track_count += @intCast(file.tracks.len);
+        }
 
         const bin_path = cue_sheet.files[0].path;
-        return try fromBinFile(allocator, bin_path);
+        var disk = try fromBinFile(allocator, bin_path);
+        disk.cue = cue_sheet;
+
+        return disk;
     }
 
     pub fn deinit(self: *@This()) void {
+        if (self.cue) |*cue_sheet| {
+            cue_sheet.deinit(self.allocator);
+        }
         self.allocator.free(self.data);
     }
 
-    pub fn seek(self: *@This(), loc: SeekLocation) void {
-        self.pos = loc.lba() * cdrom_sector_size_cue;
+    pub fn seek(self: *@This(), sector: u32) void {
+        self.pos = sector * cdrom_sector_size_cue;
         self.pos -= cdrom_file_offset_bytes_cue;
     }
 
@@ -162,7 +163,7 @@ pub const CDROM = struct {
     mute: bool = false,
 
     disc: ?Disc,
-    seekloc: ?SeekLocation,
+    seekloc: ?u32,
     sect_buf: ?[]const u8,
     sect_pos: u32 = 0,
 
@@ -182,7 +183,7 @@ pub const CDROM = struct {
             .disc = null,
             .sect_buf = null,
             .mode = .{},
-            .seekloc = .{},
+            .seekloc = null,
             .events = .{},
             .stat = .{},
             .addr = .{},
@@ -393,16 +394,18 @@ pub const CDROM = struct {
 };
 
 const commands = opaque {
-    const GET_STAT: u8 = 0x01;
-    const SET_LOC: u8 = 0x02;
-    const READ_N: u8 = 0x06;
-    const PAUSE: u8 = 0x09;
-    const INIT: u8 = 0x0a;
-    const DEMUTE: u8 = 0x0c;
-    const SET_MODE: u8 = 0x0e;
-    const GET_ID: u8 = 0x1a;
-    const SEEK_L: u8 = 0x15;
-    const TEST: u8 = 0x19;
+    const GET_STAT = 0x01;
+    const SET_LOC = 0x02;
+    const READ_N = 0x06;
+    const PAUSE = 0x09;
+    const INIT = 0x0a;
+    const DEMUTE = 0x0c;
+    const SET_MODE = 0x0e;
+    const GET_TN = 0x13;
+    const GET_TD = 0x14;
+    const SEEK_L = 0x15;
+    const GET_ID = 0x1a;
+    const TEST = 0x19;
 
     const table = init: {
         const CmdPtr = *const fn (self: *CDROM) void;
@@ -414,6 +417,8 @@ const commands = opaque {
         cmds[PAUSE] = pause;
         cmds[INIT] = initCmd;
         cmds[SET_MODE] = setMode;
+        cmds[GET_TN] = getTn;
+        cmds[GET_TD] = getTd;
         cmds[GET_ID] = getId;
         cmds[SEEK_L] = seekL;
         cmds[TEST] = testCmd;
@@ -498,13 +503,13 @@ const commands = opaque {
             },
             .resp1 => {
                 std.debug.assert(self.params.len == 3);
-                const minute = bcdToDec(self.params.pop() orelse unreachable);
-                const second = bcdToDec(self.params.pop() orelse unreachable);
-                const sector = bcdToDec(self.params.pop() orelse unreachable);
+                const m = bcdToDec(self.params.pop().?);
+                const s = bcdToDec(self.params.pop().?);
+                const f = bcdToDec(self.params.pop().?);
 
-                self.seekloc = SeekLocation{ .minute = minute, .second = second, .sector = sector };
+                self.seekloc = timeToSectors(m, s, f);
 
-                log.debug("CDROM SETLOC to {d}:{d}:{d}", .{ minute, second, sector });
+                log.debug("CDROM SETLOC to {d}:{d}:{d}", .{ m, s, f });
 
                 self.pushResultByte(@bitCast(self.stat));
                 self.setInterrupt(3);
@@ -546,10 +551,7 @@ const commands = opaque {
                     std.debug.panic("CDROM SEEKL: no seek location set", .{});
                 }
                 const loc = self.seekloc.?;
-                log.debug(
-                    "CDROM SEEKL to {d}:{d}:{d} (lba={d})",
-                    .{ loc.minute, loc.second, loc.sector, loc.lba() },
-                );
+                log.debug("CDROM SEEKL to {d}", .{loc});
                 self.pushResultByte(@bitCast(self.stat));
                 self.delay = cdrom_seekl_delay_cycles;
                 self.setInterrupt(3);
@@ -575,7 +577,7 @@ const commands = opaque {
                 self.stat.motor_on = true;
 
                 if (self.seekloc) |loc| { // unacknowledged seek
-                    log.debug("CDROM READN seek to {d}:{d}:{d} (lba={d})", .{ loc.minute, loc.second, loc.sector, loc.lba() });
+                    log.debug("CDROM READN seek to {d}", .{loc});
                     self.delay += cdrom_seekl_delay_cycles;
                     self.disc.?.seek(loc);
                     self.seekloc = null;
@@ -669,8 +671,68 @@ const commands = opaque {
             else => unreachable,
         }
     }
+
+    fn getTn(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                log.debug("CDROM GETTN", .{});
+                self.pushResultByte(@bitCast(self.stat));
+                self.pushResultByte(decToBcd(1)); // first track number
+                self.pushResultByte(decToBcd(self.disc.?.track_count)); // last track number
+                self.setInterrupt(3);
+                self.resetCommand();
+            },
+            else => unreachable,
+        }
+    }
+
+    fn getTd(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                std.debug.assert(self.params.len == 1);
+                const track_id = bcdToDec(self.params.pop().?);
+
+                log.debug("CDROM GETTD ({x})", .{track_id});
+
+                if (track_id == 0) {
+                    const end_sector = self.disc.?.cue.?.end_sector;
+                    const end_pos = cue_mod.Position.fromSectors(end_sector);
+                    self.pushResultByte(@bitCast(self.stat));
+                    self.pushResultByte(decToBcd(end_pos.minute));
+                    self.pushResultByte(decToBcd(end_pos.second));
+                } else {
+                    const track = self.disc.?.cue.?.getTrackById(track_id) orelse {
+                        std.debug.panic("cdrom: track not found: {d}", .{track_id});
+                    };
+                    self.pushResultByte(@bitCast(self.stat));
+                    self.pushResultByte(decToBcd(track.start.minute));
+                    self.pushResultByte(decToBcd(track.start.second));
+                }
+
+                self.setInterrupt(3);
+                self.resetCommand();
+            },
+            else => unreachable,
+        }
+    }
 };
+
+inline fn timeToSectors(mm: u32, ss: u32, ff: u32) u32 {
+    return (mm * 60 * 75) + (ss * 75) + ff;
+}
 
 inline fn bcdToDec(bcd: u8) u8 {
     return (bcd >> 4) * 10 + (bcd & 0x0F);
+}
+
+inline fn decToBcd(dec: u8) u8 {
+    return ((dec / 10) << 4) | (dec % 10);
 }

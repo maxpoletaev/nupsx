@@ -114,8 +114,7 @@ pub fn update(self: *@This()) void {
             }
 
             if (self.cdrom.seekloc) |loc| {
-                const lba = loc.lba();
-                zgui.text("Seek Location: {d:0>2}:{d:0>2}:{d:0>2} (LBA={d})", .{ loc.minute, loc.second, loc.sector, lba });
+                zgui.text("Seek Location: {d}", .{loc});
             } else {
                 zgui.text("Seek Location: none", .{});
             }

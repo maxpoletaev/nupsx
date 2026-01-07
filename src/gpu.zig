@@ -379,7 +379,8 @@ pub const GPU = struct {
 
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
             0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0), // 0x0 rectangles?
-            else => std.debug.panic("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd }),
+            else => log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd }),
+            // else => std.debug.panic("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd }),
         }
     }
 
