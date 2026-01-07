@@ -21,9 +21,9 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
             return self.len == capacity;
         }
 
-        pub fn push(self: *@This(), item: T) !void {
+        pub fn push(self: *@This(), item: T) void {
             if (self.isFull()) {
-                return error.FifoFull;
+                @panic("StaticFifo overflow");
             }
             self.buf[self.tail] = item;
             self.tail = (self.tail + 1) % capacity;

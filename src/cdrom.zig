@@ -349,9 +349,7 @@ pub const CDROM = struct {
     }
 
     fn writePram(self: *@This(), v: u8) void {
-        self.params.push(v) catch {
-            std.debug.panic("cdrom: parameter fifo overflow", .{});
-        };
+        self.params.push(v);
     }
 
     fn writeCommand(self: *@This(), opcode: u8) void {
@@ -384,9 +382,7 @@ pub const CDROM = struct {
     }
 
     fn pushResultByte(self: *@This(), byte: u8) void {
-        self.results.push(byte) catch {
-            std.debug.panic("cdrom: result fifo overflow", .{});
-        };
+        self.results.push(byte);
     }
 
     fn pushResultSlice(self: *@This(), bytes: []const u8) void {

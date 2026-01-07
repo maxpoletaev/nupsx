@@ -505,8 +505,11 @@ pub const Rasterizer = struct {
         const x_max = @min(x + w - 1, self.draw_area_end[0], vram_res_x - 1);
         const y_max = @min(y + h - 1, self.draw_area_end[1], vram_res_y - 1);
 
-        const u_start = u;
-        const v_start = v;
+        const u_offset: u16 = @intCast(x_min - x);
+        const v_offset: u16 = @intCast(y_min - y);
+
+        const u_start = u +% u_offset;
+        const v_start = v +% v_offset;
 
         var v_curr = v_start;
         var py = y_min;
@@ -518,10 +521,10 @@ pub const Rasterizer = struct {
             while (px <= x_max) : (px += 1) {
                 const texel = self.sampleTexture(u_curr, v_curr, texp_x, texp_y, clut_x, clut_y, depth);
                 if (texel != 0) self.setPixelMasked(px, py, texel);
-                u_curr += 1;
+                u_curr +%= 1;
             }
 
-            v_curr += 1;
+            v_curr +%= 1;
         }
     }
 

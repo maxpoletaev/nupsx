@@ -3,6 +3,7 @@ const mem = @import("mem.zig");
 const builtin = @import("builtin");
 const rasterizer = @import("rasterizer.zig");
 const bits = @import("bits.zig");
+const fifo = @import("fifo.zig");
 
 const Rasterizer = rasterizer.Rasterizer;
 const Color15 = rasterizer.Color15;
@@ -175,7 +176,7 @@ pub const GPU = struct {
     gpuread: u32,
 
     gp0_state: CmdState,
-    gp0_fifo: Fifo,
+    gp0_fifo: fifo.StaticFifo(u32, 16),
     gp0_cmd: u8,
     gp0_prev_cmd: u8,
     gp0_blit_x: u16,
@@ -302,7 +303,7 @@ pub const GPU = struct {
         if (self.gp0_state == .recv_command) {
             self.gp0_prev_cmd = self.gp0_cmd;
             self.gp0_cmd = @as(u8, @truncate(v >> 24));
-            self.gp0_fifo.reset();
+            self.gp0_fifo.clear();
         }
 
         switch (self.gp0_state) {
@@ -472,11 +473,11 @@ pub const GPU = struct {
     fn fillVram(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 3) {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertexU(self.gp0_fifo.buf[1]);
@@ -492,11 +493,11 @@ pub const GPU = struct {
     fn vramToVram(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 4) {
                     const src = argVertexU(self.gp0_fifo.buf[1]);
                     const dest = argVertexU(self.gp0_fifo.buf[2]);
@@ -518,11 +519,11 @@ pub const GPU = struct {
     fn cpuToVram(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 3) {
                     self.gp0_state = .recv_data;
                     self.gp0_blit_y = 0;
@@ -572,11 +573,11 @@ pub const GPU = struct {
     fn vramToCpu(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 3) {
                     self.gp0_state = .send_data;
                     self.gp0_blit_y = 0;
@@ -629,11 +630,11 @@ pub const GPU = struct {
     fn drawLineFlat(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 3) {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
@@ -651,11 +652,11 @@ pub const GPU = struct {
 
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == need_args) {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertex(self.gp0_fifo.buf[1]);
@@ -674,11 +675,11 @@ pub const GPU = struct {
 
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == need_args) {
                     const texp = self.getTexpage();
                     const pos = argVertex(self.gp0_fifo.buf[1]);
@@ -698,11 +699,11 @@ pub const GPU = struct {
     fn drawPoly3Flat(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 4) {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
@@ -725,11 +726,11 @@ pub const GPU = struct {
     fn drawPoly3Shaded(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 6) {
                     const color0 = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
@@ -754,11 +755,11 @@ pub const GPU = struct {
     fn drawPoly4Flat(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 5) {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
@@ -784,11 +785,11 @@ pub const GPU = struct {
     fn drawPoly4Shaded(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 8) {
                     const color0 = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
@@ -817,11 +818,11 @@ pub const GPU = struct {
     fn drawPoly3Textured(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 7) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
@@ -856,11 +857,11 @@ pub const GPU = struct {
     fn drawPoly4Textured(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 9) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
@@ -894,11 +895,11 @@ pub const GPU = struct {
     fn drawPoly3ShadedTextured(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 8) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
@@ -928,11 +929,11 @@ pub const GPU = struct {
     fn drawPoly4ShadedTextured(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                self.gp0_fifo.add(v);
+                self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 12) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
@@ -988,7 +989,7 @@ pub const GPU = struct {
 
     fn clearFifo(self: *@This(), _: u32) void {
         self.gp0_state = .recv_command;
-        self.gp0_fifo.reset();
+        self.gp0_fifo.clear();
     }
 
     fn readRegister(self: *@This(), v: u32) void {

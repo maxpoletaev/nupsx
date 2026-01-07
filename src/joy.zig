@@ -209,7 +209,7 @@ pub const Joypad = struct {
         const ack = self.state != .idle;
         self.stat.ack_input = ack;
 
-        self.rx_data.push(rx_byte) catch {};
+        self.rx_data.push(rx_byte);
         self.stat.rx_fifo_not_empty = true;
 
         if (self.ctrl.ack_irq_enable and ack) {
@@ -220,13 +220,13 @@ pub const Joypad = struct {
     fn writeData(self: *@This(), comptime T: type, v: T) void {
         switch (T) {
             u8 => {
-                self.tx_data.push(@as(u8, v)) catch unreachable;
+                self.tx_data.push(@as(u8, v));
             },
             u16 => {
                 const low = bits.field(@as(u16, v), 0, u8);
                 const high = bits.field(@as(u16, v), 8, u8);
-                self.tx_data.push(low) catch unreachable;
-                self.tx_data.push(high) catch unreachable;
+                self.tx_data.push(low);
+                self.tx_data.push(high);
             },
             else => std.debug.panic("unsupported writeData type: {s}", .{@typeName(T)}),
         }
