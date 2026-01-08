@@ -229,9 +229,9 @@ pub const Bus = struct {
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
-        if (~v & Interrupt.cdrom != 0) {
-            log.debug("CPU interrupt ack: {x}", .{~v});
-        }
+        // if (~v & Interrupt.cdrom != 0) {
+        //     log.debug("CPU interrupt ack: {x}", .{~v});
+        // }
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`
         self.updateCpuIRQ();
     }
@@ -265,6 +265,8 @@ pub const Bus = struct {
             0x1f000000...0x1f0000ff => 0, // expansion 1
             0x1f802000...0x1f802041 => 0, // expansion 2
 
+            0x1f801054 => 0x05, // sio1 status (padtest.exe stalls without this)
+
             else => blk: {
                 const v = switch (T) {
                     u8 => 0xac,
@@ -273,6 +275,7 @@ pub const Bus = struct {
                     else => @compileError("unsupported type"),
                 };
                 std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
+                // log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
                 break :blk v;
             },
         };
@@ -296,12 +299,16 @@ pub const Bus = struct {
             Joypad.addr_start...Joypad.addr_end => self.dev.joy.write(T, masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
+            0x1f801050...0x1f80105f => {}, // sio1
             0x1f801060...0x1f801063 => {}, // ramsize
             0xfffe0130...0xfffe0133 => {}, // cachectl
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2
 
-            else => std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v }),
+            else => {
+                std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
+                // log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
+            },
         }
     }
 };

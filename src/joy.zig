@@ -4,8 +4,7 @@ const fifo = @import("fifo.zig");
 
 const log = std.log.scoped(.joy);
 
-const joy_id_digital_lo: u8 = 0x41;
-const joy_id_digital_hi: u8 = 0x5A;
+const joy_id_digital = [2]u8{ 0x5a, 0x41 };
 const joy_irq_delay_cycles: u32 = 1088;
 
 const ModeReg = packed struct(u16) {
@@ -24,9 +23,9 @@ const StatusReg = packed struct(u32) {
     tx_done: bool = true, // 2
     rx_parity_err: bool = false, // 3
     _pad0: u3 = 0, // 4-6
-    ack_input: bool = false, // 7
+    ack_signal_level: enum(u1) { high = 0, low = 1 } = .low, // 7
     _pad1: u1 = 0, // 8
-    irq_request: bool = false, // 9
+    irq_pending: bool = false, // 9
     _pad2: u1 = 0, // 10
     baudrate_timer: u21 = 0x88, // 11-31
 };
@@ -36,7 +35,7 @@ const CotrolReg = packed struct(u16) {
     joy_select_enable: bool = false, // 1
     rx_enable: bool = false, // 2
     _pad0: u1 = 0, // 3
-    ack: bool = false, // 4
+    clear_irq: bool = false, // 4
     _unknown2: bool = false, // 5
     reset: bool = false, // 6
     _pad1: u1 = 0, // 7
@@ -87,7 +86,7 @@ pub const Joypad = struct {
     stat: StatusReg,
     ctrl: CotrolReg,
 
-    state: enum { idle, id_lo, id_hi, btn_lo, btn_hi } = .idle,
+    state: enum { idle, id_lo, id_hi, swlo, swhi } = .idle,
     buttons: [2]ButtonState = .{ .{}, .{} },
     tx_data: fifo.StaticFifo(u8, 16),
     rx_data: fifo.StaticFifo(u8, 16),
@@ -124,14 +123,15 @@ pub const Joypad = struct {
             RegId.JOY_BAUD => self.baudrate_reload,
             else => std.debug.panic("unhandled register read: {x}", .{reg_id}),
         };
+
         return @truncate(v);
     }
 
     fn writeControlReg(self: *@This(), v: u16) void {
         const ctrl = @as(CotrolReg, @bitCast(v));
-        if (ctrl.ack) {
+        if (ctrl.clear_irq) {
             self.stat.rx_parity_err = false;
-            self.stat.irq_request = false;
+            self.stat.irq_pending = false;
         }
         if (ctrl.reset) {
             self.mode = .{};
@@ -139,18 +139,18 @@ pub const Joypad = struct {
             self.irq_pending = false;
             self.irq_delay = 0;
             self.state = .idle;
+            self.tx_data.clear();
+            self.rx_data.clear();
         }
         if (!ctrl.joy_select_enable) {
-            self.stat.ack_input = false;
+            self.stat.ack_signal_level = .low;
             self.state = .idle;
         }
         self.ctrl = ctrl;
-        self.ctrl.ack = false; // read-only (always read as 0)
+        self.ctrl.clear_irq = false; // read-only (always read as 0)
     }
 
     pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
-        // log.debug("JOY write addr={x} value={x}", .{ addr, @as(u32, v) });
-
         const offset = addr - addr_start;
         const reg_id = bits.field(offset, 0, u4);
 
@@ -178,55 +178,52 @@ pub const Joypad = struct {
 
             if (self.irq_delay == 0) {
                 self.irq_pending = true;
-                self.stat.irq_request = true;
+                self.stat.irq_pending = true;
+                self.stat.ack_signal_level = .low;
             }
         }
     }
 
     pub fn stepSerialState(self: *@This()) void {
         if (!self.ctrl.tx_enable) return;
+        if (!self.ctrl.joy_select_enable) return;
+
+        const btns = self.buttons[self.ctrl.joy_select];
+        const swlo: u8 = @truncate(@as(u16, @bitCast(btns)) >> 0);
+        const swhi: u8 = @truncate(@as(u16, @bitCast(btns)) >> 8);
 
         const tx_byte = self.tx_data.pop() orelse return;
 
-        const btns = self.buttons[self.ctrl.joy_select];
-
-        const rx_byte: u8 = switch (self.state) {
-            .idle => 0xff,
-            .id_lo => joy_id_digital_lo,
-            .id_hi => joy_id_digital_hi,
-            .btn_lo => @truncate(@as(u16, @bitCast(btns)) >> 0),
-            .btn_hi => @truncate(@as(u16, @bitCast(btns)) >> 8),
+        const rx_byte: u8, self.state = switch (self.state) {
+            .idle => if (tx_byte == 0x01) .{ 0xff, .id_lo } else .{ 0xff, .idle },
+            .id_lo => if (tx_byte == 0x42) .{ joy_id_digital[1], .id_hi } else .{ 0xff, .idle },
+            .id_hi => .{ joy_id_digital[0], .swlo },
+            .swlo => .{ swlo, .swhi },
+            .swhi => .{ swhi, .idle },
         };
-
-        self.state = switch (self.state) {
-            .idle => if (tx_byte == 0x01) .id_lo else .idle,
-            .id_lo => if (tx_byte == 0x42) .id_hi else .idle,
-            .id_hi => .btn_lo,
-            .btn_lo => .btn_hi,
-            .btn_hi => .idle,
-        };
-
-        const ack = self.state != .idle;
-        self.stat.ack_input = ack;
 
         self.rx_data.push(rx_byte);
+
         self.stat.rx_fifo_not_empty = true;
 
-        if (self.ctrl.ack_irq_enable and ack) {
+        // Weird stuff: the interrupts are triggered when there is
+        // MORE data to send. Silence means end of transmission.
+
+        const last_byte = self.state == .idle;
+        if (self.ctrl.ack_irq_enable and !last_byte) {
             self.irq_delay = joy_irq_delay_cycles;
+            self.stat.ack_signal_level = .high;
         }
     }
 
     fn writeData(self: *@This(), comptime T: type, v: T) void {
         switch (T) {
             u8 => {
-                self.tx_data.push(@as(u8, v));
+                self.tx_data.push(v);
             },
             u16 => {
-                const low = bits.field(@as(u16, v), 0, u8);
-                const high = bits.field(@as(u16, v), 8, u8);
-                self.tx_data.push(low);
-                self.tx_data.push(high);
+                self.tx_data.push(bits.field(v, 0, u8));
+                self.tx_data.push(bits.field(v, 8, u8));
             },
             else => std.debug.panic("unsupported writeData type: {s}", .{@typeName(T)}),
         }
@@ -243,6 +240,7 @@ pub const Joypad = struct {
                 const low = self.rx_data.pop() orelse 0xff;
                 const high = self.rx_data.pop() orelse 0xff;
                 const v = @as(u16, low) | (@as(u16, high) << 8);
+                self.stat.rx_fifo_not_empty = !self.rx_data.isEmpty();
                 return @as(T, v);
             },
             else => std.debug.panic("unsupported readData type: {s}", .{@typeName(T)}),
