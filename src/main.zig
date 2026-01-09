@@ -187,6 +187,11 @@ pub fn main() !void {
         var buf: [1024]u8 = undefined;
         var stdout = std.fs.File.stdout().writer(&buf);
 
+        if (args.uncapped) {
+            std.log.warn("running in uncapped mode", .{});
+            ui.uncapped = true;
+        }
+
         while (true) {
             bus.tick();
 

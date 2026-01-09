@@ -14,6 +14,7 @@ const help_text = (
     \\  --debug-ui           Enable debug user interface
     \\  --disasm             Enable disassembly output
     \\  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
+    \\  --uncapped           Run the emulator without frame rate limiting
     \\  -h, --help           Show this help message
 );
 
@@ -27,6 +28,7 @@ pub const Args = struct {
     debug_ui: bool = false,
     disasm: bool = false,
     breakpoint: u32 = 0,
+    uncapped: bool = false,
 
     pub fn printHelp() void {
         std.fs.File.stdout().writeAll(help_text) catch {};
@@ -60,6 +62,9 @@ pub const Args = struct {
             }
             if (std.mem.eql(u8, arg, "--cdrom")) {
                 args.cd_image_path = iter.next() orelse return error.InvalidArgument;
+            }
+            if (std.mem.eql(u8, arg, "--uncapped")) {
+                args.uncapped = true;
             }
         }
 

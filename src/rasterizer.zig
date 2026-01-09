@@ -573,4 +573,73 @@ pub const Rasterizer = struct {
             y_fp += y_dx;
         }
     }
+
+    pub fn drawLineShaded(
+        self: *@This(),
+        x0_orig: i32,
+        y0_orig: i32,
+        c0_orig: Color24,
+        x1_orig: i32,
+        y1_orig: i32,
+        c1_orig: Color24,
+    ) void {
+        const x0 = x0_orig + self.draw_offset[0];
+        const y0 = y0_orig + self.draw_offset[1];
+        const x1 = x1_orig + self.draw_offset[0];
+        const y1 = y1_orig + self.draw_offset[1];
+
+        if (@max(x0, x1) < self.draw_area_start[0] or @min(x0, x1) > self.draw_area_end[0]) return;
+        if (@max(y0, y1) < self.draw_area_start[1] or @min(y0, y1) > self.draw_area_end[1]) return;
+
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+
+        const steps: i32 = @intCast(@max(@abs(dx), @abs(dy)));
+
+        if (steps == 0) {
+            const c15 = Color15.from24(c0_orig, false);
+            self.setPixelMasked(x0, y0, @bitCast(c15));
+            return;
+        }
+
+        const x_dx = @divTrunc(dx * fp_one, steps);
+        const y_dx = @divTrunc(dy * fp_one, steps);
+
+        const r0: i32 = c0_orig.r;
+        const g0: i32 = c0_orig.g;
+        const b0: i32 = c0_orig.b;
+        const r1: i32 = c1_orig.r;
+        const g1: i32 = c1_orig.g;
+        const b1: i32 = c1_orig.b;
+
+        const r_dx = @divTrunc((r1 - r0) * fp_one, steps);
+        const g_dx = @divTrunc((g1 - g0) * fp_one, steps);
+        const b_dx = @divTrunc((b1 - b0) * fp_one, steps);
+
+        var x_fp = x0 * fp_one;
+        var y_fp = y0 * fp_one;
+        var r_fp = r0 * fp_one;
+        var g_fp = g0 * fp_one;
+        var b_fp = b0 * fp_one;
+
+        var i: i32 = 0;
+        while (i <= steps) : (i += 1) {
+            const x = x_fp >> fp_bits;
+            const y = y_fp >> fp_bits;
+
+            const c15 = Color15.from24(.{
+                .r = @truncate(@as(u32, @bitCast(r_fp >> fp_bits))),
+                .g = @truncate(@as(u32, @bitCast(g_fp >> fp_bits))),
+                .b = @truncate(@as(u32, @bitCast(b_fp >> fp_bits))),
+            }, false);
+
+            self.setPixelMasked(x, y, @bitCast(c15));
+
+            x_fp += x_dx;
+            y_fp += y_dx;
+            r_fp += r_dx;
+            g_fp += g_dx;
+            b_fp += b_dx;
+        }
+    }
 };

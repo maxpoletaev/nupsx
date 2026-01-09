@@ -79,6 +79,7 @@ pub const UI = struct {
     frame_count: u64 = 0,
     is_running: bool = true,
     next_frame_time: f64 = 0,
+    uncapped: bool = false,
 
     const vertices = [_]f32{ // [x, y, u, v]
         -1.0, 1.0, 0.0, 0.0, // top left
@@ -174,9 +175,11 @@ pub const UI = struct {
     pub fn update(self: *@This()) void {
         const now = glfw.getTime();
 
-        if (self.next_frame_time > now) {
-            const sleep_seconds = self.next_frame_time - now;
-            std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
+        if (!self.uncapped) {
+            if (self.next_frame_time > now) {
+                const sleep_seconds = self.next_frame_time - now;
+                std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
+            }
         }
 
         self.updateInternal(glfw.getTime());

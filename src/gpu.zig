@@ -334,12 +334,12 @@ pub const GPU = struct {
 
             0x40 => self.drawLineFlat(v),
             0x42 => self.drawLineFlat(v),
-            // 0x48 => {}, // self.drawPolyLineFlat(v),
-            // 0x4a => {}, // self.drawPolyLineFlat(v),
-            // 0x50 => {}, // self.drawLineShaded(v),
-            // 0x52 => {}, // self.drawLineShaded(v),
-            // 0x58 => {}, // self.drawPolyLineShaded(v),
-            // 0x5a => {}, // self.drawPolyLineShaded(v),
+            0x48 => self.drawPolyLineFlat(v),
+            0x4a => self.drawPolyLineFlat(v),
+            0x50 => self.drawLineShaded(v),
+            0x52 => self.drawLineShaded(v),
+            0x58 => self.drawPolyLineShaded(v),
+            0x5a => self.drawPolyLineShaded(v),
 
             0x60 => self.drawRectFlat(v, null),
             0x62 => self.drawRectFlat(v, null),
@@ -378,9 +378,13 @@ pub const GPU = struct {
             0xe6 => self.setMaskBitSetting(v),
 
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
+            0x21, 0x23, 0x29, 0x2b, 0x31, 0x33, 0x39, 0x3b => {}, // undocumented/nonsense
             0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0), // 0x0 rectangles?
-            else => log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd }),
-            // else => std.debug.panic("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd }),
+
+            else => {
+                log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd });
+                // std.debug.panic("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd });
+            },
         }
     }
 
@@ -629,6 +633,83 @@ pub const GPU = struct {
                     self.rasterizer.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color);
                     self.gp0_state = .recv_command;
                 }
+            },
+            else => unreachable,
+        }
+    }
+
+    fn drawPolyLineFlat(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.push(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                if (v != 0x55555555) {
+                    self.gp0_fifo.push(v);
+                    return;
+                }
+
+                const color = argColor(self.gp0_fifo.pop().?);
+                var v0 = argVertex(self.gp0_fifo.pop().?);
+
+                while (!self.gp0_fifo.isEmpty()) {
+                    const v1 = argVertex(self.gp0_fifo.pop().?);
+                    self.rasterizer.drawLineFlat(v0.x, v0.y, v1.x, v1.y, color);
+                    v0 = v1;
+                }
+
+                self.gp0_state = .recv_command;
+            },
+            else => unreachable,
+        }
+    }
+
+    fn drawLineShaded(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.push(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                self.gp0_fifo.push(v);
+                if (self.gp0_fifo.len == 4) {
+                    const color0 = argColor(self.gp0_fifo.buf[0]);
+                    const pos0 = argVertex(self.gp0_fifo.buf[1]);
+                    const color1 = argColor(self.gp0_fifo.buf[2]);
+                    const pos1 = argVertex(self.gp0_fifo.buf[3]);
+                    self.rasterizer.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1);
+                    self.gp0_state = .recv_command;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    fn drawPolyLineShaded(self: *@This(), v: u32) void {
+        switch (self.gp0_state) {
+            .recv_command => {
+                self.gp0_fifo.push(v);
+                self.gp0_state = .recv_args;
+            },
+            .recv_args => {
+                if (v != 0x55555555) {
+                    self.gp0_fifo.push(v);
+                    return;
+                }
+
+                var c0 = argColor(self.gp0_fifo.pop().?);
+                var v0 = argVertex(self.gp0_fifo.pop().?);
+
+                while (!self.gp0_fifo.isEmpty()) {
+                    const c1 = argColor(self.gp0_fifo.pop().?);
+                    const v1 = argVertex(self.gp0_fifo.pop().?);
+                    self.rasterizer.drawLineShaded(v0.x, v0.y, c0, v1.x, v1.y, c1);
+                    c0 = c1;
+                    v0 = v1;
+                }
+
+                self.gp0_state = .recv_command;
             },
             else => unreachable,
         }
