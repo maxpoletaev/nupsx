@@ -249,7 +249,8 @@ pub const UI = struct {
 
         const display_res = self.gpu.getDisplayRes();
         const start_x = self.gpu.gp1_display_area_start.x;
-        const start_y = self.gpu.gp1_display_area_start.y;
+        var start_y = self.gpu.gp1_display_area_start.y;
+        if (start_y == 2) start_y = 0; // HACK: old bioses set this to 2, resulting in cluts being displayed in the viewport
 
         // Set uniform values
         gl.uniform2f(self.uniform_display_offset, @as(f32, @floatFromInt(start_x)), @as(f32, @floatFromInt(start_y)));
