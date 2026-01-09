@@ -100,8 +100,6 @@ pub const UI = struct {
         glfw.windowHint(.doublebuffer, true);
 
         const window = try glfw.Window.create(640, 480, window_title, null);
-
-        // Lock aspect ratio to 4:3 (standard PSX resolution)
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);
