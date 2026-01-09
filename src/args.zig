@@ -10,7 +10,7 @@ const help_text = (
     \\Options:
     \\  --bios <path>        Path to BIOS file (required)
     \\  --exe <path>         Path to executable file to run
-    \\  --cdrom <path>       Path to CD-ROM image file
+    \\  --cdrom <path>       Path to CD-ROM image file (.cue)
     \\  --no-ui              Run without a graphical user interface
     \\  --debug-ui           Enable debug user interface
     \\  --disasm             Enable disassembly output

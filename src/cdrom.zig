@@ -68,30 +68,12 @@ const CdromEvents = packed struct(u8) {
 
 pub const Disc = struct {
     allocator: std.mem.Allocator,
-    cue: ?cue_mod.CueSheet,
+    cue: cue_mod.CueSheet,
     data: []const u8,
     track_count: u8,
     pos: u32 = 0,
 
-    pub fn fromBinFile(allocator: std.mem.Allocator, path: []const u8) !@This() {
-        const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
-        defer file.close();
-
-        const file_size = try file.getEndPos();
-        const buffer = try allocator.alloc(u8, file_size);
-        _ = try file.readAll(buffer[0..file_size]);
-
-        log.info("loaded disc image: {s} ({d} bytes)", .{ path, file_size });
-
-        return .{
-            .allocator = allocator,
-            .track_count = 1,
-            .data = buffer,
-            .cue = null,
-        };
-    }
-
-    pub fn fromCueFile(allocator: std.mem.Allocator, cue_path: []const u8) !@This() {
+    pub fn loadCue(allocator: std.mem.Allocator, cue_path: []const u8) !@This() {
         const cue_sheet = try cue_mod.parse(allocator, cue_path);
 
         var track_count: u8 = 0;
@@ -100,16 +82,30 @@ pub const Disc = struct {
         }
 
         const bin_path = cue_sheet.files[0].path;
-        var disk = try fromBinFile(allocator, bin_path);
-        disk.cue = cue_sheet;
+        const buffer = try loadBinFile(allocator, bin_path);
 
-        return disk;
+        return .{
+            .allocator = allocator,
+            .track_count = 1,
+            .data = buffer,
+            .cue = cue_sheet,
+        };
+    }
+
+    fn loadBinFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+        const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
+        defer file.close();
+
+        const file_size = try file.getEndPos();
+        const buffer = try allocator.alloc(u8, file_size);
+        _ = try file.readAll(buffer[0..file_size]);
+
+        log.info("loaded disc image: {s} ({d} bytes)", .{ path, file_size });
+        return buffer;
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.cue) |*cue_sheet| {
-            cue_sheet.deinit(self.allocator);
-        }
+        self.cue.deinit(self.allocator);
         self.allocator.free(self.data);
     }
 
@@ -703,13 +699,13 @@ const commands = opaque {
                 log.debug("CDROM GETTD ({x})", .{track_id});
 
                 if (track_id == 0) {
-                    const end_sector = self.disc.?.cue.?.end_sector;
+                    const end_sector = self.disc.?.cue.end_sector;
                     const end_pos = cue_mod.Position.fromSectors(end_sector);
                     self.pushResultByte(@bitCast(self.stat));
                     self.pushResultByte(decToBcd(end_pos.minute));
                     self.pushResultByte(decToBcd(end_pos.second));
                 } else {
-                    const track = self.disc.?.cue.?.getTrackById(track_id) orelse {
+                    const track = self.disc.?.cue.getTrackById(track_id) orelse {
                         std.debug.panic("cdrom: track not found: {d}", .{track_id});
                     };
                     self.pushResultByte(@bitCast(self.stat));

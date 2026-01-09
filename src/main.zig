@@ -42,6 +42,24 @@ pub const std_options = std.Options{
     },
 };
 
+const logo_text =
+    \\
+    \\              ____  ______  __
+    \\  _ __  _   _|  _ \/ ___\ \/ /
+    \\ | '_ \| | | | |_) \___ \\  / 
+    \\ | | | | |_| |  __/ ___) /  \ 
+    \\ |_| |_|\__,_|_|   |____/_/\_\   PlayStation Emulator
+    \\
+    \\
+;
+
+fn printLogo() void {
+    var buf: [1024]u8 = undefined;
+    var writer = std.fs.File.stdout().writer(&buf);
+    _ = writer.interface.write(logo_text) catch 0;
+    writer.interface.flush() catch {};
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) {
@@ -60,6 +78,8 @@ pub fn main() !void {
         }
     };
     defer args.deinit();
+
+    printLogo();
 
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
@@ -99,9 +119,7 @@ pub fn main() !void {
 
     if (args.cd_image_path) |path| {
         if (std.mem.endsWith(u8, path, ".cue")) {
-            disc = try Disc.fromCueFile(allocator, path);
-        } else if (std.mem.endsWith(u8, path, ".bin")) {
-            disc = try Disc.fromBinFile(allocator, path);
+            disc = try Disc.loadCue(allocator, path);
         } else {
             std.log.err("unsupported cd image format: {s}", .{path});
             std.process.exit(1);
@@ -191,20 +209,15 @@ pub fn main() !void {
         const display_ui = try UI.init(allocator, gpu, joy);
         defer display_ui.deinit();
 
-        var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);
-        defer tty_buf.deinit(allocator);
-
-        var stdout = std.fs.File.stdout();
+        var buf: [1024]u8 = undefined;
+        var stdout = std.fs.File.stdout().writer(&buf);
 
         while (true) {
             bus.tick();
 
             if (captureTtyOutput(cpu)) |ch| {
-                try tty_buf.append(allocator, ch);
-                if (ch == '\n' or tty_buf.items.len >= 1024) {
-                    try stdout.writeAll(tty_buf.items);
-                    tty_buf.clearRetainingCapacity();
-                }
+                stdout.interface.writeByte(ch) catch unreachable;
+                if (ch == '\n') stdout.interface.flush() catch unreachable;
             }
 
             if (gpu.consumeFrameReady()) {
