@@ -14,7 +14,7 @@ const Vertex = struct {
 
     fn getWord(self: Vertex, comptime word_i: u8) u32 {
         return switch (word_i) {
-            0 => @as(u32, @as(u16, @bitCast(self.x))) | (@as(u32, @as(u16, @bitCast(self.y))) << 16),
+            0 => pack16(self.x, self.y),
             1 => @bitCast(@as(i32, self.z)),
             else => @compileError("invalid word index"),
         };
@@ -70,11 +70,13 @@ const Matrix = struct {
             else => @compileError("invalid word index"),
         }
     }
-
-    fn pack16(a: i16, b: i16) u32 {
-        return @as(u32, @as(u16, @bitCast(a))) | (@as(u32, @as(u16, @bitCast(b))) << 16);
-    }
 };
+
+fn pack16(a: i16, b: i16) u32 {
+    const lo: u32 = @as(u16, @bitCast(a));
+    const hi: u32 = @as(u16, @bitCast(b));
+    return lo << 0 | hi << 16;
+}
 
 const Command = packed struct(u32) {
     opcode: u6, // 0-5
@@ -116,10 +118,6 @@ const Flags = packed struct(u32) {
     }
 };
 
-// =============================================================================
-// GTE - Geometry Transformation Engine
-// =============================================================================
-
 pub const GTE = struct {
     // Data registers
     v: [3]Vertex, // 0-5
@@ -128,7 +126,7 @@ pub const GTE = struct {
     ir: [4]i16, // 8-11
     sxy: [3][2]i16, // 12-15
     sz: [4]u16, // 16-19
-    rgb_fifo: [3][4]u8, // 20-22
+    rgb: [3][4]u8, // 20-22
     res1: u32, // 23 (prohibited)
     mac: [4]i32, // 24-27
     // irgb: u16, // 28 (constructed from ir1/ir2/ir3)
@@ -176,14 +174,15 @@ pub const GTE = struct {
             11 => @bitCast(@as(i32, self.ir[3])),
             12 => @bitCast(self.sxy[0]),
             13 => @bitCast(self.sxy[1]),
-            14, 15 => @bitCast(self.sxy[2]),
+            14 => @bitCast(self.sxy[2]),
+            15 => @bitCast(self.sxy[2]), // SXYP - mirrors SXY2
             16 => self.sz[0],
             17 => self.sz[1],
             18 => self.sz[2],
             19 => self.sz[3],
-            20 => @bitCast(self.rgb_fifo[0]),
-            21 => @bitCast(self.rgb_fifo[1]),
-            22 => @bitCast(self.rgb_fifo[2]),
+            20 => @bitCast(self.rgb[0]),
+            21 => @bitCast(self.rgb[1]),
+            22 => @bitCast(self.rgb[2]),
             23 => self.res1,
             24 => @bitCast(self.mac[0]),
             25 => @bitCast(self.mac[1]),
@@ -249,6 +248,7 @@ pub const GTE = struct {
             13 => self.sxy[1] = @bitCast(val),
             14 => self.sxy[2] = @bitCast(val),
             15 => {
+                // SXYP - pushes color FIFO
                 self.sxy[0] = self.sxy[1];
                 self.sxy[1] = self.sxy[2];
                 self.sxy[2] = @bitCast(val);
@@ -257,18 +257,18 @@ pub const GTE = struct {
             17 => self.sz[1] = @truncate(val),
             18 => self.sz[2] = @truncate(val),
             19 => self.sz[3] = @truncate(val),
-            20 => self.rgb_fifo[0] = @bitCast(val),
-            21 => self.rgb_fifo[1] = @bitCast(val),
-            22 => self.rgb_fifo[2] = @bitCast(val),
-            23 => self.res1 = val,
+            20 => self.rgb[0] = @bitCast(val),
+            21 => self.rgb[1] = @bitCast(val),
+            22 => self.rgb[2] = @bitCast(val),
+            23 => self.res1 = val, // prohibited, but writable
             24 => self.mac[0] = @bitCast(val),
             25 => self.mac[1] = @bitCast(val),
             26 => self.mac[2] = @bitCast(val),
             27 => self.mac[3] = @bitCast(val),
             28 => self.writeIRGB(val),
-            29 => {},
+            29 => {}, // ORGB is read-only
             30 => self.lzcs = @bitCast(val),
-            31 => {},
+            31 => {}, // LZCR is read-only
 
             // Control registers
             32 => self.rotation.setWord(0, val),
@@ -334,7 +334,7 @@ pub const GTE = struct {
     }
 
     // =========================================================================
-    // Command Execution
+    // GTE Commands
     // =========================================================================
 
     pub fn exec(self: *GTE, val: u32) void {
@@ -344,14 +344,14 @@ pub const GTE = struct {
         switch (cmd.opcode) {
             0x00 => {},
             0x01 => self.rtps(cmd, 0),
-            0x06 => self.nclip(),
+            0x06 => self.nclip(cmd),
             0x0c => self.op(cmd),
             0x10 => self.dpcs(cmd, false),
             0x11 => self.intpl(cmd),
             0x12 => self.mvmva(cmd),
             0x13 => self.ncds(cmd, 0),
             0x14 => self.cdp(cmd),
-            0x16 => {
+            0x16 => { // ncdt
                 self.ncds(cmd, 0);
                 self.ncds(cmd, 1);
                 self.ncds(cmd, 2);
@@ -359,38 +359,41 @@ pub const GTE = struct {
             0x1b => self.nccs(cmd, 0),
             0x1c => self.cc(cmd),
             0x1e => self.ncs(cmd, 0),
-            0x20 => {
+            0x20 => { // nct
                 self.ncs(cmd, 0);
                 self.ncs(cmd, 1);
                 self.ncs(cmd, 2);
             },
             0x28 => self.sqr(cmd),
             0x29 => self.dcpl(cmd),
-            0x2a => {
+            0x2a => { // dpct
                 self.dpcs(cmd, true);
                 self.dpcs(cmd, true);
                 self.dpcs(cmd, true);
             },
             0x2d => self.avsz3(),
             0x2e => self.avsz4(),
-            0x30 => {
+            0x30 => { // rtpt
                 self.rtps(cmd, 0);
                 self.rtps(cmd, 1);
                 self.rtps(cmd, 2);
             },
             0x3d => self.gpf(cmd),
             0x3e => self.gpl(cmd),
-            0x3f => {
+            0x3f => { // ncct
                 self.nccs(cmd, 0);
                 self.nccs(cmd, 1);
                 self.nccs(cmd, 2);
             },
-            else => log.warn("unhandled GTE command {x}", .{cmd.opcode}),
+            else => {
+                std.debug.panic("unhandled GTE command {x}", .{cmd.opcode});
+                // log.warn("unhandled GTE command {x}", .{cmd.opcode});
+            },
         }
     }
 
     /// NCLIP - Normal clipping
-    fn nclip(self: *GTE) void {
+    fn nclip(self: *GTE, _: Command) void {
         const s = self.sxy;
         const result = @as(i64, s[0][0]) *% (s[1][1] -% s[2][1]) +%
             @as(i64, s[1][0]) *% (s[2][1] -% s[0][1]) +%
@@ -433,7 +436,7 @@ pub const GTE = struct {
     fn ncs(self: *GTE, cmd: Command, n: u2) void {
         self.transformLight(n, cmd);
         self.transformColor(cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// NCCS - Normal color color (single)
@@ -441,7 +444,7 @@ pub const GTE = struct {
         self.transformLight(n, cmd);
         self.transformColor(cmd);
         self.interpolateRGB(cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// NCDS - Normal color depth cue (single)
@@ -449,30 +452,30 @@ pub const GTE = struct {
         self.transformLight(n, cmd);
         self.transformColor(cmd);
         self.depthCue(cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// CC - Color color
     fn cc(self: *GTE, cmd: Command) void {
         self.transformColor(cmd);
         self.interpolateRGB(cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// CDP - Color depth cue
     fn cdp(self: *GTE, cmd: Command) void {
         self.transformColor(cmd);
         self.depthCue(cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// DPCS - Depth cue (single)
     fn dpcs(self: *GTE, cmd: Command, use_fifo: bool) void {
         var rgb: [3]i64 = undefined;
         if (use_fifo) {
-            rgb[0] = @as(i64, self.rgb_fifo[0][0]) << 4;
-            rgb[1] = @as(i64, self.rgb_fifo[0][1]) << 4;
-            rgb[2] = @as(i64, self.rgb_fifo[0][2]) << 4;
+            rgb[0] = @as(i64, self.rgb[0][0]) << 4;
+            rgb[1] = @as(i64, self.rgb[0][1]) << 4;
+            rgb[2] = @as(i64, self.rgb[0][2]) << 4;
         } else {
             rgb[0] = self.rgbScaled(0);
             rgb[1] = self.rgbScaled(1);
@@ -480,11 +483,12 @@ pub const GTE = struct {
         }
 
         inline for (1..4) |i| {
-            self.setMACtoIR(i, (self.far_color[i - 1] << 12) - (rgb[i - 1] << 12), false, cmd.sf);
+            const value = (self.far_color[i - 1] << 12) - (rgb[i - 1] << 12);
+            self.setMACtoIR(i, value, false, cmd.sf);
         }
 
         self.interpolateWithIR0(.{ @intCast(rgb[0]), @intCast(rgb[1]), @intCast(rgb[2]) }, cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// DCPL - Depth cue color light
@@ -492,14 +496,16 @@ pub const GTE = struct {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
         inline for (1..4) |i| {
-            self.setMACtoIR(i, (self.far_color[i - 1] << 12) - self.rgbScaled(i - 1) * prev[i - 1], false, cmd.sf);
+            const value = (self.far_color[i - 1] << 12) - self.rgbScaled(i - 1) * prev[i - 1];
+            self.setMACtoIR(i, value, false, cmd.sf);
         }
 
         inline for (1..4) |i| {
-            self.setMACtoIR(i, self.rgbScaled(i - 1) * prev[i - 1] + @as(i64, self.ir[0]) * self.ir[i], cmd.lm, cmd.sf);
+            const value = self.rgbScaled(i - 1) * prev[i - 1] + @as(i64, self.ir[0]) * self.ir[i];
+            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
         }
 
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// INTPL - Interpolation
@@ -507,26 +513,28 @@ pub const GTE = struct {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
         inline for (1..4) |i| {
-            self.setMACtoIR(i, (self.far_color[i - 1] << 12) - (@as(i64, prev[i - 1]) << 12), false, cmd.sf);
+            const value = (self.far_color[i - 1] << 12) - (@as(i64, prev[i - 1]) << 12);
+            self.setMACtoIR(i, value, false, cmd.sf);
         }
 
         self.interpolateWithIR0(prev, cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// GPF - General purpose interpolation
     fn gpf(self: *GTE, cmd: Command) void {
         self.interpolateWithIR0(.{ 0, 0, 0 }, cmd);
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// GPL - General purpose interpolation with base
     fn gpl(self: *GTE, cmd: Command) void {
         const shift: u6 = @as(u6, cmd.sf) * 12;
         inline for (1..4) |i| {
-            self.setMACtoIR(i, (@as(i64, self.mac[i]) << shift) + @as(i64, self.ir[0]) * self.ir[i], cmd.lm, cmd.sf);
+            const value = (@as(i64, self.mac[i]) << shift) + @as(i64, self.ir[0]) * self.ir[i];
+            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
         }
-        self.pushColor();
+        self.pushRGB();
     }
 
     /// SQR - Square vector
@@ -544,13 +552,31 @@ pub const GTE = struct {
         self.setMACtoIR(3, d[1] * self.ir[2] - d[0] * self.ir[1], cmd.lm, cmd.sf);
     }
 
+    fn mvmvaBuggy(self: *GTE, cmd: Command, matrix: [3][3]i16, vec: [3]i16) void {
+        const shift: u6 = @as(u6, cmd.sf) * 12;
+
+        // Flags from first component, but IR gets intermediate result
+        inline for (1..4) |i| {
+            const value = (self.far_color[i - 1] << 12) + @as(i64, matrix[i - 1][0]) * vec[0];
+            const val = self.saturateMAC(i, value);
+            self.ir[i] = self.saturateIR(i, val >> shift, false);
+        }
+
+        // Result from components 2 and 3
+        inline for (1..4) |i| {
+            var acc = self.saturateMAC(i, @as(i64, matrix[i - 1][1]) * vec[1]);
+            acc = self.saturateMAC(i, acc + @as(i64, matrix[i - 1][2]) * vec[2]);
+            self.setMACtoIR(i, acc, cmd.lm, cmd.sf);
+        }
+    }
+
     /// MVMVA - Matrix-vector multiply and add
     fn mvmva(self: *GTE, cmd: Command) void {
         const matrix = self.selectMatrix(cmd.mvmva_mm);
         const vec = self.selectVector(cmd.mvmva_mv);
 
         if (cmd.mvmva_tv == 2) {
-            self.mvmvaBuggyFarColor(matrix, vec, cmd);
+            self.mvmvaBuggy(cmd, matrix, vec);
             return;
         }
 
@@ -603,11 +629,13 @@ pub const GTE = struct {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
         inline for (1..4) |i| {
-            self.setMACtoIR(i, (self.far_color[i - 1] << 12) - self.rgbScaled(i - 1) * self.ir[i], false, cmd.sf);
+            const value = (self.far_color[i - 1] << 12) - self.rgbScaled(i - 1) * self.ir[i];
+            self.setMACtoIR(i, value, false, cmd.sf);
         }
 
         inline for (1..4) |i| {
-            self.setMACtoIR(i, self.rgbScaled(i - 1) * prev[i - 1] + @as(i64, self.ir[0]) * self.ir[i], cmd.lm, cmd.sf);
+            const value = self.rgbScaled(i - 1) * prev[i - 1] + @as(i64, self.ir[0]) * self.ir[i];
+            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
         }
     }
 
@@ -619,7 +647,8 @@ pub const GTE = struct {
 
     fn interpolateWithIR0(self: *GTE, base: [3]i16, cmd: Command) void {
         inline for (1..4) |i| {
-            self.setMACtoIR(i, (@as(i64, base[i - 1]) << 12) + @as(i64, self.ir[0]) * self.ir[i], cmd.lm, cmd.sf);
+            const value = (@as(i64, base[i - 1]) << 12) + @as(i64, self.ir[0]) * self.ir[i];
+            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
         }
     }
 
@@ -631,27 +660,11 @@ pub const GTE = struct {
     }
 
     fn accumulate(self: *GTE, comptime i: u2, tr: i32, row: [3]i16, vec: [3]i16) i64 {
-        var acc = self.saturateMAC(i, (@as(i64, tr) << 12) + @as(i64, row[0]) * vec[0]);
+        const base = (@as(i64, tr) << 12) + @as(i64, row[0]) * vec[0];
+        var acc = self.saturateMAC(i, base);
         acc = self.saturateMAC(i, acc + @as(i64, row[1]) * vec[1]);
         acc = self.saturateMAC(i, acc + @as(i64, row[2]) * vec[2]);
         return acc;
-    }
-
-    fn mvmvaBuggyFarColor(self: *GTE, matrix: [3][3]i16, vec: [3]i16, cmd: Command) void {
-        const shift: u6 = @as(u6, cmd.sf) * 12;
-
-        // Flags from first component, but IR gets intermediate result
-        inline for (1..4) |i| {
-            const val = self.saturateMAC(i, (self.far_color[i - 1] << 12) + @as(i64, matrix[i - 1][0]) * vec[0]);
-            self.ir[i] = self.saturateIR(i, val >> shift, false);
-        }
-
-        // Result from components 2 and 3
-        inline for (1..4) |i| {
-            var acc = self.saturateMAC(i, @as(i64, matrix[i - 1][1]) * vec[1]);
-            acc = self.saturateMAC(i, acc + @as(i64, matrix[i - 1][2]) * vec[2]);
-            self.setMACtoIR(i, acc, cmd.lm, cmd.sf);
-        }
     }
 
     fn selectMatrix(self: *GTE, sel: u2) [3][3]i16 {
@@ -697,10 +710,10 @@ pub const GTE = struct {
         self.sz[3] = self.saturateSZ(sz);
     }
 
-    fn pushColor(self: *GTE) void {
-        self.rgb_fifo[0] = self.rgb_fifo[1];
-        self.rgb_fifo[1] = self.rgb_fifo[2];
-        self.rgb_fifo[2] = .{
+    fn pushRGB(self: *GTE) void {
+        self.rgb[0] = self.rgb[1];
+        self.rgb[1] = self.rgb[2];
+        self.rgb[2] = .{
             self.saturateRGB(0, @divTrunc(self.mac[1], 16)),
             self.saturateRGB(1, @divTrunc(self.mac[2], 16)),
             self.saturateRGB(2, @divTrunc(self.mac[3], 16)),
