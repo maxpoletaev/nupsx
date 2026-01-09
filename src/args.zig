@@ -25,7 +25,6 @@ pub const Args = struct {
     exe_path: ?[]const u8,
     cd_image_path: ?[]const u8,
 
-    no_ui: bool = false,
     debug_ui: bool = false,
     disasm: bool = false,
     breakpoint: u32 = 0,
@@ -44,9 +43,6 @@ pub const Args = struct {
                 std.process.exit(0);
             }
 
-            if (std.mem.eql(u8, arg, "--no-ui")) {
-                args.no_ui = true;
-            }
             if (std.mem.eql(u8, arg, "--debug-ui")) {
                 args.debug_ui = true;
             }

@@ -152,32 +152,7 @@ pub fn main() !void {
         try exe.loadExe(allocator, path, cpu, bus);
     }
 
-    if (args.no_ui) {
-        const disasm = try Disasm.init(allocator);
-        defer disasm.deinit();
-
-        var tty_buf = try std.array_list.Aligned(u8, null).initCapacity(allocator, 1024);
-        defer tty_buf.deinit(allocator);
-
-        var stdout = std.fs.File.stdout();
-
-        while (true) {
-            bus.tick();
-
-            if (captureTtyOutput(cpu)) |ch| {
-                try tty_buf.append(allocator, ch);
-                if (ch == '\n' or tty_buf.items.len >= 1024) {
-                    try stdout.writeAll(tty_buf.items);
-                    tty_buf.clearRetainingCapacity();
-                }
-            }
-
-            if (args.disasm) {
-                const decoded = disasm.disassemble(cpu.instr);
-                std.log.debug("{x}\t {x}\t {s}", .{ cpu.instr_addr, cpu.instr.code, decoded });
-            }
-        }
-    } else if (args.debug_ui) {
+    if (args.debug_ui) {
         const debug_ui = try DebugUI.init(allocator, cpu, bus);
         defer debug_ui.deinit();
 
@@ -206,8 +181,8 @@ pub fn main() !void {
             }
         }
     } else {
-        const display_ui = try UI.init(allocator, gpu, joy);
-        defer display_ui.deinit();
+        const ui = try UI.init(allocator, gpu, joy);
+        defer ui.deinit();
 
         var buf: [1024]u8 = undefined;
         var stdout = std.fs.File.stdout().writer(&buf);
@@ -221,10 +196,10 @@ pub fn main() !void {
             }
 
             if (gpu.consumeFrameReady()) {
-                if (!display_ui.is_running) {
+                if (!ui.is_running) {
                     break;
                 }
-                display_ui.update();
+                ui.update();
             }
         }
     }
