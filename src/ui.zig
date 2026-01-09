@@ -198,8 +198,8 @@ pub const UI = struct {
         .{ glfw.Key.j, .square },
         .{ glfw.Key.i, .triangle },
 
-        .{ glfw.Key.q, .l1 },
-        .{ glfw.Key.e, .l2 },
+        .{ glfw.Key.e, .l1 },
+        .{ glfw.Key.q, .l2 },
         .{ glfw.Key.u, .r1 },
         .{ glfw.Key.o, .r2 },
 

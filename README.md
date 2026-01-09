@@ -39,6 +39,26 @@ Options:
   -h, --help           Show this help message
 ```
 
+## Controls
+
+```
+     [Q]                        [O]
+  _/ [E] \_                  _/ [U] \_
+ /         \----------------/         \
+|    [W]    |              |    [I]    |
+| [A]   [D] |              | [J]   [L] |
+|    [S]    | [ENT] [R-SH] |    [K]    |
+|\_________/----------------\_________/|
+|       /                      \       |
+|      /                        \      |
+ \____/                          \____/
+
+  ↑ = W     △ = I     [START]  = Enter
+  ← = A     ◻ = J     [SELECT] = RShift
+  ↓ = S     × = K     [L1] = Q  [L2] = E
+  → = D     ◯ = L     [R1] = U  [R2] = O
+````
+
 ## References
 
 > Special thanks to [EmuDev Discord](https://discord.gg/dkmJAes) which has accumulated a lot of undocumented knowledge and got me unstuck multiple times.
