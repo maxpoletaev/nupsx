@@ -32,13 +32,15 @@ const Joypad = joy_mod.Joypad;
 pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        // .{ .scope = .cdrom, .level = .debug },
-        .{ .scope = .cue, .level = .debug },
-        // .{ .scope = .mem, .level = .debug },
+        .{ .scope = .spu, .level = .debug },
+        .{ .scope = .cdrom, .level = .debug },
+        // .{ .scope = .cue, .level = .debug },
+        .{ .scope = .mem, .level = .debug },
+        .{ .scope = .timer, .level = .debug },
         // .{ .scope = .gte, .level = .debug },
         // .{ .scope = .gpu, .level = .debug },
         // .{ .scope = .dma, .level = .debug },
-        .{ .scope = .joy, .level = .debug },
+        // .{ .scope = .joy, .level = .debug },
     },
 };
 
@@ -152,7 +154,7 @@ pub fn main() !void {
         try exe.loadExe(allocator, path, cpu, bus);
     }
 
-    if (args.debug_ui) {
+    if (args.debug) {
         const debug_ui = try DebugUI.init(allocator, cpu, bus);
         defer debug_ui.deinit();
 

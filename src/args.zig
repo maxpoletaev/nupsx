@@ -11,7 +11,7 @@ const help_text = (
     \\  --bios <path>        Path to BIOS file (required)
     \\  --exe <path>         Path to executable file to run
     \\  --cdrom <path>       Path to CD-ROM image file (.cue)
-    \\  --debug-ui           Enable debug user interface
+    \\  --debug              Enable debug user interface
     \\  --disasm             Enable disassembly output
     \\  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
     \\  --uncapped           Run the emulator without frame rate limiting
@@ -25,7 +25,7 @@ pub const Args = struct {
     exe_path: ?[]const u8,
     cd_image_path: ?[]const u8,
 
-    debug_ui: bool = false,
+    debug: bool = false,
     disasm: bool = false,
     breakpoint: u32 = 0,
     uncapped: bool = false,
@@ -44,8 +44,8 @@ pub const Args = struct {
                 std.process.exit(0);
             }
 
-            if (std.mem.eql(u8, arg, "--debug-ui")) {
-                args.debug_ui = true;
+            if (std.mem.eql(u8, arg, "--debug")) {
+                args.debug = true;
             }
             if (std.mem.eql(u8, arg, "--disasm")) {
                 args.disasm = true;

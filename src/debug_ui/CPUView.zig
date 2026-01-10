@@ -43,9 +43,7 @@ fn drawCop0Tab(self: *@This()) void {
     if (zgui.beginTabItem("COP0", .{})) {
         defer zgui.endTabItem();
 
-        const status = self.cpu.cop0.status();
         const cause = self.cpu.cop0.cause();
-
         const exc_code = @as(cpu_mod.Cop0.ExcCode, cause.exc_code);
         const exc_tag = std.enums.tagName(cpu_mod.Cop0.ExcCode, exc_code);
 
@@ -55,20 +53,21 @@ fn drawCop0Tab(self: *@This()) void {
         zgui.text("Exception Depth: {d}", .{self.cpu.cop0.depth});
         zgui.text("Exc Code: {s} ({d})", .{ if (exc_tag) |t| t else "unknown", @intFromEnum(exc_code) });
 
-        var interrupt_mask: u32 = status.interrupt_mask;
-        var interrupt_pending: u32 = cause.interrupt_pending;
-
         zgui.separatorText("Interrupts");
-        _ = zgui.inputInt("Mask", .{
+
+        const mask_changed = zgui.inputInt("Mask", .{
             .step = 0,
-            .flags = hex_field_flags_ro,
-            .v = @ptrCast(&interrupt_mask),
+            .flags = hex_field_flags,
+            .v = @ptrCast(&self.bus.irq_mask),
         });
-        _ = zgui.inputInt("Pending", .{
+        if (mask_changed) self.bus.updateCpuIRQ();
+
+        const pending_changed = zgui.inputInt("Pending", .{
             .step = 0,
-            .flags = hex_field_flags_ro,
-            .v = @ptrCast(&interrupt_pending),
+            .flags = hex_field_flags,
+            .v = @ptrCast(&self.bus.irq_stat),
         });
+        if (pending_changed) self.bus.updateCpuIRQ();
     }
 }
 

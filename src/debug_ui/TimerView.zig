@@ -55,7 +55,7 @@ pub fn update(self: *@This()) void {
                     zgui.text("IRQ on Target: {s}", .{if (timer.mode.irq_on_target) "yes" else "no"});
                     zgui.text("IRQ on 0xFFFF: {s}", .{if (timer.mode.irq_on_ffff) "yes" else "no"});
                     zgui.text("IRQ Repeat: {s}", .{if (timer.mode.irq_repeat) "yes" else "no"});
-                    zgui.text("IRQ Toggle: {s}", .{if (timer.mode.irq_toggle) "yes" else "no"});
+                    zgui.text("IRQ Mode: {s}", .{@tagName(timer.mode.irq_mode)});
                     zgui.text("Clock Source Bits: {d}", .{timer.mode.clock_source});
                     zgui.text("IRQ Disabled: {s}", .{if (timer.mode.irq_disabled) "yes" else "no"});
                     zgui.text("Reached Target: {s}", .{if (timer.mode.reached_target) "yes" else "no"});

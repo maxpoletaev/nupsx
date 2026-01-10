@@ -63,7 +63,7 @@ const IntterruptReg = packed struct(u32) {
     irq_flags: u7, // 24-30
     master_irq: bool, // 31
 
-    inline fn updateMaster(self: *IntterruptReg) void {
+    inline fn updateMasterIrq(self: *IntterruptReg) void {
         const irq_pending = (self.irq_flags & self.irq_mask) != 0;
         self.master_irq = self.bus_error or (self.master_enable and irq_pending);
     }
@@ -74,12 +74,12 @@ const ControlReg = packed struct(u32) {
     cpu_mem_priority: u3, // 28-30
     _pad0: u1, // 31
 
-    inline fn getChanPriority(self: *ControlReg, chan_id: u3) u3 {
+    pub inline fn getChanPriority(self: *ControlReg, chan_id: u3) u3 {
         const off = @as(u8, chan_id) * 4;
         return bits.field(self.chan_data, off, u3);
     }
 
-    inline fn getChanMasterEnable(self: *ControlReg, chan_id: u3) bool {
+    pub inline fn getChanMasterEnable(self: *ControlReg, chan_id: u3) bool {
         const off = @as(u8, chan_id) * 4 + 3;
         return bits.field(self.chan_data, off, u1) == 1;
     }
@@ -106,7 +106,7 @@ pub const DMA = struct {
     dpcr: ControlReg,
     dicr: IntterruptReg,
     channels: [7]Channel,
-    irq: bool,
+    irq_pending: bool,
 
     pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*@This() {
         const self = try allocator.create(@This());
@@ -116,6 +116,7 @@ pub const DMA = struct {
             .bus = bus,
             .dpcr = @bitCast(@as(u32, 0x07654321)),
             .dicr = std.mem.zeroes(IntterruptReg),
+            .irq_pending = false,
             .channels = [_]Channel{
                 Channel.init(),
                 Channel.init(),
@@ -125,7 +126,6 @@ pub const DMA = struct {
                 Channel.init(),
                 Channel.init(),
             },
-            .irq = false,
         };
 
         return self;
@@ -136,9 +136,9 @@ pub const DMA = struct {
     }
 
     pub fn consumeIrq(self: *@This()) bool {
-        const v = self.irq;
-        self.irq = false;
-        return v;
+        const was_pending = self.irq_pending;
+        self.irq_pending = false;
+        return was_pending;
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -147,6 +147,7 @@ pub const DMA = struct {
         const v = switch (addr) {
             addr_dpcr => @as(u32, @bitCast(self.dpcr)),
             addr_dicr => @as(u32, @bitCast(self.dicr)),
+
             else => blk: {
                 const offset = addr - addr_start;
                 const reg_id = bits.field(offset, 2, u2);
@@ -154,6 +155,7 @@ pub const DMA = struct {
                 break :blk self.readChannelReg(chan_id, reg_id);
             },
         };
+
         return @truncate(v);
     }
 
@@ -169,7 +171,7 @@ pub const DMA = struct {
                 new_dicr.irq_flags = self.dicr.irq_flags & ~new_dicr.irq_flags; // write 1 to clear
                 new_dicr.master_irq = self.dicr.master_irq; // bit 31 is read-only
                 self.dicr = new_dicr;
-                self.dicr.updateMaster();
+                self.dicr.updateMasterIrq();
             },
             else => {
                 const offset = addr - addr_start;
@@ -180,30 +182,22 @@ pub const DMA = struct {
         }
     }
 
-    fn setIrqOnCompletion(self: *@This(), chan_id: u3) void {
+    fn setChannelIrq(self: *@This(), chan_id: u3, comptime mode: enum { block, full_transfer }) void {
         const chan_mask = @as(u7, 1) << chan_id;
-        const pending = self.dicr.irq_mask & chan_mask != 0 and
-            self.dicr.irq_mode & chan_mask == 0;
-        if (pending) {
+
+        const enabled = self.dicr.irq_mask & chan_mask != 0;
+
+        const matches_mode = switch (mode) {
+            .block => self.dicr.irq_mode & chan_mask != 0,
+            .full_transfer => self.dicr.irq_mode & chan_mask == 0,
+        };
+
+        if (enabled and matches_mode) {
             self.dicr.irq_flags |= chan_mask;
-            self.dicr.updateMaster();
+            self.dicr.updateMasterIrq();
 
             if (self.dicr.master_irq) {
-                self.irq = true;
-            }
-        }
-    }
-
-    fn setIrqOnBlockReady(self: *@This(), chan_id: u3) void {
-        const chan_mask = @as(u7, 1) << chan_id;
-        const pending = self.dicr.irq_mask & chan_mask != 0 and
-            (self.dicr.irq_mode & chan_mask != 0);
-        if (pending) {
-            self.dicr.irq_flags |= chan_mask;
-            self.dicr.updateMaster();
-
-            if (self.dicr.master_irq) {
-                self.irq = true;
+                self.irq_pending = true;
             }
         }
     }
@@ -271,7 +265,7 @@ pub const DMA = struct {
                 chan.maddr +%= addr_inc;
 
                 if ((i + 1) % chan.block.size == 0) {
-                    self.setIrqOnBlockReady(ChanId.gpu);
+                    self.setChannelIrq(ChanId.gpu, .block);
                 }
             },
             .to_ram => for (0..transfer_len) |i| {
@@ -280,14 +274,14 @@ pub const DMA = struct {
                 chan.maddr +%= addr_inc;
 
                 if ((i + 1) % chan.block.size == 0) {
-                    self.setIrqOnBlockReady(ChanId.gpu);
+                    self.setChannelIrq(ChanId.gpu, .block);
                 }
             },
         }
 
         chan.ctrl.resetActive();
 
-        self.setIrqOnCompletion(ChanId.gpu);
+        self.setChannelIrq(ChanId.gpu, .full_transfer);
     }
 
     fn doGpuSyncModeLinkedList(self: *@This()) void {
@@ -307,14 +301,14 @@ pub const DMA = struct {
                 self.bus.dev.gpu.gp0write(v);
             }
 
-            self.setIrqOnBlockReady(ChanId.gpu);
+            self.setChannelIrq(ChanId.gpu, .block);
 
             addr = hdr & 0xffffff;
         }
 
         chan.ctrl.resetActive();
 
-        self.setIrqOnCompletion(ChanId.gpu);
+        self.setChannelIrq(ChanId.gpu, .full_transfer);
     }
 
     fn doSpu(self: *@This()) void {
@@ -324,7 +318,7 @@ pub const DMA = struct {
 
         log.warn("DMA SPU not implemented", .{});
 
-        self.setIrqOnCompletion(ChanId.spu);
+        self.setChannelIrq(ChanId.spu, .full_transfer);
 
         chan.ctrl.resetActive();
     }
@@ -350,7 +344,7 @@ pub const DMA = struct {
                 chan.maddr +%= addr_inc;
 
                 if ((i + 1) % chan.block.size == 0) {
-                    self.setIrqOnBlockReady(ChanId.cdrom);
+                    self.setChannelIrq(ChanId.cdrom, .block);
                 }
             },
             .to_device => @panic("not implemented"),
@@ -358,7 +352,7 @@ pub const DMA = struct {
 
         chan.ctrl.resetActive();
 
-        self.setIrqOnCompletion(ChanId.cdrom);
+        self.setChannelIrq(ChanId.cdrom, .full_transfer);
     }
 
     fn doOtc(self: *@This()) void {
@@ -381,6 +375,6 @@ pub const DMA = struct {
 
         chan.ctrl.resetActive();
 
-        self.setIrqOnCompletion(ChanId.otc);
+        self.setChannelIrq(ChanId.otc, .full_transfer);
     }
 };

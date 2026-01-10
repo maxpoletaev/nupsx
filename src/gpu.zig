@@ -334,12 +334,12 @@ pub const GPU = struct {
 
             0x40 => self.drawLineFlat(v),
             0x42 => self.drawLineFlat(v),
-            0x48 => self.drawPolyLineFlat(v),
-            0x4a => self.drawPolyLineFlat(v),
+            0x48 => {}, // self.drawPolyLineFlat(v),
+            0x4a => {}, // self.drawPolyLineFlat(v),
             0x50 => self.drawLineShaded(v),
             0x52 => self.drawLineShaded(v),
-            0x58 => self.drawPolyLineShaded(v),
-            0x5a => self.drawPolyLineShaded(v),
+            0x58 => {}, // self.drawPolyLineShaded(v),
+            0x5a => {}, // self.drawPolyLineShaded(v),
 
             0x60 => self.drawRectFlat(v, null),
             0x62 => self.drawRectFlat(v, null),
@@ -618,6 +618,10 @@ pub const GPU = struct {
     // GP0 Rendering Commands
     // -------------------------
 
+    inline fn isLineTerminator(v: u32) bool {
+        return v & 0xf000f000 == 0x50005000;
+    }
+
     fn drawLineFlat(self: *@This(), v: u32) void {
         switch (self.gp0_state) {
             .recv_command => {
@@ -645,7 +649,7 @@ pub const GPU = struct {
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                if (v != 0x55555555) {
+                if (!isLineTerminator(v)) {
                     self.gp0_fifo.push(v);
                     return;
                 }
@@ -693,7 +697,7 @@ pub const GPU = struct {
                 self.gp0_state = .recv_args;
             },
             .recv_args => {
-                if (v != 0x55555555) {
+                if (!isLineTerminator(v)) {
                     self.gp0_fifo.push(v);
                     return;
                 }

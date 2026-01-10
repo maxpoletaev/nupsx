@@ -1,9 +1,11 @@
 const std = @import("std");
 const bits = @import("bits.zig");
 
-const log = std.log.scoped(.timers);
+const log = std.log.scoped(.timer);
 
 const SyncMode = enum {
+    unset,
+
     pause_during_hblank,
     reset_at_hblank,
     reset_and_pause_outside_hblank,
@@ -44,35 +46,33 @@ const TimerEvent = struct {
 };
 
 const Mode = packed struct(u16) {
-    sync_enable: bool,
-    sync_mode: u2,
-    reset_on_target: bool,
-    irq_on_target: bool,
-    irq_on_ffff: bool,
-    irq_repeat: bool,
-    irq_toggle: bool,
-    clock_source: u2,
-    irq_disabled: bool,
-    reached_target: bool,
-    reached_ffff: bool,
-    pad: u3,
+    sync_enable: bool, // 0
+    sync_mode: u2, // 1-2
+    reset_on_target: bool, // 3
+    irq_on_target: bool, // 4
+    irq_on_ffff: bool, // 5
+    irq_repeat: bool, // 6
+    irq_mode: enum(u1) { pulse = 0, toggle = 1 }, // 7
+    clock_source: u2, // 8-9
+    irq_disabled: bool, // 10
+    reached_target: bool, // 11
+    reached_ffff: bool, // 12
+    pad: u3, // 13-15
 };
 
 const Timer = struct {
+    timer_idx: u2,
+
     mode: Mode = std.mem.zeroes(Mode),
     current: u16 = 0,
     target: u16 = 0,
 
     paused: bool = false,
-    once: bool = false,
+    supress_irq: bool = false,
 
-    clock_source_table: [4]ClockSource,
-    sync_mode_table: [4]SyncMode,
-
-    fn init(idx: u2) @This() {
+    fn init(timer_id: u2) @This() {
         return .{
-            .clock_source_table = clock_source_table[idx],
-            .sync_mode_table = sync_mode_table[idx],
+            .timer_idx = timer_id,
         };
     }
 
@@ -96,14 +96,27 @@ const Timer = struct {
             }
         }
 
-        const fired = (self.mode.irq_on_ffff and hit_ffff) or
-            (self.mode.irq_on_target and hit_target);
-
-        if (fired and !self.mode.irq_repeat) {
-            self.paused = true;
+        if (self.supress_irq) {
+            return false;
         }
 
-        return fired;
+        const reached_irq = ((self.mode.irq_on_ffff and hit_ffff) or
+            (self.mode.irq_on_target and hit_target));
+
+        switch (self.mode.irq_mode) {
+            .toggle => if (reached_irq) {
+                if (!self.mode.irq_repeat) self.supress_irq = true;
+                self.mode.irq_disabled = !self.mode.irq_disabled;
+                return self.mode.irq_disabled;
+            },
+            .pulse => {
+                if (!self.mode.irq_repeat) self.supress_irq = true;
+                self.mode.irq_disabled = false;
+                return reached_irq;
+            },
+        }
+
+        unreachable;
     }
 
     inline fn getMode(self: *@This()) u16 {
@@ -127,9 +140,9 @@ const Timer = struct {
         self.mode.reached_ffff = prev.reached_ffff;
 
         // irq and counters are reset on mode write
-        self.mode.irq_disabled = true;
+        self.mode.irq_disabled = false;
+        self.supress_irq = false;
         self.paused = false;
-        self.once = false;
         self.current = 0;
 
         // depending on the sync mode, the timer may start paused
@@ -146,11 +159,11 @@ const Timer = struct {
     }
 
     pub inline fn getSyncMode(self: *@This()) SyncMode {
-        return self.sync_mode_table[self.mode.sync_mode];
+        return sync_mode_table[self.timer_idx][self.mode.sync_mode];
     }
 
     pub inline fn getClockSource(self: *@This()) ClockSource {
-        return self.clock_source_table[self.mode.clock_source];
+        return clock_source_table[self.timer_idx][self.mode.clock_source];
     }
 };
 
@@ -207,12 +220,13 @@ pub const Timers = struct {
             timer_reg_current => self.timers[tmrid].current,
             timer_reg_mode => self.timers[tmrid].getMode(),
             timer_reg_target => self.timers[tmrid].target,
-            else => std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), addr }),
+            else => std.debug.panic("timer: unhandled read ({s}) at {x}", .{ @typeName(T), addr }),
         };
+
         return switch (T) {
             u16, u32 => v,
             u8 => @truncate(v),
-            else => @compileError("Timers.Read: Unsupported type"),
+            else => @compileError("timers.read: unsupported type"),
         };
     }
 
@@ -221,23 +235,19 @@ pub const Timers = struct {
         const regid = bits.field(offset, 0, u4);
         const tmrid = bits.field(offset, 4, u2);
 
-        const vv: u16 = switch (T) {
+        const val: u16 = switch (T) {
             u8, u16 => v,
             u32 => @truncate(v),
             else => @compileError("Timers.Write: Unsupported type"),
         };
 
         switch (regid) {
-            timer_reg_current => self.timers[tmrid].current = vv,
-            timer_reg_mode => self.timers[tmrid].setMode(vv, self.in_hblank, self.in_vblank),
-            timer_reg_target => self.timers[tmrid].target = vv,
-            else => log.warn("unhandled writeHalf at {x}", .{addr}),
+            timer_reg_current => self.timers[tmrid].current = val,
+            timer_reg_mode => self.timers[tmrid].setMode(val, self.in_hblank, self.in_vblank),
+            timer_reg_target => self.timers[tmrid].target = val,
+            else => std.debug.panic("timer: unhandled write at {x}", .{addr}),
         }
     }
-
-    // -------------------------
-    // System Clock Tick
-    // -------------------------
 
     pub fn tick(self: *@This(), cyc: u8) void {
         self.tickTimer0(cyc);
@@ -295,10 +305,6 @@ pub const Timers = struct {
         }
     }
 
-    // -------------------------
-    // GPU Event Handlers
-    // -------------------------
-
     pub fn hblankStart(self: *@This()) void {
         self.in_hblank = true;
 
@@ -309,19 +315,13 @@ pub const Timers = struct {
         if (t0.mode.sync_enable) {
             switch (t0.getSyncMode()) {
                 .pause_during_hblank => t0.paused = true,
+                .pause_until_hblank => t0.paused = false,
                 .reset_at_hblank => t0.current = 0,
                 .reset_and_pause_outside_hblank => {
                     t0.current = 0;
                     t0.paused = false;
                 },
-                .pause_until_hblank => {
-                    if (!t0.once) {
-                        t0.once = true;
-                        t0.paused = false;
-                        t0.mode.sync_enable = false;
-                    }
-                },
-                else => {},
+                else => unreachable,
             }
         }
 
@@ -354,17 +354,11 @@ pub const Timers = struct {
 
         switch (t1.getSyncMode()) {
             .pause_during_vblank => t1.paused = true,
+            .pause_until_vblank => t1.paused = false,
             .reset_at_vblank => t1.current = 0,
             .reset_and_pause_outside_vblank => {
                 t1.current = 0;
                 t1.paused = false;
-            },
-            .pause_until_vblank => {
-                if (!t1.once) {
-                    t1.once = true;
-                    t1.paused = false;
-                    t1.mode.sync_enable = false;
-                }
             },
             else => {},
         }

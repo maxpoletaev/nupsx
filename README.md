@@ -41,8 +41,8 @@ Options:
 ## Controls
 
 ```
-     [Q]                        [O]
-  _/ [E] \_                  _/ [U] \_
+    [ Q ]                      [ O ]
+  _/[ E ]\_                  _/[ U ]\_
  /         \----------------/         \
 |    [W]    |              |    [I]    |
 | [A]   [D] |              | [J]   [L] |
@@ -54,8 +54,8 @@ Options:
 
   ↑ = W     △ = I     [START]  = Enter
   ← = A     ◻ = J     [SELECT] = RShift
-  ↓ = S     × = K     [L1] = Q  [L2] = E
-  → = D     ◯ = L     [R1] = U  [R2] = O
+  ↓ = S     × = K     [L1] = E  [R1] = U
+  → = D     ◯ = L     [L2] = Q  [R2] = O
 ````
 
 ## References

@@ -165,6 +165,8 @@ pub const Bus = struct {
     irq_mask: u32 = 0,
     irq_stat: u32 = 0,
 
+    last_tmr2_cycle: u64 = 0,
+
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
@@ -182,15 +184,15 @@ pub const Bus = struct {
         self.dev = dev;
     }
 
-    inline fn updateCpuIRQ(self: *@This()) void {
+    pub inline fn updateCpuIRQ(self: *@This()) void {
         const pending = (self.irq_stat & self.irq_mask) != 0;
         self.dev.cpu.requestInterrupt(pending);
     }
 
     pub fn setInterrupt(self: *@This(), v: u32) void {
-        if (v & Interrupt.cdrom != 0) {
-            log.debug("CPU interrupt set {x}", .{v});
-        }
+        // if (v & Interrupt.tmr2 != 0) {
+        //     log.debug("CPU interrupt set {x}", .{v});
+        // }
         self.irq_stat |= v;
         self.updateCpuIRQ();
     }
@@ -229,7 +231,7 @@ pub const Bus = struct {
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
-        // if (~v & Interrupt.cdrom != 0) {
+        // if (~v & Interrupt.tmr2 != 0) {
         //     log.debug("CPU interrupt ack: {x}", .{~v});
         // }
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`

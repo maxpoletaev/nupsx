@@ -11,9 +11,10 @@ const Voice = struct {
 
 pub const SPU = struct {
     pub const addr_start: u32 = 0x1f801c00;
-    pub const addr_end: u32 = 0x1f801e7f;
+    pub const addr_end: u32 = 0x1f801fff;
 
     allocator: std.mem.Allocator,
+    stub_data: [0x3ff / 2]u16,
     voices: [24]Voice,
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
@@ -21,6 +22,7 @@ pub const SPU = struct {
         self.* = .{
             .allocator = allocator,
             .voices = std.mem.zeroes([24]Voice),
+            .stub_data = std.mem.zeroes([0x3ff / 2]u16),
         };
         return self;
     }
@@ -30,34 +32,40 @@ pub const SPU = struct {
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
-        // log.debug("SPU read at {x}", .{addr});
-        const offset = addr - addr_start;
-
-        if (offset < 0x180) {
-            const reg_id = bits.field(offset, 1, u3); // register 0-7
-            const voice = bits.field(offset, 4, u5); // voice 0-23
-            const v = self.voices[voice].r[reg_id];
-            switch (T) {
-                u16, u32 => return v,
-                else => std.debug.panic("SPU read: unsupported type {s}", .{@typeName(T)}),
-            }
+        if (T != u16 and T != u32) {
+            std.debug.panic("spu read: unsupported type {s}", .{@typeName(T)});
         }
 
-        return 0x4;
+        const offset = addr - addr_start;
+        return self.stub_data[offset];
+
+        // if (offset < 0x180) {
+        //     const reg_id = bits.field(offset, 1, u3); // register 0-7
+        //     const voice = bits.field(offset, 4, u5); // voice 0-23
+        //     const v = self.voices[voice].r[reg_id];
+        //     switch (T) {
+        //         u16, u32 => return v,
+        //         else => std.debug.panic("SPU read: unsupported type {s}", .{@typeName(T)}),
+        //     }
+        // }
     }
 
     pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
-        const offset = addr - addr_start;
-
-        if (offset < 0x180) {
-            const reg_id = bits.field(offset, 1, u3); // register 0-7
-            const voice = bits.field(offset, 4, u5); // voice 0-23
-            switch (T) {
-                u16, u32 => self.voices[voice].r[reg_id] = @truncate(v),
-                else => std.debug.panic("SPU read: unsupported type {s}", .{@typeName(T)}),
-            }
+        if (T != u16 and T != u32) {
+            std.debug.panic("spu write: unsupported type {s}", .{@typeName(T)});
         }
 
+        const offset = addr - addr_start;
+        self.stub_data[offset] = @truncate(v);
+
+        // if (offset < 0x180) {
+        //     const reg_id = bits.field(offset, 1, u3); // register 0-7
+        //     const voice = bits.field(offset, 4, u5); // voice 0-23
+        //     switch (T) {
+        //         u16, u32 => self.voices[voice].r[reg_id] = @truncate(v),
+        //         else => std.debug.panic("SPU read: unsupported type {s}", .{@typeName(T)}),
+        //     }
+        // }
         // log.warn("unhandled SPU write at {x} = {x}", .{ addr, v });
     }
 };
