@@ -334,12 +334,12 @@ pub const GPU = struct {
 
             0x40 => self.drawLineFlat(v),
             0x42 => self.drawLineFlat(v),
-            0x48 => {}, // self.drawPolyLineFlat(v),
-            0x4a => {}, // self.drawPolyLineFlat(v),
+            0x48 => self.drawPolyLineFlat(v),
+            0x4a => self.drawPolyLineFlat(v),
             0x50 => self.drawLineShaded(v),
             0x52 => self.drawLineShaded(v),
-            0x58 => {}, // self.drawPolyLineShaded(v),
-            0x5a => {}, // self.drawPolyLineShaded(v),
+            0x58 => self.drawPolyLineShaded(v),
+            0x5a => self.drawPolyLineShaded(v),
 
             0x60 => self.drawRectFlat(v, null),
             0x62 => self.drawRectFlat(v, null),
@@ -972,7 +972,7 @@ pub const GPU = struct {
             },
             .recv_args => {
                 self.gp0_fifo.push(v);
-                if (self.gp0_fifo.len == 8) {
+                if (self.gp0_fifo.len == 9) {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[4]);
