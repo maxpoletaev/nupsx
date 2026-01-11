@@ -10,9 +10,9 @@ Still in early development with no intention of becoming usable by the general b
 
 ## State
 
-Can load into BIOS :)
+Can boot and play a few commercial games (notably Crash Bandicoot) and homebrew demos. Lots of things are still missing or incomplete.
 
-## Running
+## Build & Run
 
 ```
 git clone https://github.com/maxpoletaev/nupsx.git
@@ -32,7 +32,7 @@ Options:
   --bios <path>        Path to BIOS file (required)
   --exe <path>         Path to executable file to run
   --cdrom <path>       Path to CD-ROM image file (.cue)
-  --debug-ui           Enable debug user interface
+  --debug              Enable debug user interface
   --disasm             Enable disassembly output
   --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
   -h, --help           Show this help message
@@ -41,26 +41,26 @@ Options:
 ## Controls
 
 ```
-    [ Q ]                      [ O ]
-  _/[ E ]\_                  _/[ U ]\_
- /         \----------------/         \
-|    [W]    |              |    [I]    |
-| [A]   [D] |              | [J]   [L] |
-|    [S]    | [ENT] [R-SH] |    [K]    |
-|\_________/----------------\_________/|
-|       /                      \       |
-|      /                        \      |
- \____/                          \____/
+    [ Q ]                    [ O ]
+  _/[ E ]\_                _/[ U ]\_
+ /         \--------------/         \
+|    [W]    |            |    [I]    |
+| [A]   [D] |            | [J]   [L] |
+|    [S]    | SHFT ENTR⟩ |    [K]    |
+|\_________/--------------\_________/|
+|       /                    \       |
+|      /                      \      |
+ \____/                        \____/
 
   ↑ = W     △ = I     [START]  = Enter
-  ← = A     ◻ = J     [SELECT] = RShift
+  ← = A     ◻ = J     [SELECT] = R-Shift
   ↓ = S     × = K     [L1] = E  [R1] = U
   → = D     ◯ = L     [L2] = Q  [R2] = O
 ````
 
-## References
+## Credits
 
-> Special thanks to [EmuDev Discord](https://discord.gg/dkmJAes) which has accumulated a lot of undocumented knowledge and got me unstuck multiple times.
+Special thanks to guys in [EmuDev Discord](https://discord.gg/dkmJAes) for sharing tons of undocumented knowledge and getting me unstuck countless times.
 
 **Readings:**
  * [PSX-SPX Playstation Specifications](https://problemkaputt.de/psx-spx.htm) by Martin "nocash" Korth 
@@ -77,4 +77,3 @@ Options:
  * https://github.com/allkern/psxe
  * https://github.com/stenzek/duckstation
  * https://github.com/JaCzekanski/Avocado
-

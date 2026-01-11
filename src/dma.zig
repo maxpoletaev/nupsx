@@ -185,14 +185,16 @@ pub const DMA = struct {
     fn setChannelIrq(self: *@This(), chan_id: u3, comptime mode: enum { block, full_transfer }) void {
         const chan_mask = @as(u7, 1) << chan_id;
 
-        const enabled = self.dicr.irq_mask & chan_mask != 0;
+        if (self.dicr.irq_mask & chan_mask == 0) {
+            return;
+        }
 
-        const matches_mode = switch (mode) {
+        const mode_bit = switch (mode) {
             .block => self.dicr.irq_mode & chan_mask != 0,
             .full_transfer => self.dicr.irq_mode & chan_mask == 0,
         };
 
-        if (enabled and matches_mode) {
+        if (mode_bit) {
             self.dicr.irq_flags |= chan_mask;
             self.dicr.updateMasterIrq();
 

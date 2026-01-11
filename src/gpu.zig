@@ -72,7 +72,7 @@ const GpuStat = packed struct(u32) {
     color_depth: ColorDepth, // 22
     vertical_interlace: bool, // 23
 
-    display_enable: bool, // 24
+    display_enable: u1, // 24
     interrupt_request: bool, // 25
     dma_data_request: bool, // 26
     ready_receive_cmd: bool, // 27
@@ -177,9 +177,9 @@ pub const GPU = struct {
     gp1_display_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp1_display_range_x: packed struct(u32) { x1: u12, x2: u12, _pad: u8 },
     gp1_display_range_y: packed struct(u32) { y1: u11, y2: u11, _pad: u10 },
+    gp1_display_enable: enum(u1) { on = 0, off = 1 },
     gp1_dma_direction: DmaDirection,
     gp1_display_mode: DisplayMode,
-    gp1_display_enable: bool,
     interrupt_request: bool,
 
     cycle_f: f32 = 0.0,
@@ -253,7 +253,7 @@ pub const GPU = struct {
         gpustat.force_mask_bit = self.gp0_mask_bit.force_mask_bit;
         gpustat.check_mask_bit = self.gp0_mask_bit.check_mask_bit;
 
-        gpustat.display_enable = self.gp1_display_enable;
+        gpustat.display_enable = @intFromEnum(self.gp1_display_enable);
         gpustat.interrupt_request = self.interrupt_request;
         gpustat.dma_direction = self.gp1_dma_direction;
         gpustat.hres1 = self.gp1_display_mode.hres;
@@ -281,9 +281,9 @@ pub const GPU = struct {
         return .{ w, h };
     }
 
-    // -------------------------
+    // =========================================================================
     // GP0 Commands
-    // -------------------------
+    // =========================================================================
 
     pub fn gp0write(self: *@This(), v: u32) void {
         if (self.gp0_state == .recv_command) {
@@ -445,9 +445,9 @@ pub const GPU = struct {
         };
     }
 
-    // -------------------------
+    // =========================================================================
     // GP0 Memory Transfers
-    // -------------------------
+    // =========================================================================
 
     inline fn readVram(self: *@This(), x: u16, y: u16) u16 {
         const xx = @as(u32, x) & 0x3ff; // 0..1023
@@ -614,9 +614,9 @@ pub const GPU = struct {
         }
     }
 
-    // -------------------------
+    // =========================================================================
     // GP0 Rendering Commands
-    // -------------------------
+    // =========================================================================
 
     inline fn isLineTerminator(v: u32) bool {
         return v & 0xf000f000 == 0x50005000;
@@ -1036,9 +1036,9 @@ pub const GPU = struct {
         }
     }
 
-    // -------------------------
+    // =========================================================================
     // GP1 Commands
-    // -------------------------
+    // =========================================================================
 
     pub fn gp1write(self: *@This(), v: u32) void {
         const cmd = @as(u8, @truncate(v >> 24)) & 0x3f;
@@ -1046,40 +1046,40 @@ pub const GPU = struct {
 
         switch (cmd) {
             0x00 => {}, // self.reset(v),
-            0x01 => self.clearFifo(v),
+            0x01 => self.resetCommand(v),
             0x02 => self.interrupt_request = false,
-            0x03 => self.gp1_display_enable = (v & 1 != 0),
+            0x03 => self.gp1_display_enable = @enumFromInt(@as(u1, @truncate(v))),
             0x04 => self.gp1_dma_direction = @enumFromInt(@as(u2, @truncate(v))),
             0x05 => self.gp1_display_area_start = @bitCast(v),
             0x06 => self.gp1_display_range_x = @bitCast(v),
             0x07 => self.gp1_display_range_y = @bitCast(v),
             0x08 => self.gp1_display_mode = @bitCast(v),
-            0x10 => self.readRegister(v),
+            0x10 => self.registerToGpuread(v),
             else => std.debug.panic("unknown gp1 command: 0x{x}", .{cmd}),
         }
     }
 
-    fn clearFifo(self: *@This(), _: u32) void {
+    fn resetCommand(self: *@This(), _: u32) void {
         self.gp0_state = .recv_command;
         self.gp0_fifo.clear();
     }
 
-    fn readRegister(self: *@This(), v: u32) void {
-        const reg = @as(u8, @truncate(v));
-        self.gpuread = switch (reg) {
+    fn registerToGpuread(self: *@This(), v: u32) void {
+        const reg_id = @as(u8, @truncate(v));
+        self.gpuread = switch (reg_id) {
             0, 1, 6, 7 => self.gpuread, // noop (remains unchanged)
             2 => @bitCast(self.gp0_textwin),
             3 => @bitCast(self.gp0_draw_area_start),
             4 => @bitCast(self.gp0_draw_area_end),
             5 => @bitCast(self.gp0_draw_offset),
             8 => @bitCast(self.gp1_display_mode),
-            else => std.debug.panic("unknown gp1 read register: 0x{x}", .{reg}),
+            else => std.debug.panic("unknown gp1 read register: 0x{x}", .{reg_id}),
         };
     }
 
-    // -------------------------
+    // =========================================================================
     // GPU Timing
-    // -------------------------
+    // =========================================================================
 
     pub inline fn consumeEvents(self: *@This()) GPUEvents {
         const events = self.events;

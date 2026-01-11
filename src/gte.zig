@@ -386,8 +386,8 @@ pub const GTE = struct {
                 self.nccs(cmd, 2);
             },
             else => {
-                std.debug.panic("unhandled GTE command {x}", .{cmd.opcode});
-                // log.warn("unhandled GTE command {x}", .{cmd.opcode});
+                // std.debug.panic("unhandled GTE command {x}", .{cmd.opcode});
+                log.warn("unhandled GTE command {x}", .{cmd.opcode});
             },
         }
     }

@@ -340,7 +340,7 @@ pub const CDROM = struct {
 
         if (!req.want_data) {
             // self.sect_buf = null;
-            // self.sect_pos = 0;
+            self.sect_pos = 0;
         }
     }
 
@@ -369,14 +369,15 @@ pub const CDROM = struct {
             0x0a => commands.initCmd(self),
             0x0c => commands.demute(self),
             0x0e => commands.setMode(self),
+            0x11 => commands.getLocP(self),
             0x13 => commands.getTn(self),
             0x14 => commands.getTd(self),
             0x15 => commands.seekL(self),
             0x1a => commands.getId(self),
             0x19 => commands.testCmd(self),
             else => {
-                std.debug.panic("unhandled CDROM command: {x}", .{cmd});
-                // log.warn("unhandled CDROM command: {x}", .{cmd});
+                // std.debug.panic("unhandled CDROM command: {x}", .{cmd});
+                log.warn("unhandled CDROM command: {x}", .{cmd});
             },
         }
     }
@@ -709,6 +710,34 @@ const commands = opaque {
                     self.pushResultByte(decToBcd(track.start.minute));
                     self.pushResultByte(decToBcd(track.start.second));
                 }
+
+                self.setInterrupt(3);
+                self.resetCommand();
+            },
+            else => unreachable,
+        }
+    }
+
+    fn getLocP(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                log.debug("CDROM GETLOCP (stubbed)", .{});
+                self.pushResultByte(@bitCast(self.stat));
+
+                self.pushResultByte(decToBcd(1)); // track number
+                self.pushResultByte(decToBcd(1)); // track index
+
+                self.pushResultByte(decToBcd(0)); // track minute
+                self.pushResultByte(decToBcd(2)); // track second
+                self.pushResultByte(decToBcd(0)); // track sect
+
+                self.pushResultByte(decToBcd(0)); // absolute minute
+                self.pushResultByte(decToBcd(2)); // absolute second
+                self.pushResultByte(decToBcd(0)); // absolute sect
 
                 self.setInterrupt(3);
                 self.resetCommand();

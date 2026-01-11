@@ -167,6 +167,56 @@ pub const Instr = struct {
     }
 };
 
+// const DecodedInstr = struct {
+//     addr: u32,
+//     imm: u32,
+//     imm_s: i32,
+//     shift: u8,
+//     rs: u8,
+//     rt: u8,
+//     rd: u8,
+// };
+
+// const CachedInstr = struct {
+//     decoded: DecodedInstr,
+//     handler: fn (cpu: *CPU, instr: DecodedInstr) void,
+// };
+
+// const CacheBlock = struct {
+//     instrs: []CachedInstr,
+//     valid: bool = false,
+// };
+
+// const InstrCache = struct {
+//     allocator: std.mem.Allocator,
+//     blocks: std.AutoHashMapUnmanaged(u32, *CacheBlock),
+
+//     pub fn init(allocator: std.mem.Allocator) InstrCache {
+//         return InstrCache{
+//             .allocator = allocator,
+//             .blocks = .empty,
+//         };
+//     }
+
+//     pub fn deinit(self: *InstrCache) void {
+//         self.blocks.deinit(self.allocator);
+//     }
+
+//     fn jitBlock(self: *@This(), cpu: *CPU, bus: *mem.Bus) void {}
+
+//     pub fn execute(self: InstrCache, cpu: *CPU, pc: u32) u32 {
+//         const block = self.blocks.get(pc);
+
+//         if (block) |b| {
+//             if (block.valid) {
+//                 for (b.instrs) |instr| {
+//                     instr.handler(cpu, instr.decoded);
+//                 }
+//             }
+//         }
+//     }
+// };
+
 pub const Cop0 = struct {
     const reg_write_mask = [16]u32{
         0x00000000,
@@ -297,6 +347,7 @@ pub const CPU = struct {
     next_pc: u32,
     gpr: [32]u32,
     cop0: Cop0,
+    // cache: InstrCache,
     instr: Instr,
     instr_addr: u32,
     delay_load: LoadSlot,
@@ -316,6 +367,7 @@ pub const CPU = struct {
             .gte = .init(),
             .allocator = allocator,
             .instr = Instr{ .code = 0 },
+            // .cache = .init(allocator),
             .instr_addr = 0,
             .gpr = undefined,
             .cop0 = undefined,
@@ -340,8 +392,7 @@ pub const CPU = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        const allocator = self.allocator;
-        allocator.destroy(self);
+        self.allocator.destroy(self);
     }
 
     pub fn reset(self: *@This()) void {
@@ -580,9 +631,9 @@ pub const CPU = struct {
         self.mem.write(T, addr, v);
     }
 
-    // --------------------------------------
+    // =========================================================================
     // Coprocessor instructions
-    // --------------------------------------
+    // =========================================================================
 
     fn lwc2(self: *@This(), instr: Instr) void {
         const base = self.gpr[instr.rs()];
@@ -638,9 +689,9 @@ pub const CPU = struct {
         self.gte.exec(instr.code);
     }
 
-    // --------------------------------------
+    // =========================================================================
     // Instructions
-    // --------------------------------------
+    // =========================================================================
 
     fn lui(self: *@This(), instr: Instr) void {
         self.writeGpr(instr.rt(), instr.imm() << 16);

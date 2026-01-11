@@ -242,6 +242,11 @@ pub const UI = struct {
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
+        if (self.gpu.gp1_display_enable != .on) {
+            self.window.swapBuffers();
+            return;
+        }
+
         // Upload full VRAM texture (1024x512)
         gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);

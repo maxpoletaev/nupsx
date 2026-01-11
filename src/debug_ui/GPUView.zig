@@ -49,7 +49,7 @@ pub fn update(self: *@This()) void {
         // Display Area
         if (zgui.collapsingHeader("Display Area", .{ .default_open = true })) {
             const display_res = self.gpu.getDisplayRes();
-            zgui.text("Display Enabled: {s}", .{if (self.gpu.gp1_display_enable) "yes" else "no"});
+            zgui.text("Display Enabled: {s}", .{@tagName(self.gpu.gp1_display_enable)});
             zgui.text("Start: ({d}, {d})", .{ self.gpu.gp1_display_area_start.x, self.gpu.gp1_display_area_start.y });
             zgui.text("Resolution: {d}x{d}", .{ display_res[0], display_res[1] });
         }
