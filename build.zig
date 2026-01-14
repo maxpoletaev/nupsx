@@ -4,41 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // const imgui_lib = b.addLibrary(.{
-    //     .name = "imgui",
-    //     .linkage = .static,
-    //     .root_module = b.createModule(.{
-    //         .target = target,
-    //         .optimize = optimize,
-    //     }),
-    // });
-    // imgui_lib.addCSourceFiles(.{
-    //     .root = b.path("deps/cimgui"),
-    //     .files = &[_][]const u8{
-    //         "cimgui.cpp",
-    //         "imgui/imgui.cpp",
-    //         "imgui/imgui_demo.cpp",
-    //         "imgui/imgui_draw.cpp",
-    //         "imgui/imgui_widgets.cpp",
-    //         "imgui/imgui_tables.cpp",
-    //         "imgui/backends/imgui_impl_sdl3.cpp",
-    //         "imgui/backends/imgui_impl_opengl3.cpp",
-    //     },
-    //     .flags = &[_][]const u8{
-    //         "--std=c++20",
-    //         "-fno-rtti",
-    //         "-fno-exceptions",
-    //         "-DIMGUI_IMPL_API=extern \"C\"",
-    //         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS",
-    //     },
-    // });
-    // imgui_lib.linkLibC();
-    // imgui_lib.linkLibCpp();
-    // imgui_lib.linkFramework("OpenGL");
-    // imgui_lib.linkSystemLibrary("SDL3");
-    // imgui_lib.addIncludePath(b.path("deps/cimgui"));
-    // imgui_lib.addIncludePath(b.path("deps/cimgui/imgui"));
-
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -49,12 +14,6 @@ pub fn build(b: *std.Build) void {
         .name = "nupsx",
         .root_module = exe_mod,
     });
-    // exe.linkLibC();
-    // exe.linkLibCpp();
-    // exe.linkFramework("OpenGL");
-    // exe.linkSystemLibrary("SDL3");
-    // exe.linkLibrary(imgui_lib);
-    // exe.addIncludePath(b.path("deps/cimgui"));
     b.installArtifact(exe);
 
     // zig-gamedev
@@ -77,6 +36,12 @@ pub fn build(b: *std.Build) void {
         });
         exe.root_module.addImport("zgui", zgui.module("root"));
         exe.linkLibrary(zgui.artifact("imgui"));
+
+        const zaudio = b.dependency("zaudio", .{
+            .target = target,
+        });
+        exe.root_module.addImport("zaudio", zaudio.module("root"));
+        exe.linkLibrary(zaudio.artifact("miniaudio"));
     }
 
     const run_cmd = b.addRunArtifact(exe);

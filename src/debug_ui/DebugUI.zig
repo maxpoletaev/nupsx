@@ -4,6 +4,7 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
 const mem = @import("../mem.zig");
+const joy_mod = @import("../joy.zig");
 const cpu_mod = @import("../cpu.zig");
 const Disasm = @import("../Disasm.zig");
 
@@ -147,12 +148,38 @@ pub fn update(self: *@This()) void {
     self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
 }
 
+const KeyMapping = struct { glfw.Key, joy_mod.ButtonId };
+const key_mappings = [_]KeyMapping{
+    .{ glfw.Key.w, .up },
+    .{ glfw.Key.a, .left },
+    .{ glfw.Key.s, .down },
+    .{ glfw.Key.d, .right },
+
+    .{ glfw.Key.k, .cross },
+    .{ glfw.Key.l, .circle },
+    .{ glfw.Key.j, .square },
+    .{ glfw.Key.i, .triangle },
+
+    .{ glfw.Key.e, .l1 },
+    .{ glfw.Key.q, .l2 },
+    .{ glfw.Key.u, .r1 },
+    .{ glfw.Key.o, .r2 },
+
+    .{ glfw.Key.enter, .start },
+    .{ glfw.Key.right_shift, .select },
+};
+
 inline fn handleInput(self: *@This()) void {
     if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
         glfw.setWindowShouldClose(self.window, true);
     }
     if (self.window.shouldClose()) {
         self.is_running = false;
+    }
+    inline for (key_mappings) |mapping| {
+        const key_state = glfw.getKey(self.window, mapping[0]);
+        const pressed = key_state == .press or key_state == .repeat;
+        self.bus.dev.joy.setButtonState(mapping[1], pressed);
     }
 }
 

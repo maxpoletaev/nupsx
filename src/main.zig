@@ -1,4 +1,5 @@
 const std = @import("std");
+const zaudio = @import("zaudio");
 
 const args_mod = @import("args.zig");
 const mem_mod = @import("mem.zig");
@@ -32,11 +33,11 @@ const Joypad = joy_mod.Joypad;
 pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .spu, .level = .debug },
+        // .{ .scope = .spu, .level = .debug },
         .{ .scope = .cdrom, .level = .debug },
-        // .{ .scope = .cue, .level = .debug },
-        .{ .scope = .mem, .level = .debug },
-        .{ .scope = .timer, .level = .debug },
+        .{ .scope = .cue, .level = .debug },
+        // .{ .scope = .mem, .level = .debug },
+        // .{ .scope = .timer, .level = .debug },
         // .{ .scope = .gte, .level = .debug },
         // .{ .scope = .gpu, .level = .debug },
         // .{ .scope = .dma, .level = .debug },
@@ -61,6 +62,67 @@ fn printLogo() void {
     _ = writer.interface.write(logo_text) catch 0;
     writer.interface.flush() catch {};
 }
+
+const Audio = struct {
+    allocator: std.mem.Allocator,
+    device: *zaudio.Device,
+    bus: *Bus,
+
+    pub fn init(allocator: std.mem.Allocator, bus: *Bus) *@This() {
+        zaudio.init(allocator);
+
+        const self = allocator.create(Audio) catch unreachable;
+
+        var config = zaudio.Device.Config.init(.playback);
+        config.playback.format = .signed16;
+        config.playback.channels = 2;
+        config.data_callback = callback;
+        config.sample_rate = 44100;
+        config.user_data = self;
+
+        var device = zaudio.Device.create(null, config) catch |err| {
+            std.debug.panic("failed to create audio device: {}", .{err});
+        };
+
+        device.start() catch |err| {
+            std.debug.panic("failed to start audio device: {}", .{err});
+        };
+
+        self.* = .{
+            .allocator = allocator,
+            .device = device,
+            .bus = bus,
+        };
+
+        return self;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.device.stop() catch {};
+        self.device.destroy();
+        self.allocator.destroy(self);
+        zaudio.deinit();
+    }
+
+    fn callback(
+        device: *zaudio.Device,
+        output: ?*anyopaque,
+        input: ?*const anyopaque,
+        frame_count: u32,
+    ) callconv(.c) void {
+        _ = input;
+
+        const self: *@This() = @ptrCast(@alignCast(device.getUserData()));
+        const buf: [*]i16 = @ptrCast(@alignCast(output.?));
+
+        // _ = self;
+        // _ = frame_count;
+        // _ = buf;
+
+        // std.log.info("audio callback: {} frames", .{frame_count});
+        self.bus.dev.cdrom.consumeAudioBuffer(buf[0 .. frame_count * 2]);
+    }
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -142,6 +204,9 @@ pub fn main() !void {
         .scratchpad = scratchpad,
     });
 
+    const audio = Audio.init(allocator, bus);
+    defer audio.deinit();
+
     // const stdin = std.fs.File.stdin();
     // var stdin_buf: [1]u8 = undefined;
 
@@ -168,6 +233,12 @@ pub fn main() !void {
                 }
 
                 bus.tick();
+
+                if (bus.breakpoint) {
+                    std.log.info("breakpoint hit at PC={x}", .{cpu.pc});
+                    debug_ui.cpu_view.paused = true;
+                    bus.breakpoint = false;
+                }
 
                 // if (cpu.next_pc == 0x8004e740) {
                 //     debug_ui.cpu_view.paused = true;

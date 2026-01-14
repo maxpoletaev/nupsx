@@ -20,6 +20,10 @@
             .url = "git+https://github.com/zig-gamedev/zmath#3a5955b2b72cd081563fbb084eff05bffd1e3fbb",
             .hash = "zmath-0.11.0-dev-wjwivdMsAwD-xaLj76YHUq3t9JDH-X16xuMTmnDzqbu2",
         },
+        .zaudio = .{
+            .url = "git+https://github.com/zig-gamedev/zaudio#bb93ad665b89e302d4515a36b44cb8e73eaf6766",
+            .hash = "zaudio-0.11.0-dev-_M-91kHvPwAlW8MCRI4XiTbTeihqB8Zspgiuw-6Gqgdz",
+        },
     },
     .paths = .{
         "build.zig",

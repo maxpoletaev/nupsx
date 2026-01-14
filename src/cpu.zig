@@ -360,6 +360,8 @@ pub const CPU = struct {
     lo: u32,
     hi: u32,
 
+    gte_command_count: [0xff]u64,
+
     pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
@@ -382,6 +384,7 @@ pub const CPU = struct {
             .cycles = 0,
             .lo = 0,
             .hi = 0,
+            .gte_command_count = std.mem.zeroes([0xff]u64),
         };
 
         @memset(&self.gpr, 0);
@@ -392,6 +395,11 @@ pub const CPU = struct {
     }
 
     pub fn deinit(self: *@This()) void {
+        for (0.., self.gte_command_count) |cmd, count| {
+            if (count == 0) continue;
+            log.info("GTE command {x} = {d}", .{ cmd, count });
+        }
+
         self.allocator.destroy(self);
     }
 
@@ -686,6 +694,7 @@ pub const CPU = struct {
     }
 
     fn cop2cmd(self: *@This(), instr: Instr) void {
+        self.gte_command_count[bits.field(instr.code, 0, u6)] += 1;
         self.gte.exec(instr.code);
     }
 

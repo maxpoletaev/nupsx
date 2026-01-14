@@ -48,7 +48,7 @@ pub fn update(self: *@This()) void {
         if (zgui.collapsingHeader("Mode Register", .{ .default_open = true })) {
             zgui.text("CDDA: {s}", .{if (self.cdrom.mode.cdda) "on" else "off"});
             zgui.text("Auto Pause: {s}", .{if (self.cdrom.mode.auto_pause) "on" else "off"});
-            zgui.text("Report: {s}", .{if (self.cdrom.mode.report) "on" else "off"});
+            zgui.text("Report: {s}", .{if (self.cdrom.mode.play_report) "on" else "off"});
             zgui.text("Ignore Bit: {s}", .{if (self.cdrom.mode.ignore_bit) "on" else "off"});
             zgui.text("XA Filter: {s}", .{if (self.cdrom.mode.xa_filter) "on" else "off"});
             zgui.text("Sector Size: {s}", .{@tagName(self.cdrom.mode.sector_size)});

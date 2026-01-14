@@ -165,7 +165,7 @@ pub const Bus = struct {
     irq_mask: u32 = 0,
     irq_stat: u32 = 0,
 
-    last_tmr2_cycle: u64 = 0,
+    breakpoint: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
@@ -222,6 +222,7 @@ pub const Bus = struct {
 
         const cdrom_events = self.dev.cdrom.consumeEvents();
         if (cdrom_events.interrupt) self.setInterrupt(Interrupt.cdrom);
+        if (cdrom_events.breakpoint) self.breakpoint = true;
 
         const dma_irq = self.dev.dma.consumeIrq();
         if (dma_irq) self.setInterrupt(Interrupt.dma);

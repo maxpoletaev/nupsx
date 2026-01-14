@@ -2,13 +2,23 @@ const std = @import("std");
 
 const log = std.log.scoped(.cue);
 
-const cue_sector_size = 2352;
-
 pub const CueError = error{
     InvalidFormat,
-    MissingDataTrack,
     UnknownMode,
+    UnknownFileType,
     UnexpectedEof,
+};
+
+pub const Position = struct {
+    minute: u8,
+    second: u8,
+    frame: u8,
+
+    pub fn toSectors(self: Position) u32 {
+        return @as(u32, self.minute) * 60 * 75 +
+            @as(u32, self.second) * 75 +
+            @as(u32, self.frame);
+    }
 };
 
 pub const TrackMode = enum {
@@ -18,81 +28,39 @@ pub const TrackMode = enum {
     audio,
 };
 
-pub const Position = struct {
-    minute: u8 = 0,
-    second: u8 = 0,
-    frame: u8 = 0,
-
-    pub fn fromSectors(sectors: u32) Position {
-        const mm: u8 = @intCast(sectors / (60 * 75));
-        const ss: u8 = @intCast((sectors / 75) % 60);
-        const ff: u8 = @intCast(sectors % 75);
-        return Position{
-            .minute = mm,
-            .second = ss,
-            .frame = ff,
-        };
-    }
-
-    pub fn toSectors(self: Position) u32 {
-        return @as(u32, self.minute) * 60 * 75 +
-            @as(u32, self.second) * 75 +
-            @as(u32, self.frame);
-    }
+pub const FileType = enum {
+    binary,
+    wave,
+    mp3,
+    aiff,
 };
 
-pub const CueTrack = struct {
+pub const IndexNode = struct {
+    number: u8,
+    position: Position,
+};
+
+pub const TrackNode = struct {
     number: u8,
     mode: TrackMode,
-    start: Position,
+    indices: []IndexNode,
 };
 
-pub const CueFile = struct {
-    path: []const u8,
-    tracks: []CueTrack,
-    size_bytes: u64,
-    sector_count: u64,
+pub const FileNode = struct {
+    filename: []const u8,
+    file_type: FileType,
+    tracks: []TrackNode,
 };
 
 pub const CueSheet = struct {
-    files: []CueFile,
-    end_sector: u32,
-
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        for (self.files) |*file| {
-            allocator.free(file.path);
-            allocator.free(file.tracks);
-        }
-        allocator.free(self.files);
-    }
-
-    pub fn getTrackById(self: *@This(), track_number: u8) ?CueTrack {
-        for (self.files) |file| {
-            for (file.tracks) |track| {
-                if (track.number == track_number) {
-                    return track;
-                }
-            }
-        }
-        return null;
-    }
+    files: []FileNode,
 };
 
-pub fn parse(
-    allocator: std.mem.Allocator,
-    cue_path: []const u8,
-) !CueSheet {
-    const file = try std.fs.cwd().openFile(cue_path, .{});
-    defer file.close();
-
-    var rbuf: [4096]u8 = undefined;
-    var reader = file.reader(&rbuf);
-    const content = try reader.interface.allocRemaining(allocator, .unlimited);
-    defer allocator.free(content);
-
-    const cue_root = std.fs.path.dirname(cue_path) orelse ".";
-    var parser = Parser.init(allocator, cue_root, content);
+pub fn parse(allocator: std.mem.Allocator, content: []const u8) !CueSheet {
+    var parser = Parser.init(allocator, content);
     defer parser.deinit();
+
+    parser.skipBom();
 
     while (!parser.eof()) {
         parser.skipWhitespace();
@@ -112,6 +80,29 @@ pub fn parse(
     return parser.finish();
 }
 
+pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8) !CueSheet {
+    const file = try std.fs.cwd().openFile(cue_path, .{});
+    defer file.close();
+
+    var buf: [4096]u8 = undefined;
+    var reader = file.reader(&buf);
+    const content = try reader.interface.allocRemaining(allocator, .unlimited);
+    defer allocator.free(content);
+
+    return parse(allocator, content);
+}
+
+pub fn free(allocator: std.mem.Allocator, sheet: *CueSheet) void {
+    for (sheet.files) |*file| {
+        allocator.free(file.filename);
+        for (file.tracks) |*track| {
+            allocator.free(track.indices);
+        }
+        allocator.free(file.tracks);
+    }
+    allocator.free(sheet.files);
+}
+
 const Keyword = enum {
     file,
     track,
@@ -125,42 +116,39 @@ const Keyword = enum {
 
 const Parser = struct {
     allocator: std.mem.Allocator,
-    cue_root: []const u8,
     content: []const u8,
-    dir: std.fs.Dir,
     pos: usize = 0,
 
-    active_file: ?CueFile = null,
-    pending_files: std.array_list.Aligned(CueFile, null) = .empty,
-    pending_tracks: std.array_list.Aligned(CueTrack, null) = .empty,
-    current_sector: u32 = 0,
+    files: std.ArrayListUnmanaged(FileNode) = .{},
+    tracks: std.ArrayListUnmanaged(TrackNode) = .{},
+    indices: std.ArrayListUnmanaged(IndexNode) = .{},
+
+    tmp: struct {
+        file_name: ?[]const u8 = null,
+        file_type: ?FileType = null,
+        track_number: ?u8 = null,
+        track_mode: ?TrackMode = null,
+    } = .{},
 
     fn deinit(self: *@This()) void {
-        if (self.active_file) |*file| {
-            self.allocator.free(file.path);
-            self.allocator.free(file.tracks);
+        for (self.files.items) |*file| {
+            self.allocator.free(file.filename);
+            for (file.tracks) |*track| {
+                self.allocator.free(track.indices);
+            }
         }
-        for (self.pending_files.items) |*file| {
-            self.allocator.free(file.path);
-            self.allocator.free(file.tracks);
+
+        for (self.tracks.items) |*track| {
+            self.allocator.free(track.indices);
         }
-        self.pending_files.deinit(self.allocator);
-        self.pending_tracks.deinit(self.allocator);
+
+        self.indices.deinit(self.allocator);
     }
 
-    fn init(
-        allocator: std.mem.Allocator,
-        cue_root: []const u8,
-        content: []const u8,
-    ) Parser {
-        const dir = std.fs.cwd().openDir(cue_root, .{}) catch |err| {
-            std.debug.panic("failed to open cue root dir: {}", .{err});
-        };
+    fn init(allocator: std.mem.Allocator, content: []const u8) Parser {
         return .{
             .allocator = allocator,
-            .cue_root = cue_root,
             .content = content,
-            .dir = dir,
         };
     }
 
@@ -187,6 +175,17 @@ const Parser = struct {
         }
     }
 
+    fn skipBom(self: *@This()) void {
+        const bom: [3]u8 = .{ 0xEF, 0xBB, 0xBF };
+        for (bom) |b| {
+            if (self.peek() == b) {
+                _ = self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
     fn skipLine(self: *@This()) void {
         while (self.peek()) |c| {
             _ = self.advance();
@@ -194,19 +193,17 @@ const Parser = struct {
         }
     }
 
-    fn parseKeyword(self: *@This()) !Keyword {
-        var buf: [32]u8 = undefined;
-        var len: usize = 0;
-
+    fn parseWord(self: *@This()) []const u8 {
+        const start = self.pos;
         while (self.peek()) |c| {
             if (!std.ascii.isAlphabetic(c) and c != '/' and !std.ascii.isDigit(c)) break;
-            if (len >= buf.len) return CueError.InvalidFormat;
-            buf[len] = c;
-            len += 1;
             _ = self.advance();
         }
+        return self.content[start..self.pos];
+    }
 
-        const word = buf[0..len];
+    fn parseKeyword(self: *@This()) !Keyword {
+        const word = self.parseWord();
         if (std.mem.eql(u8, word, "FILE")) return .file;
         if (std.mem.eql(u8, word, "TRACK")) return .track;
         if (std.mem.eql(u8, word, "INDEX")) return .index;
@@ -259,18 +256,7 @@ const Parser = struct {
     fn parseMode(self: *@This()) !TrackMode {
         self.skipWhitespace();
 
-        var buf: [16]u8 = undefined;
-        var len: usize = 0;
-
-        while (self.peek()) |c| {
-            if (!std.ascii.isAlphabetic(c) and c != '/' and !std.ascii.isDigit(c)) break;
-            if (len >= buf.len) return CueError.InvalidFormat;
-            buf[len] = c;
-            len += 1;
-            _ = self.advance();
-        }
-
-        const mode = buf[0..len];
+        const mode = self.parseWord();
         if (std.mem.eql(u8, mode, "MODE1/2352")) return .mode1_2352;
         if (std.mem.eql(u8, mode, "MODE2/2352")) return .mode2_2352;
         if (std.mem.eql(u8, mode, "MODE2/2336")) return .mode2_2336;
@@ -279,134 +265,201 @@ const Parser = struct {
         return CueError.UnknownMode;
     }
 
+    fn parseFileType(self: *@This()) !FileType {
+        self.skipWhitespace();
+
+        const file_type = self.parseWord();
+        if (std.mem.eql(u8, file_type, "BINARY")) return .binary;
+        if (std.mem.eql(u8, file_type, "WAVE")) return .wave;
+        if (std.mem.eql(u8, file_type, "MP3")) return .mp3;
+        if (std.mem.eql(u8, file_type, "AIFF")) return .aiff;
+
+        return CueError.UnknownFileType;
+    }
+
     fn parsePosition(self: *@This()) !Position {
         self.skipWhitespace();
 
-        var parts: [3]u8 = undefined;
-        var parts_len: usize = 0;
-        var buf: [2]u8 = undefined;
-        var buf_len: usize = 0;
-
+        const start = self.pos;
         while (self.peek()) |c| {
             if (std.ascii.isWhitespace(c)) break;
-            if (!std.ascii.isDigit(c) and c != ':') return CueError.InvalidFormat;
-
-            if (c == ':') {
-                if (buf_len == 0) return CueError.InvalidFormat;
-                const part = try std.fmt.parseInt(u8, buf[0..buf_len], 10);
-                parts[parts_len] = part;
-                parts_len += 1;
-                buf_len = 0;
-                _ = self.advance();
-                continue;
-            }
-
-            if (buf_len >= buf.len) return CueError.InvalidFormat;
-            buf[buf_len] = c;
-            buf_len += 1;
             _ = self.advance();
         }
 
-        const part = try std.fmt.parseInt(u8, buf[0..buf_len], 10);
-        parts[parts_len] = part;
+        const str = self.content[start..self.pos];
+        var iter = std.mem.splitScalar(u8, str, ':');
+
+        const minute = try std.fmt.parseInt(u8, iter.next() orelse return CueError.InvalidFormat, 10);
+        const second = try std.fmt.parseInt(u8, iter.next() orelse return CueError.InvalidFormat, 10);
+        const frame = try std.fmt.parseInt(u8, iter.next() orelse return CueError.InvalidFormat, 10);
+
+        if (iter.next() != null) return CueError.InvalidFormat; // Too many parts
 
         return Position{
-            .minute = parts[0],
-            .second = parts[1],
-            .frame = parts[2],
+            .minute = minute,
+            .second = second,
+            .frame = frame,
         };
     }
 
     fn handleFile(self: *@This()) !void {
-        if (self.active_file) |*file| {
-            file.tracks = try self.pending_tracks.toOwnedSlice(self.allocator);
-            try self.pending_files.append(self.allocator, file.*);
-            self.pending_tracks.clearRetainingCapacity();
-
-            self.current_sector += @intCast(file.sector_count);
-            self.active_file = null;
-        }
+        self.finalizeTrack();
+        self.finalizeFile();
 
         const filename = try self.parseQuotedString();
-        const full_path = try std.fs.path.join(self.allocator, &[_][]const u8{
-            self.cue_root,
-            filename,
-        });
-        errdefer self.allocator.free(full_path);
+        const path = self.allocator.dupe(u8, filename) catch @panic("OOM");
 
-        const file = try self.dir.statFile(filename);
-        log.debug("found FILE: {s} ({d} bytes)", .{ filename, file.size });
+        const file_type = try self.parseFileType();
 
-        self.active_file = CueFile{
-            .path = full_path,
-            .tracks = &[_]CueTrack{},
-            .size_bytes = file.size,
-            .sector_count = file.size / cue_sector_size,
-        };
+        log.debug("found FILE: {s} type={s}", .{ filename, @tagName(file_type) });
 
-        self.skipLine(); // Skip file type (BINARY, WAVE, etc.)
+        self.tmp.file_name = path;
+        self.tmp.file_type = file_type;
+
+        self.skipLine();
     }
 
     fn handleTrack(self: *@This()) !void {
-        if (self.active_file == null) {
+        if (self.tmp.file_name == null) {
             log.err("TRACK found before FILE", .{});
             return CueError.InvalidFormat;
         }
+
+        self.finalizeTrack();
 
         const track_num = try self.parseNumber();
         const mode = try self.parseMode();
 
         log.debug("found TRACK: number={d}, mode={s}", .{ track_num, @tagName(mode) });
 
-        const track = CueTrack{
-            .number = track_num,
-            .mode = mode,
-            .start = .{},
-        };
-
-        try self.pending_tracks.append(self.allocator, track);
+        self.tmp.track_number = track_num;
+        self.tmp.track_mode = mode;
 
         self.skipLine();
     }
 
     fn handleIndex(self: *@This()) !void {
+        if (self.tmp.file_name == null) {
+            log.err("INDEX found before FILE", .{});
+            return CueError.InvalidFormat;
+        }
+
+        if (self.tmp.track_number == null) {
+            log.err("INDEX found before TRACK", .{});
+            return CueError.InvalidFormat;
+        }
+
         const index_num = try self.parseNumber();
         const pos = try self.parsePosition();
 
-        if (index_num == 1) {
-            if (self.pending_tracks.items.len == 0) {
-                log.err("INDEX found before TRACK", .{});
-                return CueError.InvalidFormat;
-            }
+        log.debug(
+            "found INDEX: number={d}, position={d:0>2}:{d:0>2}:{d:0>2}",
+            .{ index_num, pos.minute, pos.second, pos.frame },
+        );
 
-            const absolute_sectors = self.current_sector + pos.toSectors();
-            const start = Position.fromSectors(absolute_sectors);
+        const index = IndexNode{
+            .number = index_num,
+            .position = pos,
+        };
 
-            const track_idx = self.pending_tracks.items.len - 1;
-            self.pending_tracks.items[track_idx].start = start;
-
-            log.debug(
-                "found INDEX: number={d}, file_pos={d:0>2}:{d:0>2}:{d:0>2}, absolute_lba={d}, start={d:0>2}:{d:0>2}:{d:0>2}",
-                .{ index_num, pos.minute, pos.second, pos.frame, absolute_sectors, start.minute, start.second, start.frame },
-            );
-        }
+        try self.indices.append(self.allocator, index);
 
         self.skipLine();
     }
 
-    fn finish(self: *@This()) !CueSheet {
-        if (self.active_file) |*file| {
-            file.tracks = try self.pending_tracks.toOwnedSlice(self.allocator);
-            try self.pending_files.append(self.allocator, file.*);
-            self.active_file = null;
+    fn finalizeTrack(self: *@This()) void {
+        if (self.tmp.track_number) |track_num| {
+            const track = TrackNode{
+                .number = track_num,
+                .mode = self.tmp.track_mode.?,
+                .indices = self.indices.toOwnedSlice(self.allocator) catch @panic("OOM"),
+            };
+            self.tracks.append(self.allocator, track) catch @panic("OOM");
+            self.tmp.track_number = null;
+            self.tmp.track_mode = null;
         }
+    }
 
-        const files = try self.pending_files.toOwnedSlice(self.allocator);
-        self.pending_files.clearRetainingCapacity();
+    fn finalizeFile(self: *@This()) void {
+        if (self.tmp.file_name) |path| {
+            const file = FileNode{
+                .filename = path,
+                .file_type = self.tmp.file_type.?,
+                .tracks = self.tracks.toOwnedSlice(self.allocator) catch @panic("OOM"),
+            };
+            self.files.append(self.allocator, file) catch @panic("OOM");
+            self.tmp.file_name = null;
+            self.tmp.file_type = null;
+        }
+    }
+
+    fn finish(self: *@This()) CueSheet {
+        self.finalizeTrack();
+        self.finalizeFile();
 
         return CueSheet{
-            .files = files,
-            .end_sector = self.current_sector,
+            .files = self.files.toOwnedSlice(self.allocator) catch @panic("OOM"),
         };
     }
 };
+
+test "parse multi-track multi-file CUE" {
+    const content =
+        \\REM Generated by some tool
+        \\FILE "track01.bin" BINARY
+        \\  TRACK 01 MODE1/2352
+        \\    INDEX 00 00:00:00
+        \\    INDEX 01 00:02:00
+        \\  TRACK 02 MODE2/2352
+        \\    PREGAP 00:02:00
+        \\    INDEX 01 05:30:45
+        \\FILE "track03.bin" BINARY
+        \\  TRACK 03 AUDIO
+        \\    FLAGS DCP
+        \\    INDEX 00 00:00:00
+        \\    INDEX 01 00:02:33
+        \\FILE "track04.wav" WAVE
+        \\  TRACK 04 AUDIO
+        \\    INDEX 01 00:00:00
+        \\REM End of cue sheet
+    ;
+
+    var sheet = try parse(std.testing.allocator, content);
+    defer free(std.testing.allocator, &sheet);
+
+    try std.testing.expectEqual(@as(usize, 3), sheet.files.len);
+
+    try std.testing.expectEqualStrings("track01.bin", sheet.files[0].filename);
+    try std.testing.expectEqual(FileType.binary, sheet.files[0].file_type);
+    try std.testing.expectEqual(@as(usize, 2), sheet.files[0].tracks.len);
+
+    const track1 = sheet.files[0].tracks[0];
+    try std.testing.expectEqual(@as(u8, 1), track1.number);
+    try std.testing.expectEqual(TrackMode.mode1_2352, track1.mode);
+    try std.testing.expectEqual(@as(usize, 2), track1.indices.len);
+    try std.testing.expectEqual(@as(u8, 0), track1.indices[0].number);
+    try std.testing.expectEqual(@as(u8, 1), track1.indices[1].number);
+    try std.testing.expectEqual(@as(u8, 0), track1.indices[1].position.minute);
+    try std.testing.expectEqual(@as(u8, 2), track1.indices[1].position.second);
+    try std.testing.expectEqual(@as(u8, 0), track1.indices[1].position.frame);
+
+    const track2 = sheet.files[0].tracks[1];
+    try std.testing.expectEqual(@as(u8, 2), track2.number);
+    try std.testing.expectEqual(TrackMode.mode2_2352, track2.mode);
+    try std.testing.expectEqual(@as(usize, 1), track2.indices.len);
+    try std.testing.expectEqual(@as(u8, 5), track2.indices[0].position.minute);
+    try std.testing.expectEqual(@as(u8, 30), track2.indices[0].position.second);
+    try std.testing.expectEqual(@as(u8, 45), track2.indices[0].position.frame);
+
+    try std.testing.expectEqualStrings("track03.bin", sheet.files[1].filename);
+    try std.testing.expectEqual(FileType.binary, sheet.files[1].file_type);
+    try std.testing.expectEqual(@as(usize, 1), sheet.files[1].tracks.len);
+
+    const track3 = sheet.files[1].tracks[0];
+    try std.testing.expectEqual(@as(u8, 3), track3.number);
+    try std.testing.expectEqual(TrackMode.audio, track3.mode);
+    try std.testing.expectEqual(@as(usize, 2), track3.indices.len);
+
+    try std.testing.expectEqualStrings("track04.wav", sheet.files[2].filename);
+    try std.testing.expectEqual(FileType.wave, sheet.files[2].file_type);
+}

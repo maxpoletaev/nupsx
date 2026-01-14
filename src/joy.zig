@@ -5,7 +5,7 @@ const fifo = @import("fifo.zig");
 const log = std.log.scoped(.joy);
 
 const joy_id_digital = [2]u8{ 0x5a, 0x41 };
-const joy_irq_delay_cycles: u32 = 1088;
+const joy_irq_delay_cycles: u32 = 544;
 
 const ModeReg = packed struct(u16) {
     baudrate_factor: enum(u2) { mul1 = 0, mul16 = 1, mul64 = 2 } = .mul1, // 0-1
@@ -101,8 +101,8 @@ pub const Joypad = struct {
             .mode = .{},
             .stat = .{},
             .ctrl = .{},
-            .tx_data = .init(),
-            .rx_data = .init(),
+            .tx_data = .empty,
+            .rx_data = .empty,
         };
         return self;
     }
@@ -130,6 +130,7 @@ pub const Joypad = struct {
     fn writeControlReg(self: *@This(), v: u16) void {
         const ctrl = @as(CotrolReg, @bitCast(v));
         if (ctrl.clear_irq) {
+            log.debug("IRQ acknowledged", .{});
             self.stat.rx_parity_err = false;
             self.stat.irq_pending = false;
         }
@@ -202,6 +203,8 @@ pub const Joypad = struct {
             .swhi => .{ swhi, .idle },
         };
 
+        log.debug("IN:{x} OUT:{x}", .{ tx_byte, rx_byte });
+
         self.rx_data.push(rx_byte);
 
         self.stat.rx_fifo_not_empty = true;
@@ -213,6 +216,9 @@ pub const Joypad = struct {
         if (self.ctrl.ack_irq_enable and !last_byte) {
             self.irq_delay = joy_irq_delay_cycles;
             self.stat.ack_signal_level = .high;
+            log.debug("IRQ requested (delay={d})", .{self.irq_delay});
+        } else {
+            log.debug("communication ended", .{});
         }
     }
 

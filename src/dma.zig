@@ -44,14 +44,6 @@ const Channel = struct {
     maddr: u32,
     ctrl: ChanCtrl,
     block: BlockCtrl,
-
-    pub fn init() Channel {
-        return .{
-            .maddr = 0,
-            .ctrl = std.mem.zeroes(ChanCtrl),
-            .block = std.mem.zeroes(BlockCtrl),
-        };
-    }
 };
 
 const IntterruptReg = packed struct(u32) {
@@ -116,16 +108,8 @@ pub const DMA = struct {
             .bus = bus,
             .dpcr = @bitCast(@as(u32, 0x07654321)),
             .dicr = std.mem.zeroes(IntterruptReg),
+            .channels = std.mem.zeroes([7]Channel),
             .irq_pending = false,
-            .channels = [_]Channel{
-                Channel.init(),
-                Channel.init(),
-                Channel.init(),
-                Channel.init(),
-                Channel.init(),
-                Channel.init(),
-                Channel.init(),
-            },
         };
 
         return self;
@@ -251,7 +235,7 @@ pub const DMA = struct {
     fn doGpuSyncModeSlice(self: *@This()) void {
         const chan = &self.channels[ChanId.gpu];
 
-        const transfer_len = chan.block.size * chan.block.count;
+        const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
 
         log.debug("DMA GPU transfer slice, size={x}", .{transfer_len});
 
@@ -335,7 +319,7 @@ pub const DMA = struct {
             .decr => @as(i32, -4),
         }));
 
-        const transfer_len = chan.block.size * chan.block.count;
+        const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
 
         log.debug("DMA CDROM transfer, size={x}", .{transfer_len});
 

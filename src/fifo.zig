@@ -4,14 +4,17 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
     return struct {
         const Self = @This();
 
-        buf: [capacity]T = undefined,
-        head: usize = 0,
-        tail: usize = 0,
-        len: usize = 0,
+        pub const empty: Self = .{
+            .buf = undefined,
+            .head = 0,
+            .tail = 0,
+            .len = 0,
+        };
 
-        pub fn init() Self {
-            return Self{};
-        }
+        buf: [capacity]T,
+        head: usize,
+        tail: usize,
+        len: usize,
 
         pub fn isEmpty(self: *@This()) bool {
             return self.len == 0;
