@@ -302,7 +302,28 @@ pub const DMA = struct {
 
         if (!chan.ctrl.isActive()) return;
 
-        log.warn("DMA SPU not implemented", .{});
+        const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
+            .incr => @as(i32, 4),
+            .decr => @as(i32, -4),
+        }));
+
+        const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
+
+        log.debug("DMA SPU transfer, size={x}", .{transfer_len});
+
+        switch (chan.ctrl.direction) {
+            .to_device => for (0..transfer_len) |i| {
+                const v = self.bus.read(u32, chan.maddr);
+                self.bus.dev.spu.writeData(@truncate(v >> 0));
+                self.bus.dev.spu.writeData(@truncate(v >> 16));
+                chan.maddr +%= addr_inc;
+
+                if ((i + 1) % chan.block.size == 0) {
+                    self.setChannelIrq(ChanId.spu, .block);
+                }
+            },
+            .to_ram => @panic("spu dma to ram not implemented"),
+        }
 
         self.setChannelIrq(ChanId.spu, .full_transfer);
 

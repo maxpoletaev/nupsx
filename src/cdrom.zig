@@ -317,6 +317,22 @@ pub const CDROM = struct {
         }
     }
 
+    pub fn consumeAudioSample(self: *@This()) struct { left: i16, right: i16 } {
+        if (self.mute) {
+            if (self.cdda_buf != null) self.cdda_pos += 2; // advance even when muted
+            return .{ .left = 0, .right = 0 };
+        }
+
+        if (self.cdda_buf) |buf| {
+            const left = buf[self.cdda_pos + 0];
+            const right = buf[self.cdda_pos + 1];
+            self.cdda_pos += 2;
+            return .{ .left = left, .right = right };
+        }
+
+        return .{ .left = 0, .right = 0 };
+    }
+
     fn setAudioBuffer(self: *@This(), data_ref: []const i16) void {
         self.cdda_buf = data_ref;
         self.cdda_pos = 0;

@@ -229,6 +229,9 @@ pub const Bus = struct {
 
         const joy_irq = self.dev.joy.consumeIrq();
         if (joy_irq) self.setInterrupt(Interrupt.joy_mc_byte);
+
+        const spu_irq = self.dev.spu.consumeIrq();
+        if (spu_irq) self.setInterrupt(Interrupt.spu);
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {

@@ -34,8 +34,8 @@ pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
         // .{ .scope = .spu, .level = .debug },
-        .{ .scope = .cdrom, .level = .debug },
-        .{ .scope = .cue, .level = .debug },
+        // .{ .scope = .cdrom, .level = .debug },
+        // .{ .scope = .cue, .level = .debug },
         // .{ .scope = .mem, .level = .debug },
         // .{ .scope = .timer, .level = .debug },
         // .{ .scope = .gte, .level = .debug },
@@ -115,12 +115,12 @@ const Audio = struct {
         const self: *@This() = @ptrCast(@alignCast(device.getUserData()));
         const buf: [*]i16 = @ptrCast(@alignCast(output.?));
 
-        // _ = self;
-        // _ = frame_count;
-        // _ = buf;
-
-        // std.log.info("audio callback: {} frames", .{frame_count});
-        self.bus.dev.cdrom.consumeAudioBuffer(buf[0 .. frame_count * 2]);
+        for (0..frame_count) |i| {
+            const sample = self.bus.dev.spu.getAudioSample();
+            const cd_sample = self.bus.dev.cdrom.consumeAudioSample();
+            buf[i * 2 + 0] = sample.left +| cd_sample.left;
+            buf[i * 2 + 1] = sample.right +| cd_sample.right;
+        }
     }
 };
 
