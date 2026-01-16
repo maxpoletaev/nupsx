@@ -10,7 +10,22 @@ Still in early development with no intention of becoming usable by the general b
 
 ## State
 
-Can boot and play a few commercial games (notably Crash Bandicoot) and homebrew demos. Lots of things are still missing or incomplete.
+Can boot and play a few commercial games (notably Crash Bandicoot) and homebrew demos. Lots of things are still missing or incomplete. Tested 2D games are mostly fine, 3D games often have graphical glitches. Sound is very basic.
+
+## Tested Games
+
+|Game|Status|Note|
+|-|-|-|
+|Battle Arena Toshinden|Playable||
+|Colin McRae Rally 2.0|Crashes||
+|Crash Bandicoot|Playable|Sound issues|
+|Crash Team Racing|Crashes||
+|Earthworm Jim 2|Playable||
+|Metal Gear Solid|Boots|Controls don't work, sound issues|
+|Mortal Kombat 2|Playable||
+|Ridge Racer|Playable||
+|Spyro the Dragon|Boots|Controls don't work, no sound|
+|Tomb Raider|Crashes||
 
 ## Build & Run
 
