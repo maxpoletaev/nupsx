@@ -100,28 +100,33 @@ const Timer = struct {
             return false;
         }
 
-        const reached_irq = ((self.mode.irq_on_ffff and hit_ffff) or
+        const hit_target_or_ffff = ((self.mode.irq_on_ffff and hit_ffff) or
             (self.mode.irq_on_target and hit_target));
 
         switch (self.mode.irq_mode) {
-            .toggle => if (reached_irq) {
+            .toggle => if (hit_target_or_ffff) {
+                // In toggle mode, irq_disabled is flipped on IRQ.
+                // The interrupt is only triggered on transition 1 -> 0.
                 if (!self.mode.irq_repeat) self.supress_irq = true;
                 self.mode.irq_disabled = !self.mode.irq_disabled;
-                return self.mode.irq_disabled;
+                return self.mode.irq_disabled == false;
             },
-            .pulse => {
+            .pulse => if (hit_target_or_ffff) {
+                // In pulse mode, irq_disabled is permanenty set, except *for a
+                // few clock cycles when the interrupt is triggered*. But no
+                // games seem to rely on that behavior, so we just keep it off.
                 if (!self.mode.irq_repeat) self.supress_irq = true;
-                self.mode.irq_disabled = false;
-                return reached_irq;
+                self.mode.irq_disabled = true;
+                return hit_target_or_ffff;
             },
         }
 
-        unreachable;
+        return false;
     }
 
     inline fn getMode(self: *@This()) u16 {
         const v: u16 = @bitCast(self.mode);
-        // reached bits are reset on read
+        // Reached bits are reset on read
         self.mode.reached_target = false;
         self.mode.reached_ffff = false;
         return v;
@@ -135,17 +140,17 @@ const Timer = struct {
             log.warn("timer set to dotclock source; unimplemented behavior", .{});
         }
 
-        // reached bits are preserved during mode write
+        // Reached bits are preserved during mode write
         self.mode.reached_target = prev.reached_target;
         self.mode.reached_ffff = prev.reached_ffff;
 
-        // irq and counters are reset on mode write
-        self.mode.irq_disabled = false;
+        // IRQ and counters are reset on mode write
+        self.mode.irq_disabled = true;
         self.supress_irq = false;
         self.paused = false;
         self.current = 0;
 
-        // depending on the sync mode, the timer may start paused
+        // Depending on the sync mode, the timer may start paused
         if (self.mode.sync_enable) {
             switch (self.getSyncMode()) {
                 .pause_during_hblank => self.paused = in_hblank,
