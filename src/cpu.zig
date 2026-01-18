@@ -665,9 +665,9 @@ pub const CPU = struct {
         const instr_i = (addr >> 2) & 63; // lower 6 bits
 
         if (self.cached_blocks[block_i]) |block| {
+            @branchHint(.likely);
             return &block.instrs[instr_i];
         } else {
-            @branchHint(.unlikely);
             const block = self.prepareBlock(addr);
             self.cached_blocks[block_i] = block;
             return &block.instrs[instr_i];

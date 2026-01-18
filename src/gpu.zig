@@ -13,7 +13,11 @@ const RasterDepth = rasterizer.ColorDepth;
 
 const log = std.log.scoped(.gpu);
 
-const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
+pub const gpu_cycles_hblank_start_ntsc: u32 = 2560;
+pub const gpu_cycles_hblank_end_ntsc: u32 = 3413;
+pub const gpu_scans_vblank_start_ntsc: u32 = 240;
+pub const gpu_scans_vblank_end_ntsc: u32 = 263;
+pub const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
 
 const Hres1 = enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 };
 const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
@@ -88,11 +92,6 @@ const CmdState = enum {
     recv_data,
     send_data,
 };
-
-const gpu_cycles_hblank_start_ntsc: u32 = 2560;
-const gpu_cycles_hblank_end_ntsc: u32 = 3413;
-const gpu_scans_vblank_start_ntsc: u32 = 240;
-const gpu_scans_vblank_end_ntsc: u32 = 263;
 
 inline fn argColor(v: u32) Color24 {
     return @bitCast(@as(u24, @truncate(v)));

@@ -1,7 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const GPU = @import("gpu.zig").GPU;
+const gpu_mod = @import("gpu.zig");
+const sched = @import("sched.zig");
+
+const GPU = gpu_mod.GPU;
 const DMA = @import("dma.zig").DMA;
 const CPU = @import("cpu.zig").CPU;
 const SPU = @import("spu.zig").SPU;
