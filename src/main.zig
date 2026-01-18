@@ -212,9 +212,8 @@ pub fn main() !void {
 
     if (args.exe_path) |path| {
         while (cpu.pc != 0x80030000) {
-            bus.tick();
+            cpu.tickOnce();
         }
-
         std.log.info("loading exe file: {s}", .{path});
         try exe.loadExe(allocator, path, cpu, bus);
     }

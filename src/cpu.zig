@@ -184,6 +184,7 @@ const DecodedInstr = struct {
     addr: u32,
     imm: u32,
     imm_s: i32,
+    opcode: Opcode,
     shift: u5,
     rs: u5,
     rt: u5,
@@ -304,9 +305,9 @@ pub const Cop0 = struct {
         _,
     };
 
-    const reg_status: u8 = 12;
-    const reg_cause: u8 = 13;
-    const reg_epc: u8 = 14;
+    const cop0_reg_status: u8 = 12;
+    const cop0_reg_cause: u8 = 13;
+    const cop0_reg_epc: u8 = 14;
 
     r: [16]u32,
     depth: u8 = 0,
@@ -320,27 +321,33 @@ pub const Cop0 = struct {
     }
 
     pub inline fn status(self: *@This()) *Status {
-        return @ptrCast(&self.r[reg_status]);
+        return @ptrCast(&self.r[cop0_reg_status]);
     }
 
     pub inline fn cause(self: *@This()) *Cause {
-        return @ptrCast(&self.r[reg_cause]);
+        return @ptrCast(&self.r[cop0_reg_cause]);
     }
 
     pub fn pushException(self: *@This()) void {
-        const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
-        self.r[reg_status] &= ~@as(u32, 0x3f); // clear mode bits on the SR register
-        self.r[reg_status] |= (mode << 2) & 0x3f; // shift mode stack 2 bits to the left
+        const mode = self.r[cop0_reg_status] & 0x3f; // extract mode stack (6 bits)
+        self.r[cop0_reg_status] &= ~@as(u32, 0x3f); // clear mode bits on the SR register
+        self.r[cop0_reg_status] |= (mode << 2) & 0x3f; // shift mode stack 2 bits to the left
         self.depth, const ov = @addWithOverflow(self.depth, 1);
         if (ov != 0) log.warn("cop0 exception stack overflow", .{});
     }
 
     pub fn popException(self: *@This()) void {
-        const mode = self.r[reg_status] & 0x3f; // extract mode stack (6 bits)
-        self.r[reg_status] &= ~@as(u32, 0x0f); // clear mode bits on the SR register
-        self.r[reg_status] |= (mode >> 2); // shift mode stack 2 bits to the right
+        const mode = self.r[cop0_reg_status] & 0x3f; // extract mode stack (6 bits)
+        self.r[cop0_reg_status] &= ~@as(u32, 0x0f); // clear mode bits on the SR register
+        self.r[cop0_reg_status] |= (mode >> 2); // shift mode stack 2 bits to the right
         self.depth, const ov = @subWithOverflow(self.depth, 1);
         if (ov != 0) log.warn("cop0 exception stack underflow", .{});
+    }
+
+    inline fn checkInterrupt(self: *@This()) bool {
+        const stat: Status = @bitCast(self.r[cop0_reg_status]);
+        const caus: Cause = @bitCast(self.r[cop0_reg_cause]);
+        return stat.curr_int_enable and (caus.interrupt_pending & stat.interrupt_mask) != 0;
     }
 };
 
@@ -421,16 +428,14 @@ pub const CPU = struct {
         self.next_pc = self.pc + 4;
     }
 
-    fn unhandled(self: *@This(), _: *const DecodedInstr) void {
-        const raw_instr = RawInstr{ .raw = self.memRead(u32, self.instr_addr) };
-        if (raw_instr.raw <= 1) return; // NOP
-
+    fn unhandled(self: *@This(), instr: *const DecodedInstr) void {
         std.debug.panic(
-            "unhandled instruction at {x}: opcode={x} cop_opcode={x}",
-            .{ self.instr_addr, raw_instr.opcode(), raw_instr.copOpcode() },
+            "unhandled instruction at {x}: opcode={x}",
+            .{ self.instr_addr, instr.opcode },
         );
-        // log.err("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
+
         // _ = self;
+        // log.err("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
     }
 
     fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
@@ -439,10 +444,10 @@ pub const CPU = struct {
 
         if (self.in_delay_slot) {
             const branch_addr, _ = @subWithOverflow(self.instr_addr, 4);
-            self.cop0.r[Cop0.reg_epc] = branch_addr;
+            self.cop0.r[Cop0.cop0_reg_epc] = branch_addr;
             self.cop0.cause().epc_at_branch = true;
         } else {
-            self.cop0.r[Cop0.reg_epc] = self.instr_addr;
+            self.cop0.r[Cop0.cop0_reg_epc] = self.instr_addr;
             self.cop0.cause().epc_at_branch = false;
         }
 
@@ -450,6 +455,7 @@ pub const CPU = struct {
         self.pc = if (self.cop0.status().boot_vectors != 0) 0xbfc00180 else 0x80000080;
         self.next_pc, _ = @addWithOverflow(self.pc, 4);
         self.in_exception = true;
+        self.in_branch = true;
     }
 
     inline fn jump(self: *@This(), addr: u32) void {
@@ -468,7 +474,7 @@ pub const CPU = struct {
         self.branch_taken = false;
 
         if (cond) {
-            const addr, _ = @addWithOverflow(self.pc, @as(u32, @bitCast(offset << 2)));
+            const addr = self.pc +% @as(u32, @bitCast(offset << 2));
             if (addr % 4 != 0) {
                 @branchHint(.unlikely);
                 self.exception(.addr_load);
@@ -506,22 +512,10 @@ pub const CPU = struct {
 
     pub fn requestInterrupt(self: *@This(), v: bool) void {
         if (v) {
-            self.cop0.r[Cop0.reg_cause] |= @as(u32, 1 << 10);
+            self.cop0.r[Cop0.cop0_reg_cause] |= @as(u32, 1 << 10);
         } else {
-            self.cop0.r[Cop0.reg_cause] &= ~@as(u32, 1 << 10);
+            self.cop0.r[Cop0.cop0_reg_cause] &= ~@as(u32, 1 << 10);
         }
-    }
-
-    fn checkInterrupt(self: *@This()) bool {
-        const status = self.cop0.status();
-        if (!status.curr_int_enable) return false;
-
-        if ((self.cop0.cause().interrupt_pending & status.interrupt_mask) != 0) {
-            self.exception(.interrupt);
-            return true;
-        }
-
-        return false;
     }
 
     // =========================================================================
@@ -529,7 +523,10 @@ pub const CPU = struct {
     // =========================================================================
 
     fn decode(instr: RawInstr) CachedInstr {
+        const opcode = instr.opcode();
+
         const decoded = DecodedInstr{
+            .opcode = opcode,
             .addr = instr.addr(),
             .imm = instr.imm(),
             .imm_s = instr.imm_s(),
@@ -539,7 +536,7 @@ pub const CPU = struct {
             .rd = instr.rd(),
         };
 
-        const handler = switch (instr.opcode()) {
+        const handler = switch (opcode) {
             .special => switch (instr.special()) {
                 .sll => &CPU.sll,
                 .or_ => &CPU.or_,
@@ -625,7 +622,7 @@ pub const CPU = struct {
             .cop3 => &CPU.cop3,
             .lwc2 => &CPU.lwc2,
             .swc2 => &CPU.swc2,
-            else => &CPU.unhandled,
+            else => if (instr.raw <= 1) &CPU.nop else &CPU.unhandled,
         };
 
         return CachedInstr{
@@ -676,7 +673,7 @@ pub const CPU = struct {
         }
     }
 
-    pub fn tick(self: *@This()) u8 {
+    inline fn tickInternal(self: *@This()) bool {
         self.gpr[0] = 0;
 
         const instr = self.fetch(self.pc);
@@ -692,9 +689,10 @@ pub const CPU = struct {
         self.in_delay_slot = self.in_branch;
         self.in_branch = false;
 
-        // Break if there is an interrupt
-        if (self.checkInterrupt()) {
-            return self.cycles;
+        // Check for interrupts (but GTE has priority)
+        if (instr.decoded.opcode != .cop2 and self.cop0.checkInterrupt()) {
+            self.exception(.interrupt);
+            return false;
         }
 
         // Execute the instruction
@@ -706,7 +704,30 @@ pub const CPU = struct {
         self.delay_load = self.delay_load_next;
         self.delay_load_next.clear();
 
-        return self.cycles;
+        if (self.in_branch) return false;
+
+        return true;
+    }
+
+    pub fn tickOnce(self: *@This()) void {
+        _ = self.tickInternal();
+    }
+
+    pub fn tick(self: *@This()) u8 {
+        var total_cycles: u8 = 0;
+
+        // During the execution:
+        //  * pc - incremented after fetch but before execute, so it points to the NEXT instruction to execute
+        //  * next_pc - address that will be loaded into pc after the current instruction (for branches/jumps)
+        //  * instr_addr - points to the current instruction being executed
+
+        for (0..64) |_| {
+            const continue_exec = self.tickInternal();
+            total_cycles += self.cycles;
+            if (!continue_exec) break;
+        }
+
+        return total_cycles;
     }
 
     inline fn memRead(self: *@This(), comptime T: type, addr: u32) T {
@@ -787,6 +808,10 @@ pub const CPU = struct {
     // =========================================================================
     // Instructions
     // =========================================================================
+
+    fn nop(_: *@This(), _: *const DecodedInstr) void {
+        // do nothing
+    }
 
     fn lui(self: *@This(), instr: *const DecodedInstr) void {
         self.writeGpr(instr.rt, instr.imm << 16);
@@ -1119,7 +1144,7 @@ pub const CPU = struct {
     }
 
     fn sllv(self: *@This(), instr: *const DecodedInstr) void {
-        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1F)); // only 5 bits are used
+        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1f));
         const v = self.gpr[instr.rt] << shift;
         self.writeGpr(instr.rd, v);
     }
@@ -1149,13 +1174,13 @@ pub const CPU = struct {
     }
 
     fn srav(self: *@This(), instr: *const DecodedInstr) void {
-        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1F)); // 5 bits
+        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1f));
         const v = @as(i32, @bitCast(self.gpr[instr.rt])) >> shift;
         self.writeGpr(instr.rd, @as(u32, @bitCast(v)));
     }
 
     fn srlv(self: *@This(), instr: *const DecodedInstr) void {
-        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1F)); // 5 bits
+        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1f));
         const v = self.gpr[instr.rt] >> shift;
         self.writeGpr(instr.rd, v);
     }
