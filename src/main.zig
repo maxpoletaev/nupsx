@@ -243,10 +243,6 @@ pub fn main() !void {
                 //     debug_ui.cpu_view.paused = true;
                 // }
 
-                if (captureTtyOutput(cpu)) |ch| {
-                    try debug_ui.tty_view.writeChar(ch);
-                }
-
                 if (gpu.consumeFrameReady()) {
                     debug_ui.update();
                 }
@@ -259,6 +255,8 @@ pub fn main() !void {
         var buf: [1024]u8 = undefined;
         var stdout = std.fs.File.stdout().writer(&buf);
 
+        cpu.tty = &stdout.interface;
+
         if (args.uncapped) {
             std.log.warn("running in uncapped mode", .{});
             ui.uncapped = true;
@@ -266,11 +264,6 @@ pub fn main() !void {
 
         while (true) {
             bus.tick();
-
-            if (captureTtyOutput(cpu)) |ch| {
-                stdout.interface.writeByte(ch) catch unreachable;
-                if (ch == '\n') stdout.interface.flush() catch unreachable;
-            }
 
             if (gpu.consumeFrameReady()) {
                 if (!ui.is_running) {
@@ -280,12 +273,4 @@ pub fn main() !void {
             }
         }
     }
-}
-
-fn captureTtyOutput(cpu: *const CPU) ?u8 {
-    const pc = cpu.pc & 0x1fffffff;
-    if ((pc == 0xa0 and cpu.gpr[9] == 0x3c) or (pc == 0xb0 and cpu.gpr[9] == 0x3d)) {
-        return @as(u8, @truncate(cpu.gpr[4]));
-    }
-    return null;
 }

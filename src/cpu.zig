@@ -380,6 +380,7 @@ pub const CPU = struct {
     cycles: u8,
     lo: u32,
     hi: u32,
+    tty: ?*std.io.Writer = null,
 
     pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) !*@This() {
         const self = try allocator.create(@This());
@@ -666,7 +667,7 @@ pub const CPU = struct {
         if (self.cached_blocks[block_i]) |block| {
             return &block.instrs[instr_i];
         } else {
-            @branchHint(.cold);
+            @branchHint(.unlikely);
             const block = self.prepareBlock(addr);
             self.cached_blocks[block_i] = block;
             return &block.instrs[instr_i];
@@ -675,6 +676,18 @@ pub const CPU = struct {
 
     inline fn tickInternal(self: *@This()) bool {
         self.gpr[0] = 0;
+
+        // Handle TTY output
+        if ((self.pc == 0xa0 and self.gpr[9] == 0x3c) or
+            (self.pc == 0xb0 and self.gpr[9] == 0x3d))
+        {
+            @branchHint(.unlikely);
+            if (self.tty) |tty| {
+                const char: u8 = @truncate(self.gpr[4]);
+                tty.writeByte(char) catch @panic("TTY write");
+                if (char == '\n') tty.flush() catch @panic("TTY flush");
+            }
+        }
 
         const instr = self.fetch(self.pc);
         self.instr_addr = self.pc;

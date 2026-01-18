@@ -80,21 +80,21 @@ const Timer = struct {
         var hit_ffff = false;
         var hit_target = false;
 
-        for (0..v) |_| {
-            if (self.mode.reset_on_target and self.target != 0 and self.current == self.target) {
-                self.current = 0;
-                continue;
-            }
-            self.current +%= 1;
-            if (self.target != 0 and self.current == self.target) {
-                self.mode.reached_target = true;
-                hit_target = true;
-            }
-            if (self.current == 0xffff) {
-                self.mode.reached_ffff = true;
-                hit_ffff = true;
-            }
+        const current: u32 = self.current;
+        const next: u32 = current + v;
+
+        if (self.target != 0 and current < self.target and next >= self.target) {
+            self.mode.reached_target = true;
+            hit_target = true;
         }
+
+        if (current < 0xffff and next >= 0xffff) {
+            self.mode.reached_ffff = true;
+            hit_ffff = true;
+        }
+
+        const wrap: u32 = if (self.mode.reset_on_target and self.target != 0) self.target else 0xffff;
+        self.current = @intCast(next % (wrap + 1)); // +1 as the wrap should happen AFTER reaching the value
 
         if (self.supress_irq) {
             return false;
