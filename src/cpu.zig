@@ -118,104 +118,118 @@ pub const BranchCond = enum(u8) {
     _,
 };
 
-pub const Instr = struct {
-    code: u32,
+pub const RawInstr = struct {
+    raw: u32,
 
-    pub inline fn opcode(self: Instr) Opcode {
-        return @enumFromInt(bits.field(self.code, 26, u6));
+    pub inline fn opcode(self: RawInstr) Opcode {
+        return @enumFromInt(bits.field(self.raw, 26, u6));
     }
 
-    pub inline fn copOpcode(self: Instr) CopOpcode {
-        return @enumFromInt(bits.field(self.code, 21, u5));
+    pub inline fn isJumpOrBranch(self: RawInstr) bool {
+        const op = self.opcode();
+        return switch (op) {
+            .j, .jal => true,
+            .beq, .bne, .blez, .bgtz, .bcondz => true,
+            .special => switch (self.special()) {
+                .jr, .jalr, .syscall, .break_ => true,
+                else => false,
+            },
+            else => false,
+        };
     }
 
-    pub inline fn rs(self: Instr) u5 {
-        return bits.field(self.code, 21, u5);
+    pub inline fn copOpcode(self: RawInstr) CopOpcode {
+        return @enumFromInt(bits.field(self.raw, 21, u5));
     }
 
-    pub inline fn rt(self: Instr) u5 {
-        return bits.field(self.code, 16, u5);
+    pub inline fn rs(self: RawInstr) u5 {
+        return bits.field(self.raw, 21, u5);
     }
 
-    pub inline fn rd(self: Instr) u5 {
-        return bits.field(self.code, 11, u5);
+    pub inline fn rt(self: RawInstr) u5 {
+        return bits.field(self.raw, 16, u5);
     }
 
-    pub inline fn shift(self: Instr) u5 {
-        return bits.field(self.code, 6, u5);
+    pub inline fn rd(self: RawInstr) u5 {
+        return bits.field(self.raw, 11, u5);
     }
 
-    pub inline fn imm(self: Instr) u32 {
-        return bits.field(self.code, 0, u16);
+    pub inline fn shift(self: RawInstr) u5 {
+        return bits.field(self.raw, 6, u5);
     }
 
-    pub inline fn imm_s(self: Instr) i32 {
-        const v = bits.field(self.code, 0, u16);
+    pub inline fn imm(self: RawInstr) u32 {
+        return bits.field(self.raw, 0, u16);
+    }
+
+    pub inline fn imm_s(self: RawInstr) i32 {
+        const v = bits.field(self.raw, 0, u16);
         return @as(i32, @as(i16, @bitCast(v)));
     }
 
-    pub inline fn addr(self: Instr) u32 {
-        return bits.field(self.code, 0, u26);
+    pub inline fn addr(self: RawInstr) u32 {
+        return bits.field(self.raw, 0, u26);
     }
 
-    pub inline fn special(self: Instr) SpecialOpcode {
-        return @enumFromInt(bits.field(self.code, 0, u6));
+    pub inline fn special(self: RawInstr) SpecialOpcode {
+        return @enumFromInt(bits.field(self.raw, 0, u6));
     }
 
-    pub inline fn bcond(self: Instr) BranchCond {
-        return @enumFromInt(bits.field(self.code, 16, u5));
+    pub inline fn bcond(self: RawInstr) BranchCond {
+        return @enumFromInt(bits.field(self.raw, 16, u5));
     }
 };
 
-// const DecodedInstr = struct {
-//     addr: u32,
-//     imm: u32,
-//     imm_s: i32,
-//     shift: u8,
-//     rs: u8,
-//     rt: u8,
-//     rd: u8,
-// };
+const DecodedInstr = struct {
+    addr: u32,
+    imm: u32,
+    imm_s: i32,
+    shift: u5,
+    rs: u5,
+    rt: u5,
+    rd: u5,
+};
 
-// const CachedInstr = struct {
-//     decoded: DecodedInstr,
-//     handler: fn (cpu: *CPU, instr: DecodedInstr) void,
-// };
+const CachedInstr = struct {
+    handler: ?*const fn (cpu: *CPU, instr: *const DecodedInstr) void,
+    decoded: DecodedInstr,
+};
 
-// const CacheBlock = struct {
-//     instrs: []CachedInstr,
-//     valid: bool = false,
-// };
+/// Cached instruction block (64 instructions)
+const CachedBlock = struct {
+    instrs: [64]CachedInstr,
+};
 
-// const InstrCache = struct {
-//     allocator: std.mem.Allocator,
-//     blocks: std.AutoHashMapUnmanaged(u32, *CacheBlock),
+/// Bump allocator for instruction cache blocks
+const BlockAllocator = struct {
+    blocks: []CachedBlock,
+    pos: usize = 0,
 
-//     pub fn init(allocator: std.mem.Allocator) InstrCache {
-//         return InstrCache{
-//             .allocator = allocator,
-//             .blocks = .empty,
-//         };
-//     }
+    pub fn init(allocator: std.mem.Allocator, block_count: usize) @This() {
+        const blocks = allocator.alloc(CachedBlock, block_count) catch @panic("OOM");
+        @memset(blocks, std.mem.zeroes(CachedBlock));
+        return .{ .blocks = blocks };
+    }
 
-//     pub fn deinit(self: *InstrCache) void {
-//         self.blocks.deinit(self.allocator);
-//     }
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.blocks);
+    }
 
-//     fn jitBlock(self: *@This(), cpu: *CPU, bus: *mem.Bus) void {}
+    pub fn alloc(self: *@This()) ?*CachedBlock {
+        if (self.pos >= self.blocks.len) {
+            return null;
+        }
 
-//     pub fn execute(self: InstrCache, cpu: *CPU, pc: u32) u32 {
-//         const block = self.blocks.get(pc);
+        const block = &self.blocks[self.pos];
+        self.pos += 1;
+        return block;
+    }
 
-//         if (block) |b| {
-//             if (block.valid) {
-//                 for (b.instrs) |instr| {
-//                     instr.handler(cpu, instr.decoded);
-//                 }
-//             }
-//         }
-//     }
-// };
+    pub fn reset(self: *@This()) void {
+        @memset(self.blocks, std.mem.zeroes(CachedBlock));
+        self.pos = 0;
+    }
+};
 
 pub const Cop0 = struct {
     const reg_write_mask = [16]u32{
@@ -347,9 +361,9 @@ pub const CPU = struct {
     next_pc: u32,
     gpr: [32]u32,
     cop0: Cop0,
-    // cache: InstrCache,
-    instr: Instr,
     instr_addr: u32,
+    cached_blocks: *[1 << 21]?*CachedBlock,
+    block_allocator: BlockAllocator,
     delay_load: LoadSlot,
     delay_load_next: LoadSlot,
     branch_taken: bool,
@@ -360,16 +374,19 @@ pub const CPU = struct {
     lo: u32,
     hi: u32,
 
-    gte_command_count: [0xff]u64,
-
     pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) !*@This() {
         const self = try allocator.create(@This());
+
+        const block_allocator = BlockAllocator.init(allocator, (1 << 26) / @sizeOf(CachedBlock)); // 64 MB worth of blocks
+        const cached_blocks = try allocator.create([1 << 21]?*CachedBlock);
+        @memset(cached_blocks, null);
+
         self.* = .{
             .mem = memory,
             .gte = .init(),
             .allocator = allocator,
-            .instr = Instr{ .code = 0 },
-            // .cache = .init(allocator),
+            .cached_blocks = cached_blocks,
+            .block_allocator = block_allocator,
             .instr_addr = 0,
             .gpr = undefined,
             .cop0 = undefined,
@@ -384,7 +401,6 @@ pub const CPU = struct {
             .cycles = 0,
             .lo = 0,
             .hi = 0,
-            .gte_command_count = std.mem.zeroes([0xff]u64),
         };
 
         @memset(&self.gpr, 0);
@@ -395,11 +411,8 @@ pub const CPU = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        for (0.., self.gte_command_count) |cmd, count| {
-            if (count == 0) continue;
-            log.info("GTE command {x} = {d}", .{ cmd, count });
-        }
-
+        self.block_allocator.deinit(self.allocator);
+        self.allocator.free(self.cached_blocks);
         self.allocator.destroy(self);
     }
 
@@ -408,12 +421,13 @@ pub const CPU = struct {
         self.next_pc = self.pc + 4;
     }
 
-    fn unhandled(self: *@This(), instr: Instr) void {
-        if (instr.code <= 1) return; // NOP
+    fn unhandled(self: *@This(), _: *const DecodedInstr) void {
+        const raw_instr = RawInstr{ .raw = self.memRead(u32, self.instr_addr) };
+        if (raw_instr.raw <= 1) return; // NOP
 
         std.debug.panic(
             "unhandled instruction at {x}: opcode={x} cop_opcode={x}",
-            .{ self.instr_addr, instr.opcode(), instr.copOpcode() },
+            .{ self.instr_addr, raw_instr.opcode(), raw_instr.copOpcode() },
         );
         // log.err("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
         // _ = self;
@@ -510,13 +524,163 @@ pub const CPU = struct {
         return false;
     }
 
+    // =========================================================================
+    // Instrunction decoding & caching
+    // =========================================================================
+
+    fn decode(instr: RawInstr) CachedInstr {
+        const decoded = DecodedInstr{
+            .addr = instr.addr(),
+            .imm = instr.imm(),
+            .imm_s = instr.imm_s(),
+            .shift = instr.shift(),
+            .rs = instr.rs(),
+            .rt = instr.rt(),
+            .rd = instr.rd(),
+        };
+
+        const handler = switch (instr.opcode()) {
+            .special => switch (instr.special()) {
+                .sll => &CPU.sll,
+                .or_ => &CPU.or_,
+                .sltu => &CPU.sltu,
+                .addu => &CPU.addu,
+                .jr => &CPU.jr,
+                .and_ => &CPU.and_,
+                .add => &CPU.add,
+                .jalr => &CPU.jalr,
+                .subu => &CPU.subu,
+                .sra => &CPU.sra,
+                .div => &CPU.div,
+                .mflo => &CPU.mflo,
+                .mfhi => &CPU.mfhi,
+                .srl => &CPU.srl,
+                .divu => &CPU.divu,
+                .slt => &CPU.slt,
+                .syscall => &CPU.syscall,
+                .mtlo => &CPU.mtlo,
+                .mthi => &CPU.mthi,
+                .sllv => &CPU.sllv,
+                .nor => &CPU.nor,
+                .srav => &CPU.srav,
+                .srlv => &CPU.srlv,
+                .multu => &CPU.multu,
+                .xor => &CPU.xor,
+                .break_ => &CPU.break_,
+                .mult => &CPU.mult,
+                .sub => &CPU.sub,
+                else => &CPU.unhandled,
+            },
+            .cop0 => switch (instr.copOpcode()) {
+                .mtc => &CPU.mtc0,
+                .mfc => &CPU.mfc0,
+                .rfe => &CPU.rfe,
+                else => &CPU.unhandled,
+            },
+            .bcondz => switch (instr.bcond()) {
+                .bltz => &CPU.bltz,
+                .bgez => &CPU.bgez,
+                .bltzal => &CPU.bltzal,
+                .bgezal => &CPU.bgezal,
+                else => switch ((instr.raw >> 16) & 1) {
+                    0 => &CPU.bltz,
+                    1 => &CPU.bgez,
+                    else => unreachable,
+                },
+            },
+            .lui => &CPU.lui,
+            .ori => &CPU.ori,
+            .sw => &CPU.sw,
+            .addi => &CPU.addi,
+            .addiu => &CPU.addiu,
+            .j => &CPU.j,
+            .bne => &CPU.bne,
+            .lw => &CPU.lw,
+            .sh => &CPU.sh,
+            .jal => &CPU.jal,
+            .andi => &CPU.andi,
+            .sb => &CPU.sb,
+            .lb => &CPU.lb,
+            .beq => &CPU.beq,
+            .bgtz => &CPU.bgtz,
+            .blez => &CPU.blez,
+            .lbu => &CPU.lbu,
+            .slti => &CPU.slti,
+            .sltiu => &CPU.sltiu,
+            .lhu => &CPU.lhu,
+            .lh => &CPU.lh,
+            .xori => &CPU.xori,
+            .lwl => &CPU.lwl,
+            .lwr => &CPU.lwr,
+            .swl => &CPU.swl,
+            .swr => &CPU.swr,
+            .cop1 => &CPU.cop1,
+            .cop2 => switch (instr.copOpcode()) {
+                .mfc => &CPU.mfc2,
+                .mtc => &CPU.mtc2,
+                .cfc => &CPU.cfc2,
+                .ctc => &CPU.ctc2,
+                else => &CPU.cop2,
+            },
+            .cop3 => &CPU.cop3,
+            .lwc2 => &CPU.lwc2,
+            .swc2 => &CPU.swc2,
+            else => &CPU.unhandled,
+        };
+
+        return CachedInstr{
+            .decoded = decoded,
+            .handler = handler,
+        };
+    }
+
+    fn prepareBlock(self: *@This(), addr: u32) *CachedBlock {
+        // Allocate new block
+        const block = self.block_allocator.alloc() orelse done: {
+            self.block_allocator.pos = 0;
+            @memset(self.cached_blocks, null);
+            log.warn("interpreter cache is full, resetting", .{});
+            break :done self.block_allocator.alloc().?;
+        };
+
+        // Decode entire instrunction block (64 instructions = 256 bytes)
+        const base_addr = addr & 0xffff_ff00; // align to 256 bytes
+        for (0..64) |i| {
+            const instr_addr = base_addr + (@as(u32, @intCast(i)) * 4);
+            const word = self.memRead(u32, instr_addr);
+            block.instrs[i] = decode(RawInstr{ .raw = word });
+        }
+
+        return block;
+    }
+
+    pub inline fn invalidateBlock(self: *@This(), addr: u32) void {
+        const masked = addr & 0x1fffffff;
+        const block_i = masked >> 8;
+        self.cached_blocks[block_i] = null;
+    }
+
+    inline fn fetch(self: *@This(), pc: u32) *CachedInstr {
+        const addr = pc & 0x1fffffff; // drop segment selector (0x80000000/0xa0000000)
+
+        const block_i = addr >> 8; // upper 21 bits
+        const instr_i = (addr >> 2) & 63; // lower 6 bits
+
+        if (self.cached_blocks[block_i]) |block| {
+            return &block.instrs[instr_i];
+        } else {
+            @branchHint(.cold);
+            const block = self.prepareBlock(addr);
+            self.cached_blocks[block_i] = block;
+            return &block.instrs[instr_i];
+        }
+    }
+
     pub fn tick(self: *@This()) u8 {
         self.gpr[0] = 0;
 
-        const v = self.memRead(u32, self.pc);
-        const instr = Instr{ .code = v };
+        const instr = self.fetch(self.pc);
         self.instr_addr = self.pc;
-        self.instr = instr;
 
         self.pc = self.next_pc;
         self.next_pc = self.pc +% 4;
@@ -534,94 +698,8 @@ pub const CPU = struct {
         }
 
         // Execute the instruction
-        switch (instr.opcode()) {
-            .special => switch (instr.special()) {
-                .sll => self.sll(instr),
-                .or_ => self.or_(instr),
-                .sltu => self.sltu(instr),
-                .addu => self.addu(instr),
-                .jr => self.jr(instr),
-                .and_ => self.and_(instr),
-                .add => self.add(instr),
-                .jalr => self.jalr(instr),
-                .subu => self.subu(instr),
-                .sra => self.sra(instr),
-                .div => self.div(instr),
-                .mflo => self.mflo(instr),
-                .mfhi => self.mfhi(instr),
-                .srl => self.srl(instr),
-                .divu => self.divu(instr),
-                .slt => self.slt(instr),
-                .syscall => self.syscall(instr),
-                .mtlo => self.mtlo(instr),
-                .mthi => self.mthi(instr),
-                .sllv => self.sllv(instr),
-                .nor => self.nor(instr),
-                .srav => self.srav(instr),
-                .srlv => self.srlv(instr),
-                .multu => self.multu(instr),
-                .xor => self.xor(instr),
-                .break_ => self.break_(instr),
-                .mult => self.mult(instr),
-                .sub => self.sub(instr),
-                else => self.unhandled(instr),
-            },
-            .cop0 => switch (instr.copOpcode()) {
-                .mtc => self.mtc0(instr),
-                .mfc => self.mfc0(instr),
-                .rfe => self.rfe(instr),
-                else => self.unhandled(instr),
-            },
-            .cop2 => switch (instr.copOpcode()) {
-                .mfc => self.mfc2(instr),
-                .mtc => self.mtc2(instr),
-                .cfc => self.cfc2(instr),
-                .ctc => self.ctc2(instr),
-                else => self.cop2cmd(instr),
-            },
-            .bcondz => switch (instr.bcond()) {
-                .bltz => self.bltz(instr),
-                .bgez => self.bgez(instr),
-                .bltzal => self.bltzal(instr),
-                .bgezal => self.bgezal(instr),
-                else => switch ((instr.code >> 16) & 0x1) {
-                    0 => self.bltz(instr),
-                    1 => self.bgez(instr),
-                    else => unreachable,
-                },
-            },
-            .lui => self.lui(instr),
-            .ori => self.ori(instr),
-            .sw => self.sw(instr),
-            .addi => self.addi(instr),
-            .addiu => self.addiu(instr),
-            .j => self.j(instr),
-            .bne => self.bne(instr),
-            .lw => self.lw(instr),
-            .sh => self.sh(instr),
-            .jal => self.jal(instr),
-            .andi => self.andi(instr),
-            .sb => self.sb(instr),
-            .lb => self.lb(instr),
-            .beq => self.beq(instr),
-            .bgtz => self.bgtz(instr),
-            .blez => self.blez(instr),
-            .lbu => self.lbu(instr),
-            .slti => self.slti(instr),
-            .sltiu => self.sltiu(instr),
-            .lhu => self.lhu(instr),
-            .lh => self.lh(instr),
-            .xori => self.xori(instr),
-            .lwl => self.lwl(instr),
-            .lwr => self.lwr(instr),
-            .swl => self.swl(instr),
-            .swr => self.swr(instr),
-            .cop1 => self.exception(.cop_unusable),
-            .cop3 => self.exception(.cop_unusable),
-            .lwc2 => self.lwc2(instr),
-            .swc2 => self.swc2(instr),
-            else => self.unhandled(instr),
-        }
+        std.debug.assert(instr.handler != null);
+        instr.handler.?(self, &instr.decoded);
 
         // Handle delayed loads
         self.gpr[self.delay_load.r] = self.delay_load.v;
@@ -643,9 +721,9 @@ pub const CPU = struct {
     // Coprocessor instructions
     // =========================================================================
 
-    fn lwc2(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn lwc2(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -654,12 +732,12 @@ pub const CPU = struct {
         }
 
         const v = self.memRead(u32, addr);
-        self.gte.writeReg(instr.rt(), v);
+        self.gte.writeReg(instr.rt, v);
     }
 
-    fn swc2(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn swc2(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -667,63 +745,71 @@ pub const CPU = struct {
             return;
         }
 
-        const v = self.gte.readReg(instr.rt());
+        const v = self.gte.readReg(instr.rt);
         self.memWrite(u32, addr, v);
     }
 
-    fn mfc2(self: *@This(), instr: Instr) void {
-        const gte_reg: u8 = @intCast(instr.rd());
+    fn mfc2(self: *@This(), instr: *const DecodedInstr) void {
+        const gte_reg: u8 = @intCast(instr.rd);
         const v = self.gte.readReg(gte_reg);
-        self.writeGpr(instr.rt(), v);
+        self.writeGpr(instr.rt, v);
     }
 
-    fn mtc2(self: *@This(), instr: Instr) void {
-        const gte_reg: u8 = @intCast(instr.rd());
-        self.gte.writeReg(gte_reg, self.gpr[instr.rt()]);
+    fn mtc2(self: *@This(), instr: *const DecodedInstr) void {
+        const gte_reg: u8 = @intCast(instr.rd);
+        self.gte.writeReg(gte_reg, self.gpr[instr.rt]);
     }
 
-    fn cfc2(self: *@This(), instr: Instr) void {
-        const gte_reg: u8 = 32 + @as(u8, instr.rd());
+    fn cfc2(self: *@This(), instr: *const DecodedInstr) void {
+        const gte_reg: u8 = 32 + @as(u8, instr.rd);
         const v = self.gte.readReg(gte_reg);
-        self.writeGpr(instr.rt(), v);
+        self.writeGpr(instr.rt, v);
     }
 
-    fn ctc2(self: *@This(), instr: Instr) void {
-        const gte_reg: u8 = 32 + @as(u8, instr.rd());
-        self.gte.writeReg(gte_reg, self.gpr[instr.rt()]);
+    fn ctc2(self: *@This(), instr: *const DecodedInstr) void {
+        const gte_reg: u8 = 32 + @as(u8, instr.rd);
+        self.gte.writeReg(gte_reg, self.gpr[instr.rt]);
     }
 
-    fn cop2cmd(self: *@This(), instr: Instr) void {
-        self.gte_command_count[bits.field(instr.code, 0, u6)] += 1;
-        self.gte.exec(instr.code);
+    fn cop1(self: *@This(), _: *const DecodedInstr) void {
+        self.exception(.cop_unusable);
+    }
+
+    fn cop2(self: *@This(), _: *const DecodedInstr) void {
+        const raw_cmd = self.memRead(u32, self.instr_addr);
+        self.gte.exec(raw_cmd);
+    }
+
+    fn cop3(self: *@This(), _: *const DecodedInstr) void {
+        self.exception(.cop_unusable);
     }
 
     // =========================================================================
     // Instructions
     // =========================================================================
 
-    fn lui(self: *@This(), instr: Instr) void {
-        self.writeGpr(instr.rt(), instr.imm() << 16);
+    fn lui(self: *@This(), instr: *const DecodedInstr) void {
+        self.writeGpr(instr.rt, instr.imm << 16);
     }
 
-    fn ori(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()] | instr.imm();
-        self.writeGpr(instr.rt(), v);
+    fn ori(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs] | instr.imm;
+        self.writeGpr(instr.rt, v);
     }
 
-    fn andi(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()] & instr.imm();
-        self.writeGpr(instr.rt(), v);
+    fn andi(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs] & instr.imm;
+        self.writeGpr(instr.rt, v);
     }
 
-    fn sw(self: *@This(), instr: Instr) void {
+    fn sw(self: *@This(), instr: *const DecodedInstr) void {
         if (self.cop0.status().isolate_cache) {
             // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
 
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -731,29 +817,29 @@ pub const CPU = struct {
             return;
         }
 
-        self.memWrite(u32, addr, self.gpr[instr.rt()]);
+        self.memWrite(u32, addr, self.gpr[instr.rt]);
     }
 
-    fn addiu(self: *@This(), instr: Instr) void {
-        const sum, _ = add32s(self.gpr[instr.rs()], instr.imm_s());
-        self.writeGpr(instr.rt(), sum);
+    fn addiu(self: *@This(), instr: *const DecodedInstr) void {
+        const sum, _ = addSignedToUnsigned(self.gpr[instr.rs], instr.imm_s);
+        self.writeGpr(instr.rt, sum);
     }
 
-    fn addi(self: *@This(), instr: Instr) void {
-        const sum, const ov = add32s(self.gpr[instr.rs()], instr.imm_s());
+    fn addi(self: *@This(), instr: *const DecodedInstr) void {
+        const sum, const ov = addSignedToUnsigned(self.gpr[instr.rs], instr.imm_s);
 
         if (ov != 0) {
             self.exception(.overflow);
             return;
         }
 
-        self.writeGpr(instr.rt(), sum);
+        self.writeGpr(instr.rt, sum);
     }
 
-    fn add(self: *@This(), instr: Instr) void {
+    fn add(self: *@This(), instr: *const DecodedInstr) void {
         const sum, const ov = addAsSigned(
-            self.gpr[instr.rs()],
-            self.gpr[instr.rt()],
+            self.gpr[instr.rs],
+            self.gpr[instr.rt],
         );
 
         if (ov != 0) {
@@ -761,38 +847,38 @@ pub const CPU = struct {
             return;
         }
 
-        self.writeGpr(instr.rd(), sum);
+        self.writeGpr(instr.rd, sum);
     }
 
-    fn addu(self: *@This(), instr: Instr) void {
+    fn addu(self: *@This(), instr: *const DecodedInstr) void {
         const sum, _ = @addWithOverflow(
-            self.gpr[instr.rs()],
-            self.gpr[instr.rt()],
+            self.gpr[instr.rs],
+            self.gpr[instr.rt],
         );
-        self.writeGpr(instr.rd(), sum);
+        self.writeGpr(instr.rd, sum);
     }
 
-    fn j(self: *@This(), instr: Instr) void {
-        self.jump((self.pc & 0xF0000000) | (instr.addr() << 2));
+    fn j(self: *@This(), instr: *const DecodedInstr) void {
+        self.jump((self.pc & 0xF0000000) | (instr.addr << 2));
     }
 
-    fn bne(self: *@This(), instr: Instr) void {
+    fn bne(self: *@This(), instr: *const DecodedInstr) void {
         self.branchIf(
-            self.gpr[instr.rs()] != self.gpr[instr.rt()],
-            instr.imm_s(),
+            self.gpr[instr.rs] != self.gpr[instr.rt],
+            instr.imm_s,
         );
     }
 
-    fn beq(self: *@This(), instr: Instr) void {
+    fn beq(self: *@This(), instr: *const DecodedInstr) void {
         self.branchIf(
-            self.gpr[instr.rs()] == self.gpr[instr.rt()],
-            instr.imm_s(),
+            self.gpr[instr.rs] == self.gpr[instr.rt],
+            instr.imm_s,
         );
     }
 
-    fn lw(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn lw(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 4 != 0) {
             @branchHint(.unlikely);
@@ -800,48 +886,48 @@ pub const CPU = struct {
             return;
         }
 
-        self.writeGprDelay(instr.rt(), self.memRead(u32, addr));
+        self.writeGprDelay(instr.rt, self.memRead(u32, addr));
     }
 
-    fn lb(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn lb(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
         const v = signExtend(u8, self.memRead(u8, addr));
 
-        self.writeGprDelay(instr.rt(), v);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn lbu(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn lbu(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
         const v = self.memRead(u8, addr);
 
-        self.writeGprDelay(instr.rt(), v);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn or_(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()] | self.gpr[instr.rt()];
-        self.writeGpr(instr.rd(), v);
+    fn or_(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs] | self.gpr[instr.rt];
+        self.writeGpr(instr.rd, v);
     }
 
-    fn and_(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()] & self.gpr[instr.rt()];
-        self.writeGpr(instr.rd(), v);
+    fn and_(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs] & self.gpr[instr.rt];
+        self.writeGpr(instr.rd, v);
     }
 
-    fn sll(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rt()] << instr.shift();
-        self.writeGpr(instr.rd(), v);
+    fn sll(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rt] << instr.shift;
+        self.writeGpr(instr.rd, v);
     }
 
-    fn sltu(self: *@This(), instr: Instr) void {
-        const less = self.gpr[instr.rs()] < self.gpr[instr.rt()];
-        self.writeGpr(instr.rd(), @intFromBool(less));
+    fn sltu(self: *@This(), instr: *const DecodedInstr) void {
+        const less = self.gpr[instr.rs] < self.gpr[instr.rt];
+        self.writeGpr(instr.rd, @intFromBool(less));
     }
 
-    fn sh(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn sh(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -849,86 +935,86 @@ pub const CPU = struct {
             return;
         }
 
-        const v = self.gpr[instr.rt()];
+        const v = self.gpr[instr.rt];
         self.memWrite(u16, addr, @truncate(v));
     }
 
-    fn sb(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
-        const v = self.gpr[instr.rt()];
+    fn sb(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
+        const v = self.gpr[instr.rt];
 
         self.memWrite(u8, addr, @truncate(v));
     }
 
-    fn jal(self: *@This(), instr: Instr) void {
+    fn jal(self: *@This(), instr: *const DecodedInstr) void {
         const ra = @intFromEnum(Reg.ra);
         self.writeGpr(ra, self.next_pc);
-        self.jump((self.pc & 0xF0000000) | (instr.addr() << 2));
+        self.jump((self.pc & 0xF0000000) | (instr.addr << 2));
     }
 
-    fn jr(self: *@This(), instr: Instr) void {
-        self.jump(self.gpr[instr.rs()]);
+    fn jr(self: *@This(), instr: *const DecodedInstr) void {
+        self.jump(self.gpr[instr.rs]);
     }
 
-    fn bgtz(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn bgtz(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
         self.branchIf(
             @as(i32, @bitCast(v)) > 0,
-            instr.imm_s(),
+            instr.imm_s,
         );
     }
 
-    fn blez(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn blez(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
         self.branchIf(
             @as(i32, @bitCast(v)) <= 0,
-            instr.imm_s(),
+            instr.imm_s,
         );
     }
 
-    fn jalr(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
-        self.writeGpr(instr.rd(), self.next_pc);
+    fn jalr(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
+        self.writeGpr(instr.rd, self.next_pc);
         self.jump(v);
     }
 
-    fn bltz(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn bltz(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
         self.branchIf(
             @as(i32, @bitCast(v)) < 0,
-            instr.imm_s(),
+            instr.imm_s,
         );
     }
 
-    fn bgez(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn bgez(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
         self.branchIf(
             @as(i32, @bitCast(v)) >= 0,
-            instr.imm_s(),
+            instr.imm_s,
         );
     }
 
-    fn slti(self: *@This(), instr: Instr) void {
-        const rs = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const imm = @as(i32, @bitCast(instr.imm_s()));
+    fn slti(self: *@This(), instr: *const DecodedInstr) void {
+        const rs = @as(i32, @bitCast(self.gpr[instr.rs]));
+        const imm = @as(i32, @bitCast(instr.imm_s));
         const less = @intFromBool(rs < imm);
-        self.writeGpr(instr.rt(), less);
+        self.writeGpr(instr.rt, less);
     }
 
-    fn subu(self: *@This(), instr: Instr) void {
-        const v, _ = @subWithOverflow(self.gpr[instr.rs()], self.gpr[instr.rt()]);
-        self.writeGpr(instr.rd(), v);
+    fn subu(self: *@This(), instr: *const DecodedInstr) void {
+        const v, _ = @subWithOverflow(self.gpr[instr.rs], self.gpr[instr.rt]);
+        self.writeGpr(instr.rd, v);
     }
 
-    fn sra(self: *@This(), instr: Instr) void {
-        const v = @as(i32, @bitCast(self.gpr[instr.rt()])) >> instr.shift();
-        self.writeGpr(instr.rd(), @as(u32, @bitCast(v)));
+    fn sra(self: *@This(), instr: *const DecodedInstr) void {
+        const v = @as(i32, @bitCast(self.gpr[instr.rt])) >> instr.shift;
+        self.writeGpr(instr.rd, @as(u32, @bitCast(v)));
     }
 
-    fn div(self: *@This(), instr: Instr) void {
-        const num = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const denom = @as(i32, @bitCast(self.gpr[instr.rt()]));
+    fn div(self: *@This(), instr: *const DecodedInstr) void {
+        const num = @as(i32, @bitCast(self.gpr[instr.rs]));
+        const denom = @as(i32, @bitCast(self.gpr[instr.rt]));
 
         if (std.math.divTrunc(i32, num, denom)) |v| {
             self.lo = @bitCast(v);
@@ -945,9 +1031,9 @@ pub const CPU = struct {
         }
     }
 
-    fn divu(self: *@This(), instr: Instr) void {
-        const num = self.gpr[instr.rs()];
-        const denom = self.gpr[instr.rt()];
+    fn divu(self: *@This(), instr: *const DecodedInstr) void {
+        const num = self.gpr[instr.rs];
+        const denom = self.gpr[instr.rt];
 
         if (denom == 0) {
             @branchHint(.unlikely);
@@ -960,52 +1046,52 @@ pub const CPU = struct {
         self.hi = @mod(num, denom);
     }
 
-    fn mflo(self: *@This(), instr: Instr) void {
-        self.writeGpr(instr.rd(), self.lo);
+    fn mflo(self: *@This(), instr: *const DecodedInstr) void {
+        self.writeGpr(instr.rd, self.lo);
     }
 
-    fn mfhi(self: *@This(), instr: Instr) void {
-        self.writeGpr(instr.rd(), self.hi);
+    fn mfhi(self: *@This(), instr: *const DecodedInstr) void {
+        self.writeGpr(instr.rd, self.hi);
     }
 
-    fn srl(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rt()] >> instr.shift();
-        self.writeGpr(instr.rd(), v);
+    fn srl(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rt] >> instr.shift;
+        self.writeGpr(instr.rd, v);
     }
 
-    fn sltiu(self: *@This(), instr: Instr) void {
-        const less = self.gpr[instr.rs()] < @as(u32, @bitCast(instr.imm_s()));
-        self.writeGpr(instr.rt(), @intFromBool(less));
+    fn sltiu(self: *@This(), instr: *const DecodedInstr) void {
+        const less = self.gpr[instr.rs] < @as(u32, @bitCast(instr.imm_s));
+        self.writeGpr(instr.rt, @intFromBool(less));
     }
 
-    fn slt(self: *@This(), instr: Instr) void {
-        const a = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const b = @as(i32, @bitCast(self.gpr[instr.rt()]));
-        self.writeGpr(instr.rd(), @intFromBool(a < b));
+    fn slt(self: *@This(), instr: *const DecodedInstr) void {
+        const a = @as(i32, @bitCast(self.gpr[instr.rs]));
+        const b = @as(i32, @bitCast(self.gpr[instr.rt]));
+        self.writeGpr(instr.rd, @intFromBool(a < b));
     }
 
-    fn syscall(self: *@This(), _: Instr) void {
+    fn syscall(self: *@This(), _: *const DecodedInstr) void {
         self.exception(.syscall);
     }
 
-    fn mtlo(self: *@This(), instr: Instr) void {
-        self.lo = self.gpr[instr.rs()];
+    fn mtlo(self: *@This(), instr: *const DecodedInstr) void {
+        self.lo = self.gpr[instr.rs];
     }
 
-    fn mthi(self: *@This(), instr: Instr) void {
-        self.hi = self.gpr[instr.rs()];
+    fn mthi(self: *@This(), instr: *const DecodedInstr) void {
+        self.hi = self.gpr[instr.rs];
     }
 
-    fn mfc0(self: *@This(), instr: Instr) void {
-        const v = self.cop0.getReg(instr.rd());
-        self.writeGprDelay(instr.rt(), v);
+    fn mfc0(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.cop0.getReg(instr.rd);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn mtc0(self: *@This(), instr: Instr) void {
-        self.cop0.setReg(instr.rd(), self.gpr[instr.rt()]);
+    fn mtc0(self: *@This(), instr: *const DecodedInstr) void {
+        self.cop0.setReg(instr.rd, self.gpr[instr.rt]);
     }
 
-    fn rfe(self: *@This(), _: Instr) void {
+    fn rfe(self: *@This(), _: *const DecodedInstr) void {
         self.cop0.popException();
 
         if (self.cop0.depth == 0) {
@@ -1013,14 +1099,14 @@ pub const CPU = struct {
         }
     }
 
-    fn lhu(self: *@This(), instr: Instr) void {
+    fn lhu(self: *@This(), instr: *const DecodedInstr) void {
         if (self.cop0.status().isolate_cache) {
             // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
 
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -1029,23 +1115,23 @@ pub const CPU = struct {
         }
 
         const v = self.memRead(u16, addr);
-        self.writeGprDelay(instr.rt(), v);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn sllv(self: *@This(), instr: Instr) void {
-        const shift = @as(u5, @truncate(self.gpr[instr.rs()] & 0x1F)); // only 5 bits are used
-        const v = self.gpr[instr.rt()] << shift;
-        self.writeGpr(instr.rd(), v);
+    fn sllv(self: *@This(), instr: *const DecodedInstr) void {
+        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1F)); // only 5 bits are used
+        const v = self.gpr[instr.rt] << shift;
+        self.writeGpr(instr.rd, v);
     }
 
-    fn lh(self: *@This(), instr: Instr) void {
+    fn lh(self: *@This(), instr: *const DecodedInstr) void {
         if (self.cop0.status().isolate_cache) {
             // log.debug("ignoring write while cache is isolated", .{});
             return;
         }
 
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
 
         if (addr % 2 != 0) {
             @branchHint(.unlikely);
@@ -1054,52 +1140,52 @@ pub const CPU = struct {
         }
 
         const v = signExtend(u16, self.memRead(u16, addr));
-        self.writeGprDelay(instr.rt(), v);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn nor(self: *@This(), instr: Instr) void {
-        const v = ~(self.gpr[instr.rs()] | self.gpr[instr.rt()]);
-        self.writeGpr(instr.rd(), v);
+    fn nor(self: *@This(), instr: *const DecodedInstr) void {
+        const v = ~(self.gpr[instr.rs] | self.gpr[instr.rt]);
+        self.writeGpr(instr.rd, v);
     }
 
-    fn srav(self: *@This(), instr: Instr) void {
-        const shift = @as(u5, @truncate(self.gpr[instr.rs()] & 0x1F)); // 5 bits
-        const v = @as(i32, @bitCast(self.gpr[instr.rt()])) >> shift;
-        self.writeGpr(instr.rd(), @as(u32, @bitCast(v)));
+    fn srav(self: *@This(), instr: *const DecodedInstr) void {
+        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1F)); // 5 bits
+        const v = @as(i32, @bitCast(self.gpr[instr.rt])) >> shift;
+        self.writeGpr(instr.rd, @as(u32, @bitCast(v)));
     }
 
-    fn srlv(self: *@This(), instr: Instr) void {
-        const shift = @as(u5, @truncate(self.gpr[instr.rs()] & 0x1F)); // 5 bits
-        const v = self.gpr[instr.rt()] >> shift;
-        self.writeGpr(instr.rd(), v);
+    fn srlv(self: *@This(), instr: *const DecodedInstr) void {
+        const shift = @as(u5, @truncate(self.gpr[instr.rs] & 0x1F)); // 5 bits
+        const v = self.gpr[instr.rt] >> shift;
+        self.writeGpr(instr.rd, v);
     }
 
-    fn multu(self: *@This(), instr: Instr) void {
-        const a = @as(u64, self.gpr[instr.rs()]);
-        const b = @as(u64, self.gpr[instr.rt()]);
+    fn multu(self: *@This(), instr: *const DecodedInstr) void {
+        const a = @as(u64, self.gpr[instr.rs]);
+        const b = @as(u64, self.gpr[instr.rt]);
         const v, _ = @mulWithOverflow(a, b);
 
         self.lo = @truncate(v);
         self.hi = @truncate(v >> 32);
     }
 
-    fn xor(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()] ^ self.gpr[instr.rt()];
-        self.writeGpr(instr.rd(), v);
+    fn xor(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs] ^ self.gpr[instr.rt];
+        self.writeGpr(instr.rd, v);
     }
 
-    fn xori(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()] ^ instr.imm();
-        self.writeGpr(instr.rt(), v);
+    fn xori(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs] ^ instr.imm;
+        self.writeGpr(instr.rt, v);
     }
 
-    fn break_(self: *@This(), _: Instr) void {
+    fn break_(self: *@This(), _: *const DecodedInstr) void {
         self.exception(.breakpoint);
     }
 
-    fn mult(self: *@This(), instr: Instr) void {
-        const a = @as(i64, @as(i32, @bitCast(self.gpr[instr.rs()])));
-        const b = @as(i64, @as(i32, @bitCast(self.gpr[instr.rt()])));
+    fn mult(self: *@This(), instr: *const DecodedInstr) void {
+        const a = @as(i64, @as(i32, @bitCast(self.gpr[instr.rs])));
+        const b = @as(i64, @as(i32, @bitCast(self.gpr[instr.rt])));
         const m, _ = @mulWithOverflow(a, b);
         const v = @as(u64, @bitCast(m));
 
@@ -1107,9 +1193,9 @@ pub const CPU = struct {
         self.hi = @truncate(v >> 32);
     }
 
-    fn sub(self: *@This(), instr: Instr) void {
-        const a = @as(i32, @bitCast(self.gpr[instr.rs()]));
-        const b = @as(i32, @bitCast(self.gpr[instr.rt()]));
+    fn sub(self: *@This(), instr: *const DecodedInstr) void {
+        const a = @as(i32, @bitCast(self.gpr[instr.rs]));
+        const b = @as(i32, @bitCast(self.gpr[instr.rt]));
 
         const v, const ov = @subWithOverflow(a, b);
         if (ov != 0) {
@@ -1117,27 +1203,27 @@ pub const CPU = struct {
             return;
         }
 
-        self.writeGpr(instr.rd(), @bitCast(v));
+        self.writeGpr(instr.rd, @bitCast(v));
     }
 
-    fn bltzal(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn bltzal(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
         self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
-        self.branchIf(@as(i32, @bitCast(v)) < 0, instr.imm_s());
+        self.branchIf(@as(i32, @bitCast(v)) < 0, instr.imm_s);
     }
 
-    fn bgezal(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn bgezal(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
         self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
-        self.branchIf(@as(i32, @bitCast(v)) >= 0, instr.imm_s());
+        self.branchIf(@as(i32, @bitCast(v)) >= 0, instr.imm_s);
     }
 
-    fn bltzl(self: *@This(), instr: Instr) void {
-        const v = self.gpr[instr.rs()];
+    fn bltzl(self: *@This(), instr: *const DecodedInstr) void {
+        const v = self.gpr[instr.rs];
 
         self.branchIf(
             @as(i32, @bitCast(v)) < 0,
-            instr.imm_s(),
+            instr.imm_s,
         );
 
         if (!self.branch_taken) {
@@ -1146,15 +1232,15 @@ pub const CPU = struct {
         }
     }
 
-    fn lwl(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn lwl(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const load_v = self.memRead(u32, aligned_addr);
-        var curr_v = self.gpr[instr.rt()];
+        var curr_v = self.gpr[instr.rt];
 
-        if (self.delay_load.r == instr.rt()) {
+        if (self.delay_load.r == instr.rt) {
             curr_v = self.delay_load.v;
         }
 
@@ -1166,18 +1252,18 @@ pub const CPU = struct {
             else => undefined,
         };
 
-        self.writeGprDelay(instr.rt(), v);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn lwr(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn lwr(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const load_v = self.memRead(u32, aligned_addr);
-        var curr_v = self.gpr[instr.rt()];
+        var curr_v = self.gpr[instr.rt];
 
-        if (self.delay_load.r == instr.rt()) {
+        if (self.delay_load.r == instr.rt) {
             curr_v = self.delay_load.v;
         }
 
@@ -1189,16 +1275,16 @@ pub const CPU = struct {
             else => undefined,
         };
 
-        self.writeGprDelay(instr.rt(), v);
+        self.writeGprDelay(instr.rt, v);
     }
 
-    fn swl(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn swl(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const curr_v = self.memRead(u32, aligned_addr);
-        const store_v = self.gpr[instr.rt()];
+        const store_v = self.gpr[instr.rt];
 
         const v = switch (addr & 0x3) {
             0 => (curr_v & 0xffffff00) | (store_v >> 24),
@@ -1211,13 +1297,13 @@ pub const CPU = struct {
         self.memWrite(u32, aligned_addr, v);
     }
 
-    fn swr(self: *@This(), instr: Instr) void {
-        const base = self.gpr[instr.rs()];
-        const addr, _ = add32s(base, instr.imm_s());
+    fn swr(self: *@This(), instr: *const DecodedInstr) void {
+        const base = self.gpr[instr.rs];
+        const addr, _ = addSignedToUnsigned(base, instr.imm_s);
         const aligned_addr = addr & ~@as(u32, 0x3);
 
         const curr_v = self.memRead(u32, aligned_addr);
-        const store_v = self.gpr[instr.rt()];
+        const store_v = self.gpr[instr.rt];
 
         const v = switch (addr & 0x03) {
             0 => (curr_v & 0x00000000) | (store_v << 0),
@@ -1239,7 +1325,7 @@ inline fn signExtend(comptime T: type, v: T) u32 {
     };
 }
 
-inline fn add32s(a: u32, b: i32) struct { u32, u1 } {
+inline fn addSignedToUnsigned(a: u32, b: i32) struct { u32, u1 } {
     const v, const ov = @addWithOverflow(@as(i32, @bitCast(a)), b);
     return .{ @bitCast(v), ov };
 }

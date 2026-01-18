@@ -114,16 +114,6 @@ pub fn update(self: *@This()) void {
             .v = @ptrCast(&self.cpu.next_pc),
         });
 
-        _ = zgui.inputInt("Instr", .{
-            .step = 0,
-            .flags = .{
-                .chars_hexadecimal = true,
-                .chars_uppercase = true,
-                .read_only = true,
-            },
-            .v = @ptrCast(&self.cpu.instr.code),
-        });
-
         if (zgui.beginTabBar("##", .{})) {
             self.drawGprTab();
             self.drawCop0Tab();

@@ -294,7 +294,10 @@ pub const Bus = struct {
             addr_irq_stat => self.setIrqStat(v),
             addr_irq_mask => self.setIrqMask(v),
 
-            RAM.addr_start...RAM.addr_end => self.dev.ram.write(T, masked_addr, v),
+            RAM.addr_start...RAM.addr_end => {
+                self.dev.ram.write(T, masked_addr, v);
+                self.dev.cpu.invalidateBlock(masked_addr);
+            },
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.write(T, masked_addr, v),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.write(T, masked_addr, v),
             DMA.addr_start...DMA.addr_end => self.dev.dma.write(T, masked_addr, v),

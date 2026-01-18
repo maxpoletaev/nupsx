@@ -1,7 +1,7 @@
 const std = @import("std");
 const cpu_mod = @import("cpu.zig");
 
-const Instr = cpu_mod.Instr;
+const Instr = cpu_mod.RawInstr;
 const Opcode = cpu_mod.Opcode;
 const RegName = cpu_mod.RegName;
 const CopOpCode = cpu_mod.CopOpcode;
@@ -45,7 +45,7 @@ fn fallback(comptime T: type, v: T, w: *std.Io.Writer, base: []const u8) !void {
 }
 
 pub fn toWriter(instr: Instr, w: *std.Io.Writer) !void {
-    if (instr.code == 0) {
+    if (instr.raw == 0) {
         try w.writeAll("nop");
         return;
     }
