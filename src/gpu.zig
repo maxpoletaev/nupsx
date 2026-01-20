@@ -10,6 +10,7 @@ const Color15 = rasterizer.Color15;
 const Color24 = rasterizer.Color24;
 const Vertex = rasterizer.Vertex;
 const RasterDepth = rasterizer.ColorDepth;
+const Transparency = rasterizer.TransparencyMode;
 
 const log = std.log.scoped(.gpu);
 
@@ -301,69 +302,74 @@ pub const GPU = struct {
     }
 
     fn stepCommandState(self: *@This(), v: u32) void {
+        const Opaque = false;
+        const SemiTrans = true;
+        const Blend = true;
+        const Raw = false;
+
         switch (self.gp0_cmd) {
             0x00 => {},
             0x01 => {}, // self.clearCache(v),
             0x02 => self.fillVram(v),
             0x1f => self.interrupt_request = true,
 
-            0x20 => self.drawPoly3Flat(v),
-            0x22 => self.drawPoly3Flat(v),
-            0x28 => self.drawPoly4Flat(v),
-            0x2a => self.drawPoly4Flat(v),
+            0x20 => self.drawPoly3Flat(v, Opaque),
+            0x22 => self.drawPoly3Flat(v, SemiTrans),
+            0x28 => self.drawPoly4Flat(v, Opaque),
+            0x2a => self.drawPoly4Flat(v, SemiTrans),
 
-            0x24 => self.drawPoly3Textured(v),
-            0x25 => self.drawPoly3Textured(v),
-            0x26 => self.drawPoly3Textured(v),
-            0x27 => self.drawPoly3Textured(v),
-            0x2c => self.drawPoly4Textured(v),
-            0x2d => self.drawPoly4Textured(v),
-            0x2e => self.drawPoly4Textured(v),
-            0x2f => self.drawPoly4Textured(v),
+            0x24 => self.drawPoly3Textured(v, Opaque, Blend),
+            0x25 => self.drawPoly3Textured(v, Opaque, Raw),
+            0x26 => self.drawPoly3Textured(v, SemiTrans, Blend),
+            0x27 => self.drawPoly3Textured(v, SemiTrans, Raw),
+            0x2c => self.drawPoly4Textured(v, Opaque, Blend),
+            0x2d => self.drawPoly4Textured(v, Opaque, Raw),
+            0x2e => self.drawPoly4Textured(v, SemiTrans, Blend),
+            0x2f => self.drawPoly4Textured(v, SemiTrans, Raw),
 
-            0x34 => self.drawPoly3ShadedTextured(v),
-            0x36 => self.drawPoly3ShadedTextured(v),
-            0x3c => self.drawPoly4ShadedTextured(v),
-            0x3e => self.drawPoly4ShadedTextured(v),
+            0x34 => self.drawPoly3ShadedTextured(v, Opaque),
+            0x36 => self.drawPoly3ShadedTextured(v, SemiTrans),
+            0x3c => self.drawPoly4ShadedTextured(v, Opaque),
+            0x3e => self.drawPoly4ShadedTextured(v, SemiTrans),
 
-            0x30 => self.drawPoly3Shaded(v),
-            0x32 => self.drawPoly3Shaded(v),
-            0x38 => self.drawPoly4Shaded(v),
-            0x3a => self.drawPoly4Shaded(v),
+            0x30 => self.drawPoly3Shaded(v, Opaque),
+            0x32 => self.drawPoly3Shaded(v, SemiTrans),
+            0x38 => self.drawPoly4Shaded(v, Opaque),
+            0x3a => self.drawPoly4Shaded(v, SemiTrans),
 
-            0x40 => self.drawLineFlat(v),
-            0x42 => self.drawLineFlat(v),
-            0x48 => self.drawPolyLineFlat(v),
-            0x4a => self.drawPolyLineFlat(v),
-            0x50 => self.drawLineShaded(v),
-            0x52 => self.drawLineShaded(v),
-            0x58 => self.drawPolyLineShaded(v),
-            0x5a => self.drawPolyLineShaded(v),
+            0x40 => self.drawLineFlat(v, Opaque),
+            0x42 => self.drawLineFlat(v, SemiTrans),
+            0x48 => self.drawPolyLineFlat(v, Opaque),
+            0x4a => self.drawPolyLineFlat(v, SemiTrans),
+            0x50 => self.drawLineShaded(v, Opaque),
+            0x52 => self.drawLineShaded(v, SemiTrans),
+            0x58 => self.drawPolyLineShaded(v, Opaque),
+            0x5a => self.drawPolyLineShaded(v, SemiTrans),
 
-            0x60 => self.drawRectFlat(v, null),
-            0x62 => self.drawRectFlat(v, null),
-            0x64 => self.drawRectTextured(v, null),
-            0x65 => self.drawRectTextured(v, null),
-            0x66 => self.drawRectTextured(v, null),
-            0x67 => self.drawRectTextured(v, null),
-            0x68 => self.drawRectFlat(v, 1),
-            0x6a => self.drawRectFlat(v, 1),
-            0x6c => self.drawRectTextured(v, 1),
-            0x6d => self.drawRectTextured(v, 1),
-            0x6e => self.drawRectTextured(v, 1),
-            0x6f => self.drawRectTextured(v, 1),
-            0x70 => self.drawRectFlat(v, 8),
-            0x72 => self.drawRectFlat(v, 8),
-            0x74 => self.drawRectTextured(v, 8),
-            0x75 => self.drawRectTextured(v, 8),
-            0x76 => self.drawRectTextured(v, 8),
-            0x77 => self.drawRectTextured(v, 8),
-            0x78 => self.drawRectFlat(v, 16),
-            0x7a => self.drawRectFlat(v, 16),
-            0x7c => self.drawRectTextured(v, 16),
-            0x7d => self.drawRectTextured(v, 16),
-            0x7e => self.drawRectTextured(v, 16),
-            0x7f => self.drawRectTextured(v, 16),
+            0x60 => self.drawRectFlat(v, null, Opaque),
+            0x62 => self.drawRectFlat(v, null, SemiTrans),
+            0x64 => self.drawRectTextured(v, null, Opaque, Blend),
+            0x65 => self.drawRectTextured(v, null, Opaque, Raw),
+            0x66 => self.drawRectTextured(v, null, SemiTrans, Blend),
+            0x67 => self.drawRectTextured(v, null, SemiTrans, Raw),
+            0x68 => self.drawRectFlat(v, 1, Opaque),
+            0x6a => self.drawRectFlat(v, 1, SemiTrans),
+            0x6c => self.drawRectTextured(v, 1, Opaque, Blend),
+            0x6d => self.drawRectTextured(v, 1, Opaque, Raw),
+            0x6e => self.drawRectTextured(v, 1, SemiTrans, Blend),
+            0x6f => self.drawRectTextured(v, 1, SemiTrans, Raw),
+            0x70 => self.drawRectFlat(v, 8, Opaque),
+            0x72 => self.drawRectFlat(v, 8, SemiTrans),
+            0x74 => self.drawRectTextured(v, 8, Opaque, Blend),
+            0x75 => self.drawRectTextured(v, 8, Opaque, Raw),
+            0x76 => self.drawRectTextured(v, 8, SemiTrans, Blend),
+            0x77 => self.drawRectTextured(v, 8, SemiTrans, Raw),
+            0x78 => self.drawRectFlat(v, 16, Opaque),
+            0x7a => self.drawRectFlat(v, 16, SemiTrans),
+            0x7c => self.drawRectTextured(v, 16, Opaque, Blend),
+            0x7d => self.drawRectTextured(v, 16, Opaque, Raw),
+            0x7e => self.drawRectTextured(v, 16, SemiTrans, Blend),
+            0x7f => self.drawRectTextured(v, 16, SemiTrans, Raw),
 
             0x80 => self.vramToVram(v),
             0xa0 => self.cpuToVram(v),
@@ -378,7 +384,7 @@ pub const GPU = struct {
 
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
             0x21, 0x23, 0x29, 0x2b, 0x31, 0x33, 0x39, 0x3b => {}, // undocumented/nonsense
-            0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0), // 0x0 rectangles?
+            0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0, false), // 0x0 rectangles?
 
             else => {
                 log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd });
@@ -398,6 +404,13 @@ pub const GPU = struct {
 
     fn setDrawMode(self: *@This(), v: u32) void {
         self.gp0_draw_mode = @bitCast(v);
+        const transparency = switch (self.gp0_draw_mode.semi_transparency) {
+            0 => Transparency.@"B/2+F/2",
+            1 => Transparency.@"B+F",
+            2 => Transparency.@"B-F",
+            3 => Transparency.@"B+F/4",
+        };
+        self.rasterizer.setTransparencyMode(transparency);
         log.debug("setDrawMode: {any}", .{self.gp0_draw_mode});
     }
 
@@ -621,7 +634,7 @@ pub const GPU = struct {
         return v & 0xf000f000 == 0x50005000;
     }
 
-    fn drawLineFlat(self: *@This(), v: u32) void {
+    fn drawLineFlat(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -633,7 +646,7 @@ pub const GPU = struct {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const pos1 = argVertex(self.gp0_fifo.buf[2]);
-                    self.rasterizer.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color);
+                    self.rasterizer.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color, semi_trans);
                     self.gp0_state = .recv_command;
                 }
             },
@@ -641,7 +654,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPolyLineFlat(self: *@This(), v: u32) void {
+    fn drawPolyLineFlat(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -658,7 +671,7 @@ pub const GPU = struct {
 
                 while (!self.gp0_fifo.isEmpty()) {
                     const v1 = argVertex(self.gp0_fifo.pop().?);
-                    self.rasterizer.drawLineFlat(v0.x, v0.y, v1.x, v1.y, color);
+                    self.rasterizer.drawLineFlat(v0.x, v0.y, v1.x, v1.y, color, semi_trans);
                     v0 = v1;
                 }
 
@@ -668,7 +681,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawLineShaded(self: *@This(), v: u32) void {
+    fn drawLineShaded(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -681,7 +694,7 @@ pub const GPU = struct {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const color1 = argColor(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
-                    self.rasterizer.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1);
+                    self.rasterizer.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1, semi_trans);
                     self.gp0_state = .recv_command;
                 }
             },
@@ -689,7 +702,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPolyLineShaded(self: *@This(), v: u32) void {
+    fn drawPolyLineShaded(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -707,7 +720,7 @@ pub const GPU = struct {
                 while (!self.gp0_fifo.isEmpty()) {
                     const c1 = argColor(self.gp0_fifo.pop().?);
                     const v1 = argVertex(self.gp0_fifo.pop().?);
-                    self.rasterizer.drawLineShaded(v0.x, v0.y, c0, v1.x, v1.y, c1);
+                    self.rasterizer.drawLineShaded(v0.x, v0.y, c0, v1.x, v1.y, c1, semi_trans);
                     c0 = c1;
                     v0 = v1;
                 }
@@ -718,7 +731,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawRectFlat(self: *@This(), v: u32, comptime fix_size: ?u16) void {
+    fn drawRectFlat(self: *@This(), v: u32, comptime fix_size: ?u16, comptime semi_trans: bool) void {
         const need_args = if (fix_size != null) 2 else 3;
 
         switch (self.gp0_state) {
@@ -732,7 +745,7 @@ pub const GPU = struct {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertex(self.gp0_fifo.buf[1]);
                     const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[2]);
-                    self.rasterizer.drawRectFlat(pos.x, pos.y, size.x, size.y, color);
+                    self.rasterizer.drawRectFlat(pos.x, pos.y, size.x, size.y, color, semi_trans);
                     log.debug("drawRectFlat: pos=({}, {}), size=({}, {}), color={x}", .{ pos.x, pos.y, size.x, size.y, @as(u24, @bitCast(color)) });
                     self.gp0_state = .recv_command;
                 }
@@ -741,7 +754,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawRectTextured(self: *@This(), v: u32, comptime fix_size: ?u16) void {
+    fn drawRectTextured(self: *@This(), v: u32, comptime fix_size: ?u16, comptime semi_trans: bool, comptime tex_blend: bool) void {
         const need_args = if (fix_size != null) 3 else 4;
 
         switch (self.gp0_state) {
@@ -753,13 +766,12 @@ pub const GPU = struct {
                 self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == need_args) {
                     const texp = self.getTexpage();
+                    const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertex(self.gp0_fifo.buf[1]);
                     const clut = argClut(self.gp0_fifo.buf[2]);
                     const uv = argTexcoord(self.gp0_fifo.buf[2]);
                     const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[3]);
-
-                    log.debug("drawRectTextured: pos=({}, {}), size=({}, {}), clut=({}, {}), tp=({}, {}, {s})", .{ pos.x, pos.y, size.x, size.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth) });
-                    self.rasterizer.drawRectTextured(pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, texp.depth);
+                    self.rasterizer.drawRectTextured(pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
                     self.gp0_state = .recv_command;
                 }
             },
@@ -767,7 +779,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly3Flat(self: *@This(), v: u32) void {
+    fn drawPoly3Flat(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -785,7 +797,7 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y };
 
-                    self.rasterizer.drawTriangleFlat(v0, v1, v2, color);
+                    self.rasterizer.drawTriangleFlat(v0, v1, v2, color, semi_trans);
 
                     self.gp0_state = .recv_command;
                 }
@@ -794,7 +806,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly3Shaded(self: *@This(), v: u32) void {
+    fn drawPoly3Shaded(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -814,7 +826,7 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .color = color1 };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
 
-                    self.rasterizer.drawTriangleShaded(v0, v1, v2);
+                    self.rasterizer.drawTriangleShaded(v0, v1, v2, semi_trans);
 
                     self.gp0_state = .recv_command;
                 }
@@ -823,7 +835,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly4Flat(self: *@This(), v: u32) void {
+    fn drawPoly4Flat(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -843,8 +855,8 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y };
 
-                    self.rasterizer.drawTriangleFlat(v0, v1, v2, color);
-                    self.rasterizer.drawTriangleFlat(v1, v3, v2, color);
+                    self.rasterizer.drawTriangleFlat(v0, v1, v2, color, semi_trans);
+                    self.rasterizer.drawTriangleFlat(v1, v3, v2, color, semi_trans);
 
                     self.gp0_state = .recv_command;
                 }
@@ -853,7 +865,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly4Shaded(self: *@This(), v: u32) void {
+    fn drawPoly4Shaded(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -876,8 +888,8 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .color = color3 };
 
-                    self.rasterizer.drawTriangleShaded(v0, v1, v2);
-                    self.rasterizer.drawTriangleShaded(v1, v3, v2);
+                    self.rasterizer.drawTriangleShaded(v0, v1, v2, semi_trans);
+                    self.rasterizer.drawTriangleShaded(v1, v3, v2, semi_trans);
 
                     self.gp0_state = .recv_command;
                 }
@@ -886,7 +898,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly3Textured(self: *@This(), v: u32) void {
+    fn drawPoly3Textured(self: *@This(), v: u32, comptime semi_trans: bool, comptime texture_blend: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -895,6 +907,7 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 7) {
+                    const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
@@ -911,12 +924,7 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
-
-                    log.debug(
-                        "drawPoly3Textured: v0=({}, {}, {}, {}), v1=({}, {}, {}, {}), v2=({}, {}, {}, {}), clut=({}, {}), tp=({}, {}, {s})",
-                        .{ v0.x, v0.y, v0.u, v0.v, v1.x, v1.y, v1.u, v1.v, v2.x, v2.y, v2.u, v2.v, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth) },
-                    );
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, texture_blend);
 
                     self.gp0_state = .recv_command;
                 }
@@ -925,7 +933,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly4Textured(self: *@This(), v: u32) void {
+    fn drawPoly4Textured(self: *@This(), v: u32, comptime semi_trans: bool, comptime texture_blend: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -934,6 +942,7 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 9) {
+                    const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
@@ -953,8 +962,8 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y };
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
-                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, texture_blend);
+                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, texture_blend);
 
                     self.gp0_state = .recv_command;
                 }
@@ -963,7 +972,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly3ShadedTextured(self: *@This(), v: u32) void {
+    fn drawPoly3ShadedTextured(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -972,10 +981,13 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 9) {
+                    const color0 = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const color1 = argColor(self.gp0_fifo.buf[3]);
                     const pos1 = argVertex(self.gp0_fifo.buf[4]);
                     const uv1 = argTexcoord(self.gp0_fifo.buf[5]);
+                    const color2 = argColor(self.gp0_fifo.buf[6]);
                     const pos2 = argVertex(self.gp0_fifo.buf[7]);
                     const uv2 = argTexcoord(self.gp0_fifo.buf[8]);
 
@@ -984,11 +996,11 @@ pub const GPU = struct {
 
                     self.setDrawModeFromArg(self.gp0_fifo.buf[5]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y, .color = color0 };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y, .color = color1 };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y, .color = color2 };
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
+                    self.rasterizer.drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans);
 
                     self.gp0_state = .recv_command;
                 }
@@ -997,7 +1009,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly4ShadedTextured(self: *@This(), v: u32) void {
+    fn drawPoly4ShadedTextured(self: *@This(), v: u32, comptime semi_trans: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -1006,12 +1018,16 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 12) {
+                    const color0 = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const uv0 = argTexcoord(self.gp0_fifo.buf[2]);
+                    const color1 = argColor(self.gp0_fifo.buf[3]);
                     const pos1 = argVertex(self.gp0_fifo.buf[4]);
                     const uv1 = argTexcoord(self.gp0_fifo.buf[5]);
+                    const color2 = argColor(self.gp0_fifo.buf[6]);
                     const pos2 = argVertex(self.gp0_fifo.buf[7]);
                     const uv2 = argTexcoord(self.gp0_fifo.buf[8]);
+                    const color3 = argColor(self.gp0_fifo.buf[9]);
                     const pos3 = argVertex(self.gp0_fifo.buf[10]);
                     const uv3 = argTexcoord(self.gp0_fifo.buf[11]);
 
@@ -1020,13 +1036,13 @@ pub const GPU = struct {
 
                     self.setDrawModeFromArg(self.gp0_fifo.buf[5]);
 
-                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y };
-                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
-                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
-                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y };
+                    const v0 = Vertex{ .x = pos0.x, .y = pos0.y, .u = uv0.x, .v = uv0.y, .color = color0 };
+                    const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y, .color = color1 };
+                    const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y, .color = color2 };
+                    const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y, .color = color3 };
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
-                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth);
+                    self.rasterizer.drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans);
+                    self.rasterizer.drawTriangleShadedTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans);
 
                     self.gp0_state = .recv_command;
                 }

@@ -385,7 +385,7 @@ pub const CPU = struct {
     pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) !*@This() {
         const self = try allocator.create(@This());
 
-        const block_allocator = BlockAllocator.init(allocator, (1 << 26) / @sizeOf(CachedBlock)); // 64 MB worth of blocks
+        const block_allocator = BlockAllocator.init(allocator, (1 << 27) / @sizeOf(CachedBlock)); // 128 MB worth of blocks
         const cached_blocks = try allocator.create([1 << 21]?*CachedBlock);
         @memset(cached_blocks, null);
 

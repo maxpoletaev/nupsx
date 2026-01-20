@@ -327,6 +327,12 @@ pub const CDROM = struct {
             const left = buf[self.cdda_pos + 0];
             const right = buf[self.cdda_pos + 1];
             self.cdda_pos += 2;
+
+            if (self.cdda_pos >= buf.len) {
+                self.cdda_buf = null;
+                self.cdda_pos = 0;
+            }
+
             return .{ .left = left, .right = right };
         }
 
