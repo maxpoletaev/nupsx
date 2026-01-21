@@ -213,17 +213,15 @@ pub const Rasterizer = struct {
     }
 
     fn applyBlending(texel: RGB5, color: RGB8) RGB5 {
-        const texel_color: RGB5 = @bitCast(texel);
-
-        const r = (@as(u32, texel_color.r)) * @as(u32, color.r) / 128;
-        const g = (@as(u32, texel_color.g)) * @as(u32, color.g) / 128;
-        const b = (@as(u32, texel_color.b)) * @as(u32, color.b) / 128;
+        const r = (@as(u32, texel.r)) * @as(u32, color.r) / 128;
+        const g = (@as(u32, texel.g)) * @as(u32, color.g) / 128;
+        const b = (@as(u32, texel.b)) * @as(u32, color.b) / 128;
 
         return .{
             .r = @intCast(@min(r, 31)),
             .g = @intCast(@min(g, 31)),
             .b = @intCast(@min(b, 31)),
-            .mask_bit = texel_color.mask_bit,
+            .mask_bit = texel.mask_bit,
         };
     }
 
@@ -259,10 +257,6 @@ pub const Rasterizer = struct {
                 return @bitCast(self.vram[toVramAddr(texp_x + u, texp_y + v)]);
             },
         }
-    }
-
-    pub inline fn getPixel(self: *@This(), x: i32, y: i32) u16 {
-        return self.vram[toVramAddr(x, y)];
     }
 
     pub inline fn setPixelRaw(self: *@This(), x: i32, y: i32, color: u16) void {
@@ -341,6 +335,12 @@ pub const Rasterizer = struct {
         return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     }
 
+    inline fn isTopLeft(v0: Vertex, v1: Vertex) bool {
+        const dx = v1.x - v0.x;
+        const dy = v1.y - v0.y;
+        return (dy < 0) or (dy == 0 and dx < 0);
+    }
+
     pub fn drawTriangleFlat(
         self: *@This(),
         v0_orig: Vertex,
@@ -373,10 +373,14 @@ pub const Rasterizer = struct {
         const cap_dx = v2.y - v0.y;
         const cap_dy = v0.x - v2.x;
 
+        const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
+        const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
+        const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
+
         const p = Vertex{ .x = x_min, .y = y_min };
-        var abp_row = edgeFunc(v0, v1, p);
-        var bcp_row = edgeFunc(v1, v2, p);
-        var cap_row = edgeFunc(v2, v0, p);
+        var abp_row = edgeFunc(v0, v1, p) + bias0;
+        var bcp_row = edgeFunc(v1, v2, p) + bias1;
+        var cap_row = edgeFunc(v2, v0, p) + bias2;
 
         var y = y_min;
         while (y <= y_max) : (y += 1) {
@@ -436,10 +440,14 @@ pub const Rasterizer = struct {
         const cap_dx = v2.y - v0.y;
         const cap_dy = v0.x - v2.x;
 
+        const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
+        const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
+        const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
+
         const p = Vertex{ .x = x_min, .y = y_min };
-        const abp_row_start = edgeFunc(v0, v1, p);
-        const bcp_row_start = edgeFunc(v1, v2, p);
-        const cap_row_start = edgeFunc(v2, v0, p);
+        const abp_row_start = edgeFunc(v0, v1, p) + bias0;
+        const bcp_row_start = edgeFunc(v1, v2, p) + bias1;
+        const cap_row_start = edgeFunc(v2, v0, p) + bias2;
 
         const r0: i32 = v0.color.r;
         const r1: i32 = v1.color.r;
@@ -546,10 +554,14 @@ pub const Rasterizer = struct {
         const cap_dx = v2.y - v0.y;
         const cap_dy = v0.x - v2.x;
 
+        const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
+        const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
+        const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
+
         const p = Vertex{ .x = x_min, .y = y_min };
-        const abp_row_start = edgeFunc(v0, v1, p);
-        const bcp_row_start = edgeFunc(v1, v2, p);
-        const cap_row_start = edgeFunc(v2, v0, p);
+        const abp_row_start = edgeFunc(v0, v1, p) + bias0;
+        const bcp_row_start = edgeFunc(v1, v2, p) + bias1;
+        const cap_row_start = edgeFunc(v2, v0, p) + bias2;
 
         const tex_u0: i32 = @intCast(v0.u);
         const tex_u1: i32 = @intCast(v1.u);
@@ -652,12 +664,15 @@ pub const Rasterizer = struct {
         const cap_dx = v2.y - v0.y;
         const cap_dy = v0.x - v2.x;
 
-        const p = Vertex{ .x = x_min, .y = y_min };
-        const abp_row_start = edgeFunc(v0, v1, p);
-        const bcp_row_start = edgeFunc(v1, v2, p);
-        const cap_row_start = edgeFunc(v2, v0, p);
+        const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
+        const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
+        const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
 
-        // Texture coordinate interpolation setup
+        const p = Vertex{ .x = x_min, .y = y_min };
+        const abp_row_start = edgeFunc(v0, v1, p) + bias0;
+        const bcp_row_start = edgeFunc(v1, v2, p) + bias1;
+        const cap_row_start = edgeFunc(v2, v0, p) + bias2;
+
         const tex_u0: i32 = @intCast(v0.u);
         const tex_u1: i32 = @intCast(v1.u);
         const tex_u2: i32 = @intCast(v2.u);
@@ -670,7 +685,6 @@ pub const Rasterizer = struct {
         const v_dx = @divTrunc(((tex_v1 - tex_v0) * (v2.y - v0.y) - (tex_v2 - tex_v0) * (v1.y - v0.y)) * fp_one, abc);
         const v_dy = @divTrunc(((tex_v2 - tex_v0) * (v1.x - v0.x) - (tex_v1 - tex_v0) * (v2.x - v0.x)) * fp_one, abc);
 
-        // Color interpolation setup
         const r0: i32 = v0.color.r;
         const r1: i32 = v1.color.r;
         const r2: i32 = v2.color.r;
@@ -981,11 +995,16 @@ pub const Rasterizer = struct {
             const x = x_fp >> fp_bits;
             const y = y_fp >> fp_bits;
 
-            self.setPixelFlat(x, y, .{
+            const color: RGB8 = .{
                 .r = @truncate(@as(u32, @bitCast(r_fp >> fp_bits))),
                 .g = @truncate(@as(u32, @bitCast(g_fp >> fp_bits))),
                 .b = @truncate(@as(u32, @bitCast(b_fp >> fp_bits))),
-            }, .{ .semi_trans = semi_trans, .dither = true });
+            };
+
+            self.setPixelFlat(x, y, color, .{
+                .semi_trans = semi_trans,
+                .dither = true,
+            });
 
             x_fp += x_dx;
             y_fp += y_dx;
