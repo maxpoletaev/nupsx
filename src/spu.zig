@@ -186,7 +186,7 @@ pub const SPU = struct {
         const sample_index = voice.pitch_counter >> 12;
         if (sample_index >= 28) {
             self.loadAdpcmBlock(@intCast(voice_i));
-            voice.pitch_counter -= 28 << 12;
+            voice.pitch_counter -|= 28 << 12;
         }
 
         const sample_i = voice.pitch_counter >> 12;
@@ -414,6 +414,11 @@ pub const SPU = struct {
     }
 
     pub fn writeData(self: *@This(), v: u16) void {
+        if (self.data_addr_internal > self.ram.len - 1) {
+            log.warn("SPU data write out of bounds at addr {x}", .{self.data_addr_internal});
+            return;
+        }
+
         self.ram[self.data_addr_internal + 0] = @truncate((v >> 0) & 0xff);
         self.ram[self.data_addr_internal + 1] = @truncate((v >> 8) & 0xff);
         self.data_addr_internal += 2;

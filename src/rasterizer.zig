@@ -2,8 +2,8 @@ const std = @import("std");
 
 const log = std.log.scoped(.rasterizer);
 
-pub const Color24 = packed struct {
-    pub const black: Color24 = .{ .r = 0, .g = 0, .b = 0 };
+pub const RGB8 = packed struct {
+    pub const black: RGB8 = .{ .r = 0, .g = 0, .b = 0 };
 
     r: u8,
     g: u8,
@@ -13,7 +13,7 @@ pub const Color24 = packed struct {
         return .{ .r = r, .g = g, .b = b };
     }
 
-    pub inline fn from15(v: Color15) @This() {
+    pub inline fn from15(v: RGB5) @This() {
         return .{
             .r = @as(u8, v.r) << 3,
             .g = @as(u8, v.g) << 3,
@@ -22,7 +22,7 @@ pub const Color24 = packed struct {
     }
 };
 
-pub const Color15 = packed struct {
+pub const RGB5 = packed struct {
     r: u5,
     g: u5,
     b: u5,
@@ -32,15 +32,19 @@ pub const Color15 = packed struct {
         return .{ .r = r, .g = g, .b = b, .mask_bit = mask_bit };
     }
 
-    pub inline fn from24(v: Color24, mask_bit: bool) @This() {
-        return .{
-            .r = @truncate(v.r >> 3),
-            .g = @truncate(v.g >> 3),
-            .b = @truncate(v.b >> 3),
-            .mask_bit = mask_bit,
-        };
+    inline fn isZero(self: RGB5) bool {
+        return @as(u16, @bitCast(self)) == 0;
     }
 };
+
+fn toRGB5(c: RGB8, mask_bit: bool) RGB5 {
+    return .{
+        .r = @truncate(c.r >> 3),
+        .g = @truncate(c.g >> 3),
+        .b = @truncate(c.b >> 3),
+        .mask_bit = mask_bit,
+    };
+}
 
 pub const ColorDepth = enum {
     bit4,
@@ -60,7 +64,7 @@ pub const Vertex = struct {
     y: i32,
     u: u32 = 0,
     v: u32 = 0,
-    color: Color24 = .init(0, 0, 0),
+    color: RGB8 = .init(0, 0, 0),
 };
 
 const fp_bits = 12;
@@ -79,6 +83,7 @@ pub const Rasterizer = struct {
     texwin_offset: [2]u16,
     force_mask_bit: bool = false,
     check_mask_bit: bool = false,
+    enable_dithering: bool = false,
 
     pub fn init(vram: *align(16) [vram_res_x * vram_res_y]u16) @This() {
         return .{
@@ -122,6 +127,10 @@ pub const Rasterizer = struct {
         self.check_mask_bit = check_mask_bit;
     }
 
+    pub fn setDithering(self: *@This(), enable: bool) void {
+        self.enable_dithering = enable;
+    }
+
     // =========================================================================
     // Helpers
     // =========================================================================
@@ -136,8 +145,8 @@ pub const Rasterizer = struct {
         };
     }
 
-    pub inline fn fill(self: *@This(), c: Color24) void {
-        @memset(self.vram, @bitCast(Color15.from24(c, false)));
+    pub inline fn fill(self: *@This(), c: RGB8) void {
+        @memset(self.vram, @bitCast(toRGB5(c, false)));
     }
 
     inline fn toVramAddr(x: i32, y: i32) usize {
@@ -146,26 +155,35 @@ pub const Rasterizer = struct {
         return xx + yy * vram_res_x;
     }
 
-    pub inline fn setPixelMasked(self: *@This(), x: i32, y: i32, color: u16) void {
-        const addr = toVramAddr(x, y);
-        if (self.check_mask_bit) {
-            const curr = self.vram[addr];
-            if (curr & (1 << 15) != 0) return; // write-protected pixel
-        }
-        var out_color = color;
-        if (self.force_mask_bit) out_color |= (1 << 15);
-        self.vram[addr] = out_color;
+    const dithering_table: [4][4]i8 = .{
+        .{ -4, 0, -3, 1 },
+        .{ 2, -2, 3, -1 },
+        .{ -3, 1, -4, 0 },
+        .{ 3, -1, 2, -2 },
+    };
+
+    inline fn applyDithering(color: RGB8, x: i32, y: i32) RGB8 {
+        const dither_x: u8 = @intCast(y & 0x3);
+        const dither_y: u8 = @intCast(x & 0x3);
+
+        const v = dithering_table[dither_y][dither_x];
+        const r = @as(i16, color.r) + v;
+        const g = @as(i16, color.g) + v;
+        const b = @as(i16, color.b) + v;
+
+        return .{
+            .r = @intCast(std.math.clamp(r, 0, 255)),
+            .g = @intCast(std.math.clamp(g, 0, 255)),
+            .b = @intCast(std.math.clamp(b, 0, 255)),
+        };
     }
 
-    inline fn applyTransparency(self: *@This(), front_color: u16, back_color: u16) u16 {
-        const front: Color15 = @bitCast(front_color);
-        const back: Color15 = @bitCast(back_color);
-
+    inline fn applyTransparency(front: RGB5, back: RGB5, mode: TransparencyMode) RGB5 {
         if (!front.mask_bit) {
-            return front_color; // not semi-transparent pixel
+            return front; // not semi-transparent pixel
         }
 
-        const out: Color15 = switch (self.transparency_mode) {
+        const out: RGB5 = switch (mode) {
             .@"B/2+F/2" => .{
                 .r = back.r / 2 +| front.r / 2,
                 .g = back.g / 2 +| front.g / 2,
@@ -194,20 +212,19 @@ pub const Rasterizer = struct {
         return @bitCast(out);
     }
 
-    fn applyBlending(_: *@This(), texel: u16, base_color: Color24) u16 {
-        const texel_color: Color15 = @bitCast(texel);
+    fn applyBlending(texel: RGB5, color: RGB8) RGB5 {
+        const texel_color: RGB5 = @bitCast(texel);
 
-        const r = (@as(u32, texel_color.r)) * @as(u32, base_color.r) / 128;
-        const g = (@as(u32, texel_color.g)) * @as(u32, base_color.g) / 128;
-        const b = (@as(u32, texel_color.b)) * @as(u32, base_color.b) / 128;
+        const r = (@as(u32, texel_color.r)) * @as(u32, color.r) / 128;
+        const g = (@as(u32, texel_color.g)) * @as(u32, color.g) / 128;
+        const b = (@as(u32, texel_color.b)) * @as(u32, color.b) / 128;
 
-        const out: Color15 = .{
+        return .{
             .r = @intCast(@min(r, 31)),
             .g = @intCast(@min(g, 31)),
             .b = @intCast(@min(b, 31)),
             .mask_bit = texel_color.mask_bit,
         };
-        return @bitCast(out);
     }
 
     fn sampleTexture(
@@ -219,7 +236,7 @@ pub const Rasterizer = struct {
         clut_x: u16,
         clut_y: u16,
         depth: ColorDepth,
-    ) u16 {
+    ) RGB5 {
         // const u: u8 = @truncate((u_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
         // const v: u8 = @truncate((v_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
         const u = u_orig;
@@ -230,40 +247,111 @@ pub const Rasterizer = struct {
                 const texel = self.vram[toVramAddr(texp_x + u / 4, texp_y +% v)];
                 const shift = @as(u4, @truncate((u % 4) * 4));
                 const offset = (texel >> shift) & 0xf;
-                return self.vram[toVramAddr(clut_x + offset, clut_y)];
+                return @bitCast(self.vram[toVramAddr(clut_x + offset, clut_y)]);
             },
             .bit8 => {
                 const texel = self.vram[toVramAddr(texp_x + u / 2, texp_y +% v)];
                 const shift = @as(u4, @truncate((u % 2) * 8));
                 const offset = (texel >> shift) & 0xff;
-                return self.vram[toVramAddr(clut_x + offset, clut_y)];
+                return @bitCast(self.vram[toVramAddr(clut_x + offset, clut_y)]);
             },
             .bit15 => {
-                return self.vram[toVramAddr(texp_x + u, texp_y + v)];
+                return @bitCast(self.vram[toVramAddr(texp_x + u, texp_y + v)]);
             },
         }
     }
 
-    inline fn edgeFunc(a: Vertex, b: Vertex, c: Vertex) i32 {
-        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    pub inline fn getPixel(self: *@This(), x: i32, y: i32) u16 {
+        return self.vram[toVramAddr(x, y)];
+    }
+
+    pub inline fn setPixelRaw(self: *@This(), x: i32, y: i32, color: u16) void {
+        const addr = toVramAddr(x, y);
+        if (self.check_mask_bit) {
+            const curr = self.vram[addr];
+            if (curr & (1 << 15) != 0) return; // write-protected
+        }
+        var out = color;
+        if (self.force_mask_bit) out |= (1 << 15);
+        self.vram[addr] = out;
+    }
+
+    inline fn setPixelFlat(
+        self: *@This(),
+        x: i32,
+        y: i32,
+        color: RGB8,
+        comptime mode: struct {
+            dither: bool = false,
+            semi_trans: bool = false,
+        },
+    ) void {
+        const addr = toVramAddr(x, y);
+        const back: RGB5 = @bitCast(self.vram[addr]);
+
+        if (self.check_mask_bit and back.mask_bit) {
+            // write-protected
+        } else {
+            var dithered = color;
+            if (mode.dither and self.enable_dithering) dithered = applyDithering(dithered, x, y);
+
+            var out = toRGB5(dithered, mode.semi_trans);
+            if (mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
+            if (self.force_mask_bit) out.mask_bit = true;
+
+            self.vram[addr] = @bitCast(out);
+        }
+    }
+
+    inline fn setPixelTextured(
+        self: *@This(),
+        x: i32,
+        y: i32,
+        texel: RGB5,
+        blend_color: RGB8,
+        comptime mode: struct {
+            semi_trans: bool = false,
+            dither: bool = false,
+            blend: bool = false,
+        },
+    ) void {
+        const addr = toVramAddr(x, y);
+        const back: RGB5 = @bitCast(self.vram[addr]);
+
+        if (self.check_mask_bit and back.mask_bit) {
+            // write-protected
+        } else {
+            var dithered = blend_color;
+            if (mode.dither and self.enable_dithering) dithered = applyDithering(dithered, x, y);
+
+            var out = texel;
+            if (mode.blend) out = applyBlending(out, dithered);
+            if (mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
+            if (self.force_mask_bit) out.mask_bit = true;
+
+            self.vram[addr] = @bitCast(out);
+        }
     }
 
     // =========================================================================
     // Triangle Primitives
     // =========================================================================
 
+    inline fn edgeFunc(a: Vertex, b: Vertex, c: Vertex) i32 {
+        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    }
+
     pub fn drawTriangleFlat(
         self: *@This(),
         v0_orig: Vertex,
         v1_orig: Vertex,
         v2_orig: Vertex,
-        c: Color24,
+        color: RGB8,
         comptime semi_trans: bool,
     ) void {
         const v0 = self.applyOffset(v0_orig);
         var v1 = self.applyOffset(v1_orig);
         var v2 = self.applyOffset(v2_orig);
-        const c15 = Color15.from24(c, semi_trans);
 
         var abc = edgeFunc(v0, v1, v2);
         if (abc == 0) return; // degenerate triangle
@@ -301,13 +389,9 @@ pub const Rasterizer = struct {
                 const inside = (abp >= 0 and bcp >= 0 and cap >= 0);
 
                 if (inside) {
-                    const addr = toVramAddr(x, y);
-                    var out_color: u16 = @bitCast(c15);
-                    if (semi_trans) {
-                        const back_color = self.vram[addr];
-                        out_color = self.applyTransparency(out_color, back_color);
-                    }
-                    self.vram[addr] = out_color;
+                    self.setPixelFlat(x, y, color, .{
+                        .semi_trans = semi_trans,
+                    });
                 }
 
                 abp += abp_dx;
@@ -396,20 +480,15 @@ pub const Rasterizer = struct {
                 const inside = (abp >= 0 and bcp >= 0 and cap >= 0);
 
                 if (inside) {
-                    const addr = toVramAddr(x, y);
-
-                    var out_color: u16 = @bitCast(Color15.from24(.{
+                    const color: RGB8 = .{
                         .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
                         .g = @truncate(@as(u32, @bitCast(g >> fp_bits))),
                         .b = @truncate(@as(u32, @bitCast(b >> fp_bits))),
-                    }, semi_trans));
-
-                    if (semi_trans) {
-                        const back_color = self.vram[addr];
-                        out_color = self.applyTransparency(out_color, back_color);
-                    }
-
-                    self.vram[addr] = out_color;
+                    };
+                    self.setPixelFlat(x, y, color, .{
+                        .semi_trans = semi_trans,
+                        .dither = true,
+                    });
                 }
 
                 abp += abp_dx;
@@ -439,9 +518,9 @@ pub const Rasterizer = struct {
         texp_x: u16,
         texp_y: u16,
         depth: ColorDepth,
-        base_color: Color24,
+        blend_color: RGB8,
         comptime semi_trans: bool,
-        comptime texture_bleld: bool,
+        comptime tex_blend: bool,
     ) void {
         const v0 = self.applyOffset(v0_orig);
         var v1 = self.applyOffset(v1_orig);
@@ -514,16 +593,11 @@ pub const Rasterizer = struct {
                         depth,
                     );
 
-                    if (texel != 0) {
-                        var out_color = texel;
-                        if (texture_bleld) {
-                            out_color = self.applyBlending(texel, base_color);
-                        }
-                        if (semi_trans) {
-                            const back_color = self.vram[toVramAddr(x, y)];
-                            out_color = self.applyTransparency(out_color, back_color);
-                        }
-                        self.setPixelMasked(x, y, out_color);
+                    if (!texel.isZero()) {
+                        self.setPixelTextured(x, y, texel, blend_color, .{
+                            .semi_trans = semi_trans,
+                            .blend = tex_blend,
+                        });
                     }
                 }
 
@@ -650,21 +724,17 @@ pub const Rasterizer = struct {
                         depth,
                     );
 
-                    if (texel != 0) {
-                        const base_color = Color24{
+                    if (!texel.isZero()) {
+                        const blend_color: RGB8 = .{
                             .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
                             .g = @truncate(@as(u32, @bitCast(g >> fp_bits))),
                             .b = @truncate(@as(u32, @bitCast(b >> fp_bits))),
                         };
-
-                        var out_color = self.applyBlending(texel, base_color);
-
-                        if (semi_trans) {
-                            const back_color = self.vram[toVramAddr(x, y)];
-                            out_color = self.applyTransparency(out_color, back_color);
-                        }
-
-                        self.setPixelMasked(x, y, out_color);
+                        self.setPixelTextured(x, y, texel, blend_color, .{
+                            .semi_trans = semi_trans,
+                            .dither = true,
+                            .blend = true,
+                        });
                     }
                 }
 
@@ -699,12 +769,11 @@ pub const Rasterizer = struct {
         y_orig: i32,
         w: i32,
         h: i32,
-        c: Color24,
+        c: RGB8,
         comptime semi_trans: bool,
     ) void {
         const x = x_orig + self.draw_offset[0];
         const y = y_orig + self.draw_offset[1];
-        const color: u16 = @bitCast(Color15.from24(c, semi_trans));
 
         const x_min = @max(x, self.draw_area_start[0], 0);
         const y_min = @max(y, self.draw_area_start[1], 0);
@@ -715,12 +784,7 @@ pub const Rasterizer = struct {
         while (yy <= y_max) : (yy += 1) {
             var xx = x_min;
             while (xx <= x_max) : (xx += 1) {
-                var out_color = color;
-                if (semi_trans) {
-                    const back_color = self.vram[toVramAddr(xx, yy)];
-                    out_color = self.applyTransparency(color, back_color);
-                }
-                self.setPixelMasked(xx, yy, out_color);
+                self.setPixelFlat(xx, yy, c, .{ .semi_trans = semi_trans });
             }
         }
     }
@@ -738,7 +802,7 @@ pub const Rasterizer = struct {
         texp_x: u16,
         texp_y: u16,
         depth: ColorDepth,
-        base_color: Color24,
+        blend_color: RGB8,
         comptime semi_trans: bool,
         comptime tex_bleld: bool,
     ) void {
@@ -766,16 +830,11 @@ pub const Rasterizer = struct {
             while (px <= x_max) : (px += 1) {
                 const texel = self.sampleTexture(u_curr, v_curr, texp_x, texp_y, clut_x, clut_y, depth);
 
-                if (texel != 0) {
-                    var out_color = texel;
-                    if (tex_bleld) {
-                        out_color = self.applyBlending(texel, base_color);
-                    }
-                    if (semi_trans) {
-                        const back_color = self.vram[toVramAddr(px, py)];
-                        out_color = self.applyTransparency(texel, back_color);
-                    }
-                    self.setPixelMasked(px, py, out_color);
+                if (!texel.isZero()) {
+                    self.setPixelTextured(px, py, texel, blend_color, .{
+                        .semi_trans = semi_trans,
+                        .blend = tex_bleld,
+                    });
                 }
 
                 u_curr +%= 1;
@@ -791,9 +850,9 @@ pub const Rasterizer = struct {
         y: i32,
         w: i32,
         h: i32,
-        c: Color24,
+        c: RGB8,
     ) void {
-        const color: u16 = @bitCast(Color15.from24(c, false));
+        const color: u16 = @bitCast(toRGB5(c, false));
 
         const x_min = @max(x, self.draw_area_start[0], 0);
         const y_min = @max(y, self.draw_area_start[1], 0);
@@ -823,7 +882,7 @@ pub const Rasterizer = struct {
             var xx: i32 = 0;
             while (xx < w) : (xx += 1) {
                 const pixel = self.vram[toVramAddr(src_x + xx, src_y + yy)];
-                self.setPixelMasked(dest_x + xx, dest_y + yy, pixel);
+                self.setPixelRaw(dest_x + xx, dest_y + yy, pixel);
             }
         }
     }
@@ -838,7 +897,7 @@ pub const Rasterizer = struct {
         y0_orig: i32,
         x1_orig: i32,
         y1_orig: i32,
-        c: Color24,
+        color: RGB8,
         comptime semi_trans: bool,
     ) void {
         const x0 = x0_orig + self.draw_offset[0];
@@ -852,19 +911,8 @@ pub const Rasterizer = struct {
         const dx = x1 - x0;
         const dy = y1 - y0;
 
-        const color: u16 = @bitCast(Color15.from24(c, semi_trans));
-
         const steps: i32 = @intCast(@max(@abs(dx), @abs(dy)));
-
-        if (steps == 0) {
-            var out_color = color;
-            if (semi_trans) {
-                const back_color = self.vram[toVramAddr(x0, y0)];
-                out_color = self.applyTransparency(out_color, back_color);
-            }
-            self.setPixelMasked(x0, y0, out_color);
-            return;
-        }
+        if (steps == 0) return;
 
         const x_dx = @divTrunc(dx * fp_one, steps);
         const y_dx = @divTrunc(dy * fp_one, steps);
@@ -877,12 +925,7 @@ pub const Rasterizer = struct {
             const x = x_fp >> fp_bits;
             const y = y_fp >> fp_bits;
 
-            var out_color = color;
-            if (semi_trans) {
-                const back_color = self.vram[toVramAddr(x, y)];
-                out_color = self.applyTransparency(out_color, back_color);
-            }
-            self.setPixelMasked(x, y, out_color);
+            self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true });
 
             x_fp += x_dx;
             y_fp += y_dx;
@@ -893,10 +936,10 @@ pub const Rasterizer = struct {
         self: *@This(),
         x0_orig: i32,
         y0_orig: i32,
-        c0_orig: Color24,
+        c0_orig: RGB8,
         x1_orig: i32,
         y1_orig: i32,
-        c1_orig: Color24,
+        c1_orig: RGB8,
         comptime semi_trans: bool,
     ) void {
         const x0 = x0_orig + self.draw_offset[0];
@@ -911,17 +954,7 @@ pub const Rasterizer = struct {
         const dy = y1 - y0;
 
         const steps: i32 = @intCast(@max(@abs(dx), @abs(dy)));
-
-        if (steps == 0) {
-            const color = Color15.from24(c0_orig, semi_trans);
-            var out_color: u16 = @bitCast(color);
-            if (semi_trans) {
-                const back_color = self.vram[toVramAddr(x0, y0)];
-                out_color = self.applyTransparency(out_color, back_color);
-            }
-            self.setPixelMasked(x0, y0, out_color);
-            return;
-        }
+        if (steps == 0) return;
 
         const x_dx = @divTrunc(dx * fp_one, steps);
         const y_dx = @divTrunc(dy * fp_one, steps);
@@ -948,18 +981,11 @@ pub const Rasterizer = struct {
             const x = x_fp >> fp_bits;
             const y = y_fp >> fp_bits;
 
-            const color = Color15.from24(.{
+            self.setPixelFlat(x, y, .{
                 .r = @truncate(@as(u32, @bitCast(r_fp >> fp_bits))),
                 .g = @truncate(@as(u32, @bitCast(g_fp >> fp_bits))),
                 .b = @truncate(@as(u32, @bitCast(b_fp >> fp_bits))),
-            }, semi_trans);
-
-            var out_color: u16 = @bitCast(color);
-            if (semi_trans) {
-                const back_color = self.vram[toVramAddr(x, y)];
-                out_color = self.applyTransparency(out_color, back_color);
-            }
-            self.setPixelMasked(x, y, out_color);
+            }, .{ .semi_trans = semi_trans, .dither = true });
 
             x_fp += x_dx;
             y_fp += y_dx;

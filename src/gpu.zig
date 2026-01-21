@@ -6,11 +6,10 @@ const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
 
 const Rasterizer = rasterizer.Rasterizer;
-const Color15 = rasterizer.Color15;
-const Color24 = rasterizer.Color24;
-const Vertex = rasterizer.Vertex;
-const RasterDepth = rasterizer.ColorDepth;
 const Transparency = rasterizer.TransparencyMode;
+const RasterDepth = rasterizer.ColorDepth;
+const Vertex = rasterizer.Vertex;
+const Color = rasterizer.RGB8;
 
 const log = std.log.scoped(.gpu);
 
@@ -94,7 +93,7 @@ const CmdState = enum {
     send_data,
 };
 
-inline fn argColor(v: u32) Color24 {
+inline fn argColor(v: u32) Color {
     return @bitCast(@as(u24, @truncate(v)));
 }
 
@@ -411,6 +410,7 @@ pub const GPU = struct {
             3 => Transparency.@"B+F/4",
         };
         self.rasterizer.setTransparencyMode(transparency);
+        self.rasterizer.setDithering(self.gp0_draw_mode.dithering);
         log.debug("setDrawMode: {any}", .{self.gp0_draw_mode});
     }
 
@@ -550,7 +550,7 @@ pub const GPU = struct {
                     const shift = @as(u5, @truncate(i * 16));
                     const color = @as(u16, @truncate(v >> shift));
 
-                    self.rasterizer.setPixelMasked(
+                    self.rasterizer.setPixelRaw(
                         pos.x + self.gp0_blit_x,
                         pos.y + self.gp0_blit_y,
                         color,
@@ -898,7 +898,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly3Textured(self: *@This(), v: u32, comptime semi_trans: bool, comptime texture_blend: bool) void {
+    fn drawPoly3Textured(self: *@This(), v: u32, comptime semi_trans: bool, comptime tex_blend: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -924,7 +924,7 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, texture_blend);
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
 
                     self.gp0_state = .recv_command;
                 }
@@ -933,7 +933,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly4Textured(self: *@This(), v: u32, comptime semi_trans: bool, comptime texture_blend: bool) void {
+    fn drawPoly4Textured(self: *@This(), v: u32, comptime semi_trans: bool, comptime tex_blend: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -962,8 +962,8 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y };
 
-                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, texture_blend);
-                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, texture_blend);
+                    self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
+                    self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
 
                     self.gp0_state = .recv_command;
                 }

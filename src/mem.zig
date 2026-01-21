@@ -16,8 +16,10 @@ const expectEqual = std.testing.expectEqual;
 const log = std.log.scoped(.mem);
 
 const addr_mask_table = [_]u32{
-    0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
-    0x7fffffff, 0x1fffffff, 0xffffffff, 0xffffffff,
+    0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, // KUSEG
+    0x7fffffff, // KSEG0
+    0x1fffffff, // KSEG1
+    0xffffffff, 0xffffffff, // KSEG2
 };
 
 inline fn maskAddr(addr: u32) u32 {
