@@ -8,7 +8,7 @@ const GPU = gpu_mod.GPU;
 const Joypad = joy_mod.Joypad;
 
 const gl = zopengl.bindings;
-const logger = std.log.scoped(.ui);
+const log = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
@@ -29,7 +29,7 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     if (success == 0) {
         var info_log: [512]u8 = undefined;
         gl.getShaderInfoLog(vertex_shader, 512, null, &info_log);
-        logger.err("Vertex shader compilation failed: {s}", .{info_log});
+        log.err("Vertex shader compilation failed: {s}", .{info_log});
         return error.ShaderCompilationFailed;
     }
 
@@ -43,7 +43,7 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     if (success == 0) {
         var info_log: [512]u8 = undefined;
         gl.getShaderInfoLog(fragment_shader, 512, null, &info_log);
-        logger.err("Fragment shader compilation failed: {s}", .{info_log});
+        log.err("Fragment shader compilation failed: {s}", .{info_log});
         return error.ShaderCompilationFailed;
     }
 
@@ -56,7 +56,7 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     if (success == 0) {
         var info_log: [512]u8 = undefined;
         gl.getProgramInfoLog(shader_program, 512, null, &info_log);
-        logger.err("Shader program linking failed: {s}", .{info_log});
+        log.err("Shader program linking failed: {s}", .{info_log});
         return error.ShaderLinkingFailed;
     }
 
@@ -195,32 +195,62 @@ pub const UI = struct {
         .{ glfw.Key.a, .left },
         .{ glfw.Key.s, .down },
         .{ glfw.Key.d, .right },
-
         .{ glfw.Key.k, .cross },
         .{ glfw.Key.l, .circle },
         .{ glfw.Key.j, .square },
         .{ glfw.Key.i, .triangle },
-
         .{ glfw.Key.e, .l1 },
         .{ glfw.Key.q, .l2 },
         .{ glfw.Key.u, .r1 },
         .{ glfw.Key.o, .r2 },
-
         .{ glfw.Key.enter, .start },
         .{ glfw.Key.right_shift, .select },
+    };
+
+    const GamepadMapping = struct { u8, joy_mod.ButtonId };
+    const gamepad_mappings = [_]GamepadMapping{
+        .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
+        .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },
+        .{ @intFromEnum(glfw.Gamepad.Button.dpad_left), .left },
+        .{ @intFromEnum(glfw.Gamepad.Button.dpad_right), .right },
+        .{ @intFromEnum(glfw.Gamepad.Button.cross), .cross },
+        .{ @intFromEnum(glfw.Gamepad.Button.circle), .circle },
+        .{ @intFromEnum(glfw.Gamepad.Button.square), .square },
+        .{ @intFromEnum(glfw.Gamepad.Button.triangle), .triangle },
+        .{ @intFromEnum(glfw.Gamepad.Button.left_bumper), .l1 },
+        .{ @intFromEnum(glfw.Gamepad.Button.left_thumb), .l2 },
+        .{ @intFromEnum(glfw.Gamepad.Button.right_bumper), .r1 },
+        .{ @intFromEnum(glfw.Gamepad.Button.right_thumb), .r2 },
+        .{ @intFromEnum(glfw.Gamepad.Button.start), .start },
+        .{ @intFromEnum(glfw.Gamepad.Button.back), .select },
     };
 
     fn handleInput(self: *@This()) void {
         if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
             glfw.setWindowShouldClose(self.window, true);
         }
+
         if (self.window.shouldClose()) {
             self.is_running = false;
         }
+
         inline for (key_mappings) |mapping| {
             const key_state = glfw.getKey(self.window, mapping[0]);
             const pressed = key_state == .press or key_state == .repeat;
             self.joy.setButtonState(mapping[1], pressed);
+        }
+
+        const gamepad_id = 0;
+
+        if (glfw.joystickIsGamepad(@enumFromInt(gamepad_id))) {
+            const gp_state = glfw.Gamepad.getState(@enumFromInt(gamepad_id)) catch |err| {
+                log.err("failed to get gamepad state: {}", .{err});
+                return;
+            };
+            inline for (gamepad_mappings) |mapping| {
+                const pressed = gp_state.buttons[mapping[0]] == .press;
+                self.joy.setButtonState(mapping[1], pressed);
+            }
         }
     }
 
