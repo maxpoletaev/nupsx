@@ -303,24 +303,10 @@ pub const CDROM = struct {
         self.disc = disc;
     }
 
-    pub fn consumeAudioBuffer(self: *@This(), output: []i16) void {
-        if (self.mute) {
-            @memset(output, 0);
-            return;
-        }
-
-        if (self.cdda_buf) |buf| {
-            @memcpy(output, buf[self.cdda_pos..]);
-            self.cdda_pos += @intCast(output.len);
-        } else {
-            @memset(output, 0);
-        }
-    }
-
-    pub fn consumeAudioSample(self: *@This()) struct { left: i16, right: i16 } {
+    pub fn consumeAudioSample(self: *@This()) [2]i16 {
         if (self.mute) {
             if (self.cdda_buf != null) self.cdda_pos += 2; // advance even when muted
-            return .{ .left = 0, .right = 0 };
+            return .{ 0, 0 };
         }
 
         if (self.cdda_buf) |buf| {
@@ -333,10 +319,10 @@ pub const CDROM = struct {
                 self.cdda_pos = 0;
             }
 
-            return .{ .left = left, .right = right };
+            return .{ left, right };
         }
 
-        return .{ .left = 0, .right = 0 };
+        return .{ 0, 0 };
     }
 
     fn setAudioBuffer(self: *@This(), data_ref: []const i16) void {
@@ -440,7 +426,7 @@ pub const CDROM = struct {
 
     fn setInterrupt(self: *@This(), it: u3) void {
         if (self.irq_pending.ints != 0) {
-            std.debug.panic("unacknowledged interrupt: {x} -> {x}", .{ self.irq_pending.ints, it });
+            log.warn("unacknowledged interrupt: {x} -> {x}", .{ self.irq_pending.ints, it });
         }
 
         self.irq_pending.ints = it;

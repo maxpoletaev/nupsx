@@ -9,6 +9,7 @@ const DMA = @import("dma.zig").DMA;
 const CPU = @import("cpu.zig").CPU;
 const SPU = @import("spu.zig").SPU;
 const CDROM = @import("cdrom.zig").CDROM;
+const MDEC = @import("mdec.zig").MDEC;
 const Timers = @import("timer.zig").Timers;
 const Joypad = @import("joy.zig").Joypad;
 
@@ -138,6 +139,7 @@ pub const Devices = struct {
     ram: *RAM,
     gpu: *GPU,
     dma: *DMA,
+    mdec: *MDEC,
     spu: *SPU,
     joy: *Joypad,
     cdrom: *CDROM,
@@ -264,6 +266,7 @@ pub const Bus = struct {
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.read(T, masked_addr),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.read(T, masked_addr),
             DMA.addr_start...DMA.addr_end => self.dev.dma.read(T, masked_addr),
+            MDEC.addr_start...MDEC.addr_end => self.dev.mdec.read(T, masked_addr),
             Timers.addr_start...Timers.addr_end => self.dev.timers.read(T, masked_addr),
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.read(T, masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.read(T, masked_addr),
@@ -306,6 +309,7 @@ pub const Bus = struct {
             BIOS.addr_start...BIOS.addr_end => self.dev.bios.write(T, masked_addr, v),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.write(T, masked_addr, v),
             DMA.addr_start...DMA.addr_end => self.dev.dma.write(T, masked_addr, v),
+            MDEC.addr_start...MDEC.addr_end => self.dev.mdec.write(T, masked_addr, v),
             Timers.addr_start...Timers.addr_end => self.dev.timers.write(T, masked_addr, v),
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.write(T, masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.write(T, masked_addr, v),

@@ -12,6 +12,7 @@ const joy_mod = @import("joy.zig");
 
 const CPU = @import("cpu.zig").CPU;
 const DMA = @import("dma.zig").DMA;
+const MDEC = @import("mdec.zig").MDEC;
 const DebugUI = @import("debug_ui/DebugUI.zig");
 const Args = @import("args.zig").Args;
 const UI = @import("ui.zig").UI;
@@ -116,10 +117,10 @@ const Audio = struct {
         const buf: [*]i16 = @ptrCast(@alignCast(output.?));
 
         for (0..frame_count) |i| {
-            const sample = self.bus.dev.spu.getAudioSample();
+            const sample = self.bus.dev.spu.consumeAudioSample();
             const cd_sample = self.bus.dev.cdrom.consumeAudioSample();
-            buf[i * 2 + 0] = sample.left +| cd_sample.left;
-            buf[i * 2 + 1] = sample.right +| cd_sample.right;
+            buf[i * 2 + 0] = sample[0] +| cd_sample[0]; // left
+            buf[i * 2 + 1] = sample[1] +| cd_sample[1]; // right
         }
     }
 };
@@ -166,6 +167,9 @@ pub fn main() !void {
     const dma = try DMA.init(allocator, bus);
     defer dma.deinit();
 
+    const mdec = MDEC.init(allocator);
+    defer mdec.deinit();
+
     const timers = Timers.init(allocator);
     defer timers.deinit();
 
@@ -197,6 +201,7 @@ pub fn main() !void {
         .ram = ram,
         .gpu = gpu,
         .dma = dma,
+        .mdec = mdec,
         .spu = spu,
         .joy = joy,
         .cdrom = cdrom,

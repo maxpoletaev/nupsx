@@ -216,8 +216,8 @@ pub const DMA = struct {
                 4 => self.doSpu(),
                 6 => self.doOtc(),
                 else => {
-                    std.debug.panic("DMA channel {d} start not implemented", .{chan_id});
-                    // log.warn("DMA channel {d} start not implemented", .{chan_id});
+                    // std.debug.panic("DMA channel {d} start not implemented", .{chan_id});
+                    log.warn("DMA channel {d} start not implemented", .{chan_id});
                 },
             }
         }

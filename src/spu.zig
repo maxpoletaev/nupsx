@@ -4,6 +4,9 @@ const fifo = @import("fifo.zig");
 const adpcm = @import("adpcm.zig");
 
 const log = std.log.scoped(.spu);
+const clamp = std.math.clamp;
+
+const fp_bits = 12;
 
 const CntReg = packed struct(u16) {
     cd_audio_enable: bool = false, // 0
@@ -35,14 +38,14 @@ const AdsrReg = packed struct(u32) {
     decay_shift: u4 = 0, // 4-7
     attack_step: u2 = 0, // 8-9
     attack_shift: u5 = 0, // 10-14
-    attack_mode: enum(u1) { lin = 0, exp = 1 } = .lin, // 15
+    attack_exponential: bool = false, // 15
     release_shift: u5 = 0, // 16-20
-    release_mode: enum(u1) { lin = 0, exp = 1 } = .lin, // 21
+    release_exponential: bool = false, // 21
     sustain_step: u2 = 0, // 22-23
     sustain_shift: u5 = 0, // 24-28
     _pad0: u1 = 0, // 29
-    sustain_direction: enum(u1) { incr = 0, decr = 1 } = .incr, // 30
-    sustain_mode: enum(u1) { lin = 0, exp = 1 } = .lin, // 31
+    sustain_decrease: bool = false, // 30
+    sustain_exponential: bool = false, // 31
 };
 
 const Phase = enum {
@@ -58,24 +61,23 @@ const Voice = struct {
     sample_rate: u16, // +0x04
     start_addr: u16, // +0x06
     adsr: AdsrReg, // +0x08 +0x0A
-    adsr_volume: u16, // +0x0C
     repeat_addr: u16, // +0x0E
-
-    // 0x1f801d94
-    mode: enum(u1) { adpcm = 0, noise = 1 },
+    noise_mode: bool, // 0x1f801d94
 
     // Flags
     key_on: bool = false,
     key_off: bool = false,
     reached_end: bool = false,
 
-    // Adsr state
-    phase: Phase = .release,
-    level: i16 = 0,
+    // Envelope state
+    adsr_volume: i16, // +0x0C
+    adsr_phase: Phase = .release,
+    adsr_cycles: u32 = 0,
 
+    curr_addr: u16,
     samples: [28]i16,
     pitch_counter: u32,
-    curr_addr: u16,
+    current_sample: i16,
     decoder_prev: [2]i32, // adpcm decoder window previous samples
     interpolation_prev: [4]i16, // last 4 samples from previous block for gauss interpolation
 
@@ -88,7 +90,128 @@ const Voice = struct {
         const lo = @as(u32, @bitCast(self.adsr)) & 0x0000ffff;
         self.adsr = @bitCast(lo | (@as(u32, v) << 16));
     }
+
+    fn keyOn(self: *Voice) void {
+        self.key_on = true;
+        self.key_off = false;
+        self.reached_end = false;
+        self.curr_addr = self.start_addr;
+        self.pitch_counter = 0;
+        self.decoder_prev = .{ 0, 0 };
+        self.adsr_phase = .attack;
+        self.adsr_volume = 0;
+        self.adsr_cycles = 0;
+    }
+
+    fn keyOff(self: *Voice) void {
+        self.key_off = true;
+    }
+
+    inline fn advanceAdsrPhase(self: *Voice) void {
+        switch (self.adsr_phase) {
+            .attack => if (self.adsr_volume >= 0x7fff) {
+                self.adsr_phase = .decay;
+                self.adsr_cycles = 0;
+            },
+            .decay => {
+                const sustain_level = (@as(i32, self.adsr.sustain_level) + 1) * 0x800;
+                if (self.adsr_volume <= sustain_level) {
+                    self.adsr_phase = .sustain;
+                    self.adsr_cycles = 0;
+                }
+            },
+            .sustain => {
+                // Sustain continues until key_off
+            },
+            .release => if (self.adsr_volume == 0) {
+                self.key_on = false; // Release continues until volume reaches 0
+                self.adsr_cycles = 0;
+            },
+        }
+    }
+
+    const Envelope = struct {
+        shift: u5,
+        step: u4,
+        exponential: bool,
+        decrease: bool,
+    };
+
+    fn stepAdsrEnvelope(self: *Voice) void {
+        if (self.key_off and self.adsr_phase != .release) {
+            self.adsr_phase = .release;
+            self.adsr_cycles = 0;
+        }
+
+        if (self.adsr_cycles > 0) {
+            self.adsr_cycles -= 1;
+            return;
+        }
+
+        const env: Envelope = switch (self.adsr_phase) {
+            .attack => .{
+                .shift = self.adsr.attack_shift,
+                .step = 7 - @as(u4, self.adsr.attack_step),
+                .exponential = self.adsr.attack_exponential,
+                .decrease = false,
+            },
+            .decay => .{
+                .shift = self.adsr.decay_shift,
+                .step = 8,
+                .exponential = true,
+                .decrease = true,
+            },
+            .sustain => .{
+                .shift = self.adsr.sustain_shift,
+                .step = 7 - @as(u4, self.adsr.sustain_step),
+                .exponential = self.adsr.sustain_exponential,
+                .decrease = self.adsr.sustain_decrease,
+            },
+            .release => .{
+                .shift = self.adsr.release_shift,
+                .step = 8,
+                .exponential = self.adsr.release_exponential,
+                .decrease = true,
+            },
+        };
+
+        var cycles = @as(u32, 1) << @as(u5, env.shift) -| 11;
+
+        var step = @as(i32, env.step) << (11 -| @as(u5, env.shift));
+
+        if (env.exponential) {
+            if (!env.decrease and self.adsr_volume > 0x6000) cycles *= 4;
+            if (env.decrease) step = (step * self.adsr_volume) >> 15; // div by 0x8000
+        }
+
+        if (env.decrease) step = -step;
+
+        const new_volume: i32 = self.adsr_volume + step;
+
+        self.adsr_volume = @intCast(clamp(new_volume, 0, 0x7fff));
+
+        self.adsr_cycles = cycles;
+
+        self.advanceAdsrPhase();
+    }
+
+    fn stepPitchCounter(self: *Voice) void {
+        if (self.noise_mode) {
+            log.warn("voice noise mode not implemented", .{});
+            return;
+        }
+
+        const sample_i = self.pitch_counter >> fp_bits;
+        std.debug.assert(sample_i <= 28);
+
+        self.current_sample = interpolate(&self.samples, &self.interpolation_prev, sample_i);
+        self.pitch_counter += clamp(self.sample_rate, 0, 0x4000);
+    }
 };
+
+inline fn applyVolume(sample: i32, volume: i32) i32 {
+    return (sample *| volume) >> 15;
+}
 
 pub const SPU = struct {
     pub const addr_start: u32 = 0x1f801c00;
@@ -107,7 +230,7 @@ pub const SPU = struct {
     spucnt: CntReg,
     spustat: StatReg,
 
-    stub_data: [0x200]u16,
+    stub_data: [0x400]u16,
 
     irq_pending: bool,
 
@@ -123,7 +246,7 @@ pub const SPU = struct {
             .irq_addr = 0,
             .spucnt = .{},
             .spustat = .{},
-            .stub_data = std.mem.zeroes([0x200]u16),
+            .stub_data = std.mem.zeroes([0x400]u16),
             .irq_pending = false,
         };
         return self;
@@ -173,53 +296,48 @@ pub const SPU = struct {
         return was_pending;
     }
 
-    inline fn getVoiceSample(self: *@This(), voice_i: u8) struct { left: i32, right: i32 } {
+    inline fn getVoiceSample(self: *@This(), voice_i: u8) [2]i32 {
         const voice = &self.voices[voice_i];
 
-        if (!voice.key_on) return .{ .left = 0, .right = 0 };
+        if (!voice.key_on) return .{ 0, 0 };
 
-        if (voice.mode == .noise) {
-            log.warn("voice noise mode not implemented", .{});
-            return .{ .left = 0, .right = 0 };
-        }
-
-        const sample_index = voice.pitch_counter >> 12;
-        if (sample_index >= 28) {
+        if (voice.pitch_counter >> fp_bits >= 28) {
             self.loadAdpcmBlock(@intCast(voice_i));
-            voice.pitch_counter -|= 28 << 12;
+            voice.pitch_counter -= @as(u32, 28) << fp_bits;
         }
 
-        const sample_i = voice.pitch_counter >> 12;
-        const sample = interpolate(&voice.samples, &voice.interpolation_prev, sample_i);
+        voice.stepPitchCounter();
 
-        var step: u32 = voice.sample_rate;
-        if (step > 0x3fff) step = 0x4000;
-        voice.pitch_counter += step;
+        voice.stepAdsrEnvelope();
 
         const vol_left: i16 = @bitCast(voice.volume_left);
         const vol_right: i16 = @bitCast(voice.volume_right);
 
-        const left = (@as(i32, sample) * @as(i32, vol_left)) >> 15;
-        const right = (@as(i32, sample) * @as(i32, vol_right)) >> 15;
+        var left: i32 = voice.current_sample;
+        left = applyVolume(left, vol_left);
+        left = applyVolume(left, voice.adsr_volume);
 
-        return .{ .left = left, .right = right };
+        var right: i32 = voice.current_sample;
+        right = applyVolume(right, vol_right);
+        right = applyVolume(right, voice.adsr_volume);
+
+        return .{ @intCast(left), @intCast(right) };
     }
 
-    pub fn getAudioSample(self: *@This()) struct { left: i16, right: i16 } {
-        var mix_left: i32 = 0;
-        var mix_right: i32 = 0;
+    pub fn consumeAudioSample(self: *@This()) [2]i16 {
+        if (!self.spucnt.spu_enable) return .{ 0, 0 };
 
-        if (self.spucnt.spu_enable) {
-            for (0..24) |i| {
-                const s = self.getVoiceSample(@intCast(i));
-                mix_left += @as(i32, s.left);
-                mix_right += @as(i32, s.right);
-            }
+        var mix: [2]i32 = .{ 0, 0 };
+
+        for (0..24) |i| {
+            const sample = self.getVoiceSample(@intCast(i));
+            mix[0] +|= @as(i32, sample[0]);
+            mix[1] +|= @as(i32, sample[1]);
         }
 
         return .{
-            .left = @intCast(std.math.clamp(mix_left, -0x8000, 0x7fff)),
-            .right = @intCast(std.math.clamp(mix_right, -0x8000, 0x7fff)),
+            @intCast(clamp(mix[0], -0x8000, 0x7fff)),
+            @intCast(clamp(mix[1], -0x8000, 0x7fff)),
         };
     }
 
@@ -260,7 +378,7 @@ pub const SPU = struct {
                 0x6 => voice.start_addr,
                 0x8 => @truncate(@as(u32, @bitCast(voice.adsr)) >> 0),
                 0xa => @truncate(@as(u32, @bitCast(voice.adsr)) >> 16),
-                0xc => voice.adsr_volume,
+                0xc => @bitCast(voice.adsr_volume),
                 0xe => voice.repeat_addr,
                 else => 0,
             };
@@ -322,44 +440,28 @@ pub const SPU = struct {
     }
 
     fn setVoiceKeyOn(self: *@This(), addr: u32, v: u16) void {
-        const KeyOnOp = opaque {
-            fn op(spu: *SPU, voice: *Voice, voice_idx: u8, _: u1) void {
-                voice.key_on = true;
-                voice.key_off = false;
-                voice.reached_end = false;
-                voice.curr_addr = voice.start_addr;
-                voice.pitch_counter = 0;
-                voice.decoder_prev = .{ 0, 0 };
-
+        self.forEachVoiceInMask(addr, v, struct {
+            fn callback(spu: *SPU, voice: *Voice, voice_idx: u8, _: u1) void {
+                voice.keyOn();
                 spu.loadAdpcmBlock(voice_idx);
-                log.debug("voice {d} KEY ON start_addr={x}", .{ voice_idx, voice.start_addr });
             }
-        };
-
-        self.forEachVoiceInMask(addr, v, KeyOnOp.op);
+        }.callback);
     }
 
     fn setVoiceKeyOff(self: *@This(), addr: u32, v: u16) void {
-        const KeyOffOp = struct {
-            fn op(_: *SPU, voice: *Voice, voice_idx: u8, _: u1) void {
-                voice.key_off = true;
-                voice.key_on = false;
-                log.debug("voice {d} KEY OFF", .{voice_idx});
+        self.forEachVoiceInMask(addr, v, struct {
+            fn callback(_: *SPU, voice: *Voice, _: u8, _: u1) void {
+                voice.keyOff();
             }
-        };
-
-        self.forEachVoiceInMask(addr, v, KeyOffOp.op);
+        }.callback);
     }
 
     fn setVoiceNoiseMode(self: *@This(), addr: u32, v: u16) void {
-        const NoiseModeOp = struct {
-            fn op(_: *SPU, voice: *Voice, voice_idx: u8, bit_value: u1) void {
-                voice.mode = @enumFromInt(bit_value);
-                log.debug("voice {d} NOISE MODE set to {any}", .{ voice_idx, voice.mode });
+        self.forEachVoiceInMask(addr, v, struct {
+            fn callback(_: *SPU, voice: *Voice, _: u8, bit_value: u1) void {
+                voice.noise_mode = bit_value == 1;
             }
-        };
-
-        self.forEachVoiceInMask(addr, v, NoiseModeOp.op);
+        }.callback);
     }
 
     fn write16(self: *@This(), addr: u32, v: u16) void {
@@ -383,7 +485,7 @@ pub const SPU = struct {
                 0x6 => voice.start_addr = v,
                 0x8 => voice.setAdsrLo(v),
                 0xa => voice.setAdsrHi(v),
-                0xc => voice.adsr_volume = v,
+                0xc => voice.adsr_volume = @bitCast(v),
                 0xe => voice.repeat_addr = v,
                 else => {},
             }
