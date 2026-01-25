@@ -382,11 +382,11 @@ pub const CPU = struct {
     hi: u32,
     tty: ?*std.io.Writer = null,
 
-    pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) !*@This() {
-        const self = try allocator.create(@This());
+    pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
 
         const block_allocator = BlockAllocator.init(allocator, (1 << 27) / @sizeOf(CachedBlock)); // 128 MB worth of blocks
-        const cached_blocks = try allocator.create([1 << 21]?*CachedBlock);
+        const cached_blocks = allocator.create([1 << 21]?*CachedBlock) catch @panic("OOM");
         @memset(cached_blocks, null);
 
         self.* = .{

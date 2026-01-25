@@ -184,11 +184,11 @@ pub const GPU = struct {
     frame_ready: bool = false,
     debug_pause: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) !*@This() {
-        const self = try allocator.create(@This());
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
 
-        const vram_buf = try allocator.alignedAlloc(u16, .@"16", vram_size);
-        const vram = vram_buf[0..vram_size];
+        const vram_mem = allocator.alignedAlloc(u16, .@"16", vram_size) catch @panic("OOM");
+        const vram = vram_mem[0..vram_size];
 
         self.* = std.mem.zeroInit(@This(), .{
             .allocator = allocator,

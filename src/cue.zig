@@ -2,7 +2,8 @@ const std = @import("std");
 
 const log = std.log.scoped(.cue);
 
-pub const CueError = error{
+pub const Error = error{
+    FileIoError,
     InvalidFormat,
     UnknownMode,
     UnknownFileType,
@@ -56,7 +57,7 @@ pub const CueSheet = struct {
     files: []FileNode,
 };
 
-pub fn parse(allocator: std.mem.Allocator, content: []const u8) !CueSheet {
+pub fn parse(allocator: std.mem.Allocator, content: []const u8) Error!CueSheet {
     var parser = Parser.init(allocator, content);
     defer parser.deinit();
 
@@ -80,13 +81,19 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !CueSheet {
     return parser.finish();
 }
 
-pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8) !CueSheet {
-    const file = try std.fs.cwd().openFile(cue_path, .{});
+pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8) Error!CueSheet {
+    const file = std.fs.cwd().openFile(cue_path, .{}) catch |err| {
+        log.err("failed to open cue file {s}: {}", .{ cue_path, err });
+        return Error.FileIoError;
+    };
     defer file.close();
 
     var buf: [4096]u8 = undefined;
     var reader = file.reader(&buf);
-    const content = try reader.interface.allocRemaining(allocator, .unlimited);
+    const content = reader.interface.allocRemaining(allocator, .unlimited) catch |err| {
+        log.err("failed to read cue file {s}: {}", .{ cue_path, err });
+        return Error.FileIoError;
+    };
     defer allocator.free(content);
 
     return parse(allocator, content);
@@ -118,6 +125,7 @@ const Parser = struct {
     allocator: std.mem.Allocator,
     content: []const u8,
     pos: usize = 0,
+    line: usize = 1,
 
     files: std.ArrayListUnmanaged(FileNode) = .{},
     tracks: std.ArrayListUnmanaged(TrackNode) = .{},
@@ -165,6 +173,7 @@ const Parser = struct {
         if (self.eof()) return null;
         const c = self.content[self.pos];
         self.pos += 1;
+        if (c == '\n') self.line += 1;
         return c;
     }
 
@@ -193,6 +202,10 @@ const Parser = struct {
         }
     }
 
+    fn logError(self: *const @This(), comptime fmt: []const u8, args: anytype) void {
+        log.err(fmt ++ " (line {d})", args ++ .{self.line});
+    }
+
     fn parseWord(self: *@This()) []const u8 {
         const start = self.pos;
         while (self.peek()) |c| {
@@ -212,7 +225,7 @@ const Parser = struct {
         if (std.mem.eql(u8, word, "POSTGAP")) return .postgap;
         if (std.mem.eql(u8, word, "FLAGS")) return .flags;
 
-        log.warn("unknown keyword: {s}", .{word});
+        log.warn("unknown keyword: {s} (line {d})", .{ word, self.line });
 
         return .unknown;
     }
@@ -220,7 +233,10 @@ const Parser = struct {
     fn parseQuotedString(self: *@This()) ![]const u8 {
         self.skipWhitespace();
 
-        if (self.peek() != '"') return CueError.InvalidFormat;
+        if (self.peek() != '"') {
+            self.logError("expected opening quote", .{});
+            return Error.InvalidFormat;
+        }
         _ = self.advance(); // Skip opening quote
 
         const start = self.pos;
@@ -230,13 +246,16 @@ const Parser = struct {
         }
 
         const end = self.pos;
-        if (self.peek() != '"') return CueError.UnexpectedEof;
+        if (self.peek() != '"') {
+            self.logError("expected opening quote", .{});
+            return Error.UnexpectedEof;
+        }
         _ = self.advance(); // Skip closing quote
 
         return self.content[start..end];
     }
 
-    fn parseNumber(self: *@This()) !u8 {
+    fn parseNumber(self: *@This()) Error!u8 {
         self.skipWhitespace();
 
         var num: u8 = 0;
@@ -249,11 +268,14 @@ const Parser = struct {
             _ = self.advance();
         }
 
-        if (!found_digit) return CueError.InvalidFormat;
+        if (!found_digit) {
+            self.logError("expected number", .{});
+            return Error.InvalidFormat;
+        }
         return num;
     }
 
-    fn parseMode(self: *@This()) !TrackMode {
+    fn parseMode(self: *@This()) Error!TrackMode {
         self.skipWhitespace();
 
         const mode = self.parseWord();
@@ -262,10 +284,11 @@ const Parser = struct {
         if (std.mem.eql(u8, mode, "MODE2/2336")) return .mode2_2336;
         if (std.mem.eql(u8, mode, "AUDIO")) return .audio;
 
-        return CueError.UnknownMode;
+        self.logError("unknown track mode: {s}", .{mode});
+        return Error.UnknownMode;
     }
 
-    fn parseFileType(self: *@This()) !FileType {
+    fn parseFileType(self: *@This()) Error!FileType {
         self.skipWhitespace();
 
         const file_type = self.parseWord();
@@ -274,26 +297,28 @@ const Parser = struct {
         if (std.mem.eql(u8, file_type, "MP3")) return .mp3;
         if (std.mem.eql(u8, file_type, "AIFF")) return .aiff;
 
-        return CueError.UnknownFileType;
+        self.logError("unknown file type: {s}", .{file_type});
+        return Error.UnknownFileType;
     }
 
-    fn parsePosition(self: *@This()) !Position {
-        self.skipWhitespace();
+    fn parsePosition(self: *@This()) Error!Position {
+        const minute = try self.parseNumber();
 
-        const start = self.pos;
-        while (self.peek()) |c| {
-            if (std.ascii.isWhitespace(c)) break;
-            _ = self.advance();
+        if (self.peek() != ':') {
+            self.logError("expected ':' after minute", .{});
+            return Error.InvalidFormat;
         }
+        _ = self.advance(); // Skip ':'
 
-        const str = self.content[start..self.pos];
-        var iter = std.mem.splitScalar(u8, str, ':');
+        const second = try self.parseNumber();
 
-        const minute = try std.fmt.parseInt(u8, iter.next() orelse return CueError.InvalidFormat, 10);
-        const second = try std.fmt.parseInt(u8, iter.next() orelse return CueError.InvalidFormat, 10);
-        const frame = try std.fmt.parseInt(u8, iter.next() orelse return CueError.InvalidFormat, 10);
+        if (self.peek() != ':') {
+            self.logError("expected ':' after second", .{});
+            return Error.InvalidFormat;
+        }
+        _ = self.advance(); // Skip ':'
 
-        if (iter.next() != null) return CueError.InvalidFormat; // Too many parts
+        const frame = try self.parseNumber();
 
         return Position{
             .minute = minute,
@@ -302,7 +327,7 @@ const Parser = struct {
         };
     }
 
-    fn handleFile(self: *@This()) !void {
+    fn handleFile(self: *@This()) Error!void {
         self.finalizeTrack();
         self.finalizeFile();
 
@@ -319,10 +344,10 @@ const Parser = struct {
         self.skipLine();
     }
 
-    fn handleTrack(self: *@This()) !void {
+    fn handleTrack(self: *@This()) Error!void {
         if (self.tmp.file_name == null) {
-            log.err("TRACK found before FILE", .{});
-            return CueError.InvalidFormat;
+            self.logError("TRACK found before FILE", .{});
+            return Error.InvalidFormat;
         }
 
         self.finalizeTrack();
@@ -338,15 +363,15 @@ const Parser = struct {
         self.skipLine();
     }
 
-    fn handleIndex(self: *@This()) !void {
+    fn handleIndex(self: *@This()) Error!void {
         if (self.tmp.file_name == null) {
-            log.err("INDEX found before FILE", .{});
-            return CueError.InvalidFormat;
+            self.logError("INDEX found before FILE", .{});
+            return Error.InvalidFormat;
         }
 
         if (self.tmp.track_number == null) {
-            log.err("INDEX found before TRACK", .{});
-            return CueError.InvalidFormat;
+            self.logError("INDEX found before TRACK", .{});
+            return Error.InvalidFormat;
         }
 
         const index_num = try self.parseNumber();
@@ -362,7 +387,7 @@ const Parser = struct {
             .position = pos,
         };
 
-        try self.indices.append(self.allocator, index);
+        self.indices.append(self.allocator, index) catch @panic("OOM");
 
         self.skipLine();
     }

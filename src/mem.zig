@@ -46,14 +46,14 @@ pub const BIOS = struct {
         defer file.close();
 
         const file_size = try file.getEndPos();
-        const rom = try allocator.alloc(u8, file_size);
+
+        const rom = allocator.alloc(u8, file_size) catch @panic("OOM");
+        errdefer allocator.free(rom);
 
         const bytes_read = try file.readAll(rom);
-        if (bytes_read != file_size) {
-            return error.FileReadError;
-        }
+        if (bytes_read != file_size) return error.FileReadError;
 
-        const self = try allocator.create(@This());
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .rom = rom,
@@ -84,8 +84,8 @@ pub const RAM = struct {
 
     data: [0x200000]u8,
 
-    pub fn init(allocator: std.mem.Allocator) !*@This() {
-        const self = try allocator.create(@This());
+    pub fn init(allocator: std.mem.Allocator) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{ .data = undefined };
         @memset(&self.data, 0);
         return self;
@@ -111,8 +111,8 @@ pub const Scratchpad = struct {
 
     data: [0x400]u8,
 
-    pub fn init(allocator: std.mem.Allocator) !*@This() {
-        const self = try allocator.create(@This());
+    pub fn init(allocator: std.mem.Allocator) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{ .data = undefined };
         @memset(&self.data, 0);
         return self;
@@ -181,8 +181,8 @@ pub const Bus = struct {
     read_pages: [num_pages]?*MemPage,
     write_pages: [num_pages]?*MemPage,
 
-    pub fn init(allocator: std.mem.Allocator) !*@This() {
-        const self = try allocator.create(@This());
+    pub fn init(allocator: std.mem.Allocator) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .dev = undefined,
@@ -269,6 +269,7 @@ pub const Bus = struct {
         const page_idx = masked_addr >> 16;
         const offset = masked_addr & 0xffff;
         if (self.read_pages[page_idx]) |page| {
+            @branchHint(.likely);
             return readBuf(T, page, offset);
         }
 
@@ -319,6 +320,7 @@ pub const Bus = struct {
         const offset = masked_addr & 0xffff;
 
         if (self.write_pages[page_idx]) |page| {
+            @branchHint(.likely);
             writeBuf(T, page, offset, v);
             self.dev.cpu.invalidateBlock(masked_addr); // sadly need that for self-modifying code
             return;

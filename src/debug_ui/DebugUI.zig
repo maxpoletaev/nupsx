@@ -148,7 +148,7 @@ pub fn update(self: *@This()) void {
     self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
 }
 
-const KeyMapping = struct { glfw.Key, joy_mod.ButtonId };
+const KeyMapping = struct { glfw.Key, joy_mod.Button };
 const key_mappings = [_]KeyMapping{
     .{ glfw.Key.w, .up },
     .{ glfw.Key.a, .left },

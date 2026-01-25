@@ -189,7 +189,7 @@ pub const UI = struct {
         self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
     }
 
-    const KeyMapping = struct { glfw.Key, joy_mod.ButtonId };
+    const KeyMapping = struct { glfw.Key, joy_mod.Button };
     const key_mappings = [_]KeyMapping{
         .{ glfw.Key.w, .up },
         .{ glfw.Key.a, .left },
@@ -207,7 +207,7 @@ pub const UI = struct {
         .{ glfw.Key.right_shift, .select },
     };
 
-    const GamepadMapping = struct { u8, joy_mod.ButtonId };
+    const GamepadMapping = struct { u8, joy_mod.Button };
     const gamepad_mappings = [_]GamepadMapping{
         .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
         .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },

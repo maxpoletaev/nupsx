@@ -33,6 +33,13 @@ const StatusReg = packed struct(u32) {
     baudrate_timer: u21 = 0x88, // 11-31
 };
 
+const RxIrqMode = enum(u2) {
+    irq_1byte = 0,
+    irq_2bytes = 1,
+    irq_4bytes = 2,
+    irq_8bytes = 3,
+};
+
 const CotrolReg = packed struct(u16) {
     tx_enable: bool = false, // 0
     joy_select_enable: bool = false, // 1
@@ -42,7 +49,7 @@ const CotrolReg = packed struct(u16) {
     _unknown2: bool = false, // 5
     reset: bool = false, // 6
     _pad1: u1 = 0, // 7
-    rx_irq_mode: enum(u2) { irq_1byte = 0, irq_2bytes = 1, irq_4bytes = 2, irq_8bytes = 3 } = .irq_1byte, // 8-9
+    rx_irq_mode: RxIrqMode = .irq_1byte, // 8-9
     tx_irq_enable: bool = false, // 10
     rx_irq_enable: bool = false, // 11
     ack_irq_enable: bool = false, // 12
@@ -50,15 +57,24 @@ const CotrolReg = packed struct(u16) {
     _pad2: u2 = 0, // 14-15
 };
 
-const RegId = opaque {
-    const JOY_DATA = 0x0;
-    const JOY_STAT = 0x4;
-    const JOY_MODE = 0x8;
-    const JOY_CTRL = 0xA;
-    const JOY_BAUD = 0xE;
+pub const Button = enum {
+    select,
+    l3,
+    r3,
+    start,
+    up,
+    right,
+    down,
+    left,
+    l2,
+    r2,
+    l1,
+    r1,
+    triangle,
+    circle,
+    cross,
+    square,
 };
-
-pub const ButtonId = enum { select, l3, r3, start, up, right, down, left, l2, r2, l1, r1, triangle, circle, cross, square };
 
 pub const ButtonState = packed struct(u16) {
     select: bool = true,
@@ -77,6 +93,14 @@ pub const ButtonState = packed struct(u16) {
     circle: bool = true,
     cross: bool = true,
     square: bool = true,
+};
+
+const RegId = opaque {
+    const joy_data = 0x0;
+    const joy_stat = 0x4;
+    const joy_mode = 0x8;
+    const joy_ctrl = 0xa;
+    const joy_baud = 0xe;
 };
 
 pub const Joypad = struct {
@@ -98,7 +122,7 @@ pub const Joypad = struct {
     irq_delay: u32 = 0,
 
     pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
-        const self = allocator.create(@This()) catch unreachable;
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .mode = .{},
@@ -120,11 +144,11 @@ pub const Joypad = struct {
         const reg_id = bits.field(offset, 0, u4);
 
         const v: u32 = switch (reg_id) {
-            RegId.JOY_DATA => self.readData(T),
-            RegId.JOY_STAT => @as(u32, @bitCast(self.stat)),
-            RegId.JOY_MODE => @as(u16, @bitCast(self.mode)),
-            RegId.JOY_CTRL => @as(u16, @bitCast(self.ctrl)),
-            RegId.JOY_BAUD => self.baudrate_reload,
+            RegId.joy_data => self.readData(T),
+            RegId.joy_stat => @as(u32, @bitCast(self.stat)),
+            RegId.joy_mode => @as(u16, @bitCast(self.mode)),
+            RegId.joy_ctrl => @as(u16, @bitCast(self.ctrl)),
+            RegId.joy_baud => self.baudrate_reload,
             else => std.debug.panic("unhandled register read: {x}", .{reg_id}),
         };
 
@@ -134,13 +158,13 @@ pub const Joypad = struct {
     fn writeControlReg(self: *@This(), v: u16) void {
         const ctrl = @as(CotrolReg, @bitCast(v));
         if (ctrl.clear_irq) {
-            log.debug("IRQ acknowledged", .{});
             self.stat.rx_parity_err = false;
             self.stat.irq_pending = false;
         }
         if (ctrl.reset) {
             self.mode = .{};
             self.stat = .{};
+            self.ctrl = .{};
             self.irq_delay = 0;
             self.state = .idle;
             self.tx_data.clear();
@@ -159,13 +183,13 @@ pub const Joypad = struct {
         const reg_id = bits.field(offset, 0, u4);
 
         switch (reg_id) {
-            RegId.JOY_DATA => {
+            RegId.joy_data => {
                 self.writeData(T, v);
-                self.stepSerialState();
+                self.advanceState();
             },
-            RegId.JOY_MODE => self.mode = @bitCast(@as(u16, @intCast(v))),
-            RegId.JOY_BAUD => self.baudrate_reload = @intCast(v),
-            RegId.JOY_CTRL => self.writeControlReg(@as(u16, @intCast(v))),
+            RegId.joy_mode => self.mode = @bitCast(@as(u16, @intCast(v))),
+            RegId.joy_baud => self.baudrate_reload = @intCast(v),
+            RegId.joy_ctrl => self.writeControlReg(@as(u16, @intCast(v))),
             else => std.debug.panic("unhandled register write: {x}", .{reg_id}),
         }
     }
@@ -175,20 +199,18 @@ pub const Joypad = struct {
             self.irq_delay -|= cpu_cyc;
 
             if (self.irq_delay == 0) {
-                self.bus.setInterrupt(Interrupt.joy_mc_byte);
                 self.stat.irq_pending = true;
                 self.stat.ack_signal_level = .low;
+                self.bus.setInterrupt(Interrupt.joy_mc_byte);
             }
         }
     }
 
-    pub fn stepSerialState(self: *@This()) void {
-        if (!self.ctrl.tx_enable) return;
-        if (!self.ctrl.joy_select_enable) return;
+    pub fn advanceState(self: *@This()) void {
+        // if (!self.ctrl.tx_enable) return;
+        // if (!self.ctrl.joy_select_enable) return;
 
-        const btns = self.buttons[self.ctrl.joy_select];
-        const swlo: u8 = @truncate(@as(u16, @bitCast(btns)) >> 0);
-        const swhi: u8 = @truncate(@as(u16, @bitCast(btns)) >> 8);
+        const btns: u16 = @bitCast(self.buttons[self.ctrl.joy_select]);
 
         const tx_byte = self.tx_data.pop() orelse return;
 
@@ -196,8 +218,8 @@ pub const Joypad = struct {
             .idle => if (tx_byte == 0x01) .{ 0xff, .id_lo } else .{ 0xff, .idle },
             .id_lo => if (tx_byte == 0x42) .{ joy_id_digital[1], .id_hi } else .{ 0xff, .idle },
             .id_hi => .{ joy_id_digital[0], .swlo },
-            .swlo => .{ swlo, .swhi },
-            .swhi => .{ swhi, .idle },
+            .swlo => .{ @truncate(btns >> 0), .swhi },
+            .swhi => .{ @truncate(btns >> 8), .idle },
         };
 
         log.debug("IN:{x} OUT:{x}", .{ tx_byte, rx_byte });
@@ -210,12 +232,10 @@ pub const Joypad = struct {
         // MORE data to send. Silence means end of transmission.
 
         const last_byte = self.state == .idle;
+
         if (self.ctrl.ack_irq_enable and !last_byte) {
             self.irq_delay = joy_irq_delay_cycles;
             self.stat.ack_signal_level = .high;
-            log.debug("IRQ requested (delay={d})", .{self.irq_delay});
-        } else {
-            log.debug("communication ended", .{});
         }
     }
 
@@ -237,20 +257,20 @@ pub const Joypad = struct {
             u8 => {
                 const v = self.rx_data.pop() orelse 0xff;
                 self.stat.rx_fifo_not_empty = !self.rx_data.isEmpty();
-                return @as(T, v);
+                return v;
             },
             u16 => {
                 const low = self.rx_data.pop() orelse 0xff;
                 const high = self.rx_data.pop() orelse 0xff;
                 const v = @as(u16, low) | (@as(u16, high) << 8);
                 self.stat.rx_fifo_not_empty = !self.rx_data.isEmpty();
-                return @as(T, v);
+                return v;
             },
             else => std.debug.panic("unsupported readData type: {s}", .{@typeName(T)}),
         }
     }
 
-    pub inline fn setButtonState(self: *@This(), button: ButtonId, pressed: bool) void {
+    pub inline fn setButtonState(self: *@This(), button: Button, pressed: bool) void {
         @field(self.buttons[0], @tagName(button)) = !pressed; // 1=not pressed
     }
 };

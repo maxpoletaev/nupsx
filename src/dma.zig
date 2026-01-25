@@ -101,9 +101,8 @@ pub const DMA = struct {
     dicr: IntterruptReg,
     channels: [7]Channel,
 
-    pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*@This() {
-        const self = try allocator.create(@This());
-
+    pub fn init(allocator: std.mem.Allocator, bus: *Bus) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .bus = bus,
@@ -111,7 +110,6 @@ pub const DMA = struct {
             .dicr = std.mem.zeroes(IntterruptReg),
             .channels = std.mem.zeroes([7]Channel),
         };
-
         return self;
     }
 

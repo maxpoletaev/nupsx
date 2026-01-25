@@ -42,7 +42,7 @@ pub const std_options = std.Options{
         // .{ .scope = .gte, .level = .debug },
         // .{ .scope = .gpu, .level = .debug },
         // .{ .scope = .dma, .level = .debug },
-        // .{ .scope = .joy, .level = .debug },
+        .{ .scope = .joy, .level = .debug },
     },
 };
 
@@ -149,22 +149,22 @@ pub fn main() !void {
     const bios = try BIOS.loadFromFile(allocator, args.bios_path);
     defer bios.deinit();
 
-    const bus = try Bus.init(allocator);
+    const bus = Bus.init(allocator);
     defer bus.deinit();
 
-    const ram = try RAM.init(allocator);
+    const ram = RAM.init(allocator);
     defer ram.deinit(allocator);
 
-    const scratchpad = try Scratchpad.init(allocator);
+    const scratchpad = Scratchpad.init(allocator);
     defer scratchpad.deinit(allocator);
 
-    const gpu = try GPU.init(allocator, bus);
+    const gpu = GPU.init(allocator, bus);
     defer gpu.deinit();
 
-    const cpu = try CPU.init(allocator, bus);
+    const cpu = CPU.init(allocator, bus);
     defer cpu.deinit();
 
-    const dma = try DMA.init(allocator, bus);
+    const dma = DMA.init(allocator, bus);
     defer dma.deinit();
 
     const mdec = MDEC.init(allocator);

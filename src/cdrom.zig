@@ -23,6 +23,12 @@ const cdrom_getid_region = 'A'; // A=America, I=Japan, E=Europe
 const cdrom_getid_licensed = [_]u8{ 0x02, 0x00, 0x20, 0x00, 'S', 'C', 'E', cdrom_getid_region };
 const cdrom_date_version = [_]u8{ 0x94, 0x09, 0x19, 0xC0 };
 
+pub const Error = error{
+    FileIoError,
+    CueParseError,
+    BadCueSheet,
+};
+
 const AddressReg = packed struct(u8) {
     bank_index: u2 = 0, // 0-1 RA
     adpcm_busy: bool = false, // 2 ADPBUSY
@@ -112,19 +118,29 @@ pub const Disc = struct {
     track_count: u8,
     pos: u32 = 0,
 
-    pub fn loadCue(allocator: std.mem.Allocator, cue_path: []const u8) !@This() {
-        var cue_sheet = try cue.parseFile(allocator, cue_path);
+    pub fn loadCue(allocator: std.mem.Allocator, cue_path: []const u8) Error!@This() {
+        var cue_sheet = cue.parseFile(allocator, cue_path) catch {
+            log.err("failed to parse cue sheet: {s}", .{cue_path});
+            return Error.FileIoError;
+        };
         defer cue.free(allocator, &cue_sheet);
 
         const cue_root = std.fs.path.dirname(cue_path) orelse ".";
-        const cue_dir = try std.fs.cwd().openDir(cue_root, .{});
+        const cue_dir = std.fs.cwd().openDir(cue_root, .{}) catch {
+            log.err("failed to open cue sheet directory: {s}", .{cue_root});
+            return Error.FileIoError;
+        };
 
         var tracks: std.ArrayList(Track) = .empty;
         var absolute_sector: u32 = cdrom_file_offset_sectors_cue;
         var total_size: usize = 0;
 
         for (cue_sheet.files) |file| {
-            const stat = try cue_dir.statFile(file.filename);
+            const stat = cue_dir.statFile(file.filename) catch |err| {
+                log.err("failed to stat file {s}: {}", .{ file.filename, err });
+                return Error.FileIoError;
+            };
+
             const file_sector_count: u32 = @intCast(@divExact(stat.size, cdrom_sector_size_cue));
 
             for (file.tracks) |track| {
@@ -132,15 +148,19 @@ pub const Disc = struct {
                     if (idx.number == 1) break idx;
                 } else null;
 
-                if (index_01 == null) std.debug.panic("track {d} does not have index 01", .{track.number});
+                if (index_01 == null) {
+                    log.err("cue sheet track {d} missing INDEX 01", .{track.number});
+                    return Error.BadCueSheet;
+                }
+
                 const track_start = absolute_sector + index_01.?.position.toSectors();
                 const track_end = track_start + file_sector_count;
 
-                try tracks.append(allocator, Track{
+                tracks.append(allocator, Track{
                     .number = track.number,
                     .start_sector = track_start,
                     .end_sector = track_end,
-                });
+                }) catch @panic("OOM");
             }
 
             total_size += stat.size;
@@ -158,29 +178,46 @@ pub const Disc = struct {
             });
         }
 
-        var disc_data = try allocator.alignedAlloc(u8, .@"2", total_size);
+        var disc_data = allocator.alignedAlloc(u8, .@"2", total_size) catch @panic("OOM");
+        errdefer allocator.free(disc_data);
+
         var reader_buf: [8192]u8 = undefined;
         var offset: usize = 0;
 
         for (cue_sheet.files) |file| {
-            const bin_file = try cue_dir.openFile(file.filename, .{ .mode = .read_only });
+            const bin_file = cue_dir.openFile(file.filename, .{ .mode = .read_only }) catch |err| {
+                log.err("failed to open binary file {s}: {}", .{ file.filename, err });
+                return Error.FileIoError;
+            };
             defer bin_file.close();
 
-            const file_size = try bin_file.getEndPos();
+            const file_size = bin_file.getEndPos() catch |err| {
+                log.err("failed to stat file {s}: {}", .{ file.filename, err });
+                return Error.FileIoError;
+            };
+
             var reader = bin_file.reader(&reader_buf);
-            try reader.interface.readSliceAll(disc_data[offset .. offset + file_size]);
+            reader.interface.readSliceAll(disc_data[offset .. offset + file_size]) catch |err| {
+                log.err("failed to read file {s}: {}", .{ file.filename, err });
+                return Error.FileIoError;
+            };
+
             log.info("loaded bin file: {s} ({d} bytes)", .{ file.filename, file_size });
 
             offset += file_size;
         }
 
-        std.debug.assert(tracks.items.len > 0);
-        const track_count = tracks.items.len;
+        if (tracks.items.len == 0) {
+            log.err("cue sheet contains no tracks", .{});
+            return Error.BadCueSheet;
+        }
+
+        const tracks_slice = tracks.toOwnedSlice(allocator) catch @panic("OOM");
 
         return .{
             .allocator = allocator,
-            .tracks = tracks.toOwnedSlice(allocator) catch @panic("OOM"),
-            .track_count = @intCast(track_count),
+            .tracks = tracks_slice,
+            .track_count = @intCast(tracks_slice.len),
             .data = disc_data,
             .cue = cue_sheet,
         };
@@ -265,8 +302,7 @@ pub const CDROM = struct {
     irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
 
     pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
-        const self = allocator.create(@This()) catch unreachable;
-
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .params = .empty,
@@ -385,11 +421,9 @@ pub const CDROM = struct {
     fn consumeResultByte(self: *@This()) u8 {
         if (self.results.isEmpty()) {
             log.warn("cdrom: read from empty result fifo", .{});
-            // log.debug("<< result byte: {x} (empty)", .{0xbe});
             return 0;
         }
         const v = self.results.pop().?;
-        // log.debug("<< result byte: {x}", .{v});
         return v;
     }
 
@@ -407,7 +441,7 @@ pub const CDROM = struct {
                 if (self.cmd_queue.isEmpty()) {
                     self.cmd = null;
                 } else {
-                    self.cmd = self.cmd_queue.pop() orelse unreachable;
+                    self.cmd = self.cmd_queue.pop().?;
                     self.stepCommand(self.cmd.?); // schedule next command
                 }
             }
@@ -494,15 +528,11 @@ pub const CDROM = struct {
     }
 
     fn writeCommand(self: *@This(), opcode: u8) void {
-        // if (self.cmd != null and opcode != 0x09) {
-        //     std.debug.panic("cdrom: new command ({x}) while another command in progress ({x})", .{ opcode, self.cmd.? });
-        // } else if (!self.results.isEmpty()) {
-        //     std.debug.panic("cdrom: new command ({x}) while having unread results", .{opcode});
-        // }
-
-        // if (opcode == 0x03) {
-        //     std.debug.panic("cdrom: play command received", .{});
-        // }
+        if (self.cmd != null and opcode != 0x09) {
+            log.warn("new command ({x}) while another command in progress ({x})", .{ opcode, self.cmd.? });
+        } else if (!self.results.isEmpty()) {
+            log.warn("new command ({x}) while having unread results", .{opcode});
+        }
 
         if (opcode == 0x09) {
             self.cmd = opcode;

@@ -18,6 +18,10 @@ const help_text = (
     \\  -h, --help           Show this help message
 );
 
+pub const Error = error{
+    InvalidArgument,
+};
+
 pub const Args = struct {
     iter: *std.process.ArgIterator,
 
@@ -34,7 +38,7 @@ pub const Args = struct {
         std.fs.File.stdout().writeAll(help_text) catch {};
     }
 
-    pub fn parse(allocator: std.mem.Allocator) !@This() {
+    pub fn parse(allocator: std.mem.Allocator) Error!@This() {
         var iter = try std.process.argsWithAllocator(allocator);
         var args = std.mem.zeroInit(Args, .{ .iter = &iter });
 
@@ -47,22 +51,43 @@ pub const Args = struct {
             if (std.mem.eql(u8, arg, "--debug")) {
                 args.debug = true;
             }
+
             if (std.mem.eql(u8, arg, "--disasm")) {
                 args.disasm = true;
             }
+
             if (std.mem.eql(u8, arg, "--breakpoint")) {
-                const addr_str = iter.next() orelse return error.InvalidArgument;
-                args.breakpoint = try std.fmt.parseUnsigned(u32, addr_str, 16);
+                const addr_str = iter.next() orelse {
+                    log.err("missing address after --breakpoint", .{});
+                    return Error.InvalidArgument;
+                };
+                args.breakpoint = std.fmt.parseUnsigned(u32, addr_str, 16) catch {
+                    log.err("failed to parse breakpoint address: {s}", .{addr_str});
+                    return Error.InvalidArgument;
+                };
             }
+
             if (std.mem.eql(u8, arg, "--bios")) {
-                args.bios_path = iter.next() orelse return error.InvalidArgument;
+                args.bios_path = iter.next() orelse {
+                    log.err("missing path after --bios", .{});
+                    return error.InvalidArgument;
+                };
             }
+
             if (std.mem.eql(u8, arg, "--exe")) {
-                args.exe_path = iter.next() orelse return error.InvalidArgument;
+                args.exe_path = iter.next() orelse {
+                    log.err("missing path after --exe", .{});
+                    return error.InvalidArgument;
+                };
             }
+
             if (std.mem.eql(u8, arg, "--cdrom")) {
-                args.cd_image_path = iter.next() orelse return error.InvalidArgument;
+                args.cd_image_path = iter.next() orelse {
+                    log.err("missing path after --cdrom", .{});
+                    return error.InvalidArgument;
+                };
             }
+
             if (std.mem.eql(u8, arg, "--uncapped")) {
                 args.uncapped = true;
             }
