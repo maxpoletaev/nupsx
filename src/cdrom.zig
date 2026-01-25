@@ -1,8 +1,10 @@
 const std = @import("std");
 const bits = @import("bits.zig");
-const mem_mod = @import("mem.zig");
+const mem = @import("mem.zig");
 const cue = @import("cue.zig");
 const fifo = @import("fifo.zig");
+
+const Interrupt = mem.Interrupt;
 
 const log = std.log.scoped(.cdrom);
 
@@ -62,12 +64,6 @@ const RequestReg = packed struct(u8) {
     _pad: u5 = 0, // 0-4 (always 0)
     _unused: u2 = 0, // 5-6 (smen and bfwr)
     want_data: bool = false, // 7 (BFRD)
-};
-
-const CdromEvents = packed struct(u8) {
-    interrupt: bool = false,
-    breakpoint: bool = false,
-    _pad: u6 = 0,
 };
 
 const Position = struct {
@@ -255,7 +251,7 @@ pub const CDROM = struct {
     cmd: ?u8,
     cmd_state: CmdState,
     cmd_queue: fifo.StaticFifo(u8, 16),
-    events: CdromEvents,
+    bus: *mem.Bus,
     mute: bool = false,
 
     disc: ?Disc,
@@ -268,7 +264,7 @@ pub const CDROM = struct {
     irq_mask: packed struct(u8) { int_enable: u3 = 0, _pad: u5 = 0 },
     irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
 
-    pub fn init(allocator: std.mem.Allocator) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
         const self = allocator.create(@This()) catch unreachable;
 
         self.* = .{
@@ -287,7 +283,7 @@ pub const CDROM = struct {
             .cdda_pos = 0,
             .mode = .{},
             .seekloc = null,
-            .events = .{},
+            .bus = bus,
             .stat = .{},
             .addr = .{},
             .req = .{},
@@ -359,7 +355,7 @@ pub const CDROM = struct {
         }
 
         const buf = self.sect_buf.?;
-        const v = mem_mod.readBuf(T, buf, self.sect_pos);
+        const v = mem.readBuf(T, buf, self.sect_pos);
         self.sect_pos += @sizeOf(T);
 
         if (self.sect_pos >= buf.len) {
@@ -418,12 +414,6 @@ pub const CDROM = struct {
         }
     }
 
-    pub fn consumeEvents(self: *@This()) CdromEvents {
-        const ev = self.events;
-        self.events = .{};
-        return ev;
-    }
-
     fn setInterrupt(self: *@This(), it: u3) void {
         if (self.irq_pending.ints != 0) {
             log.warn("unacknowledged interrupt: {x} -> {x}", .{ self.irq_pending.ints, it });
@@ -432,7 +422,7 @@ pub const CDROM = struct {
         self.irq_pending.ints = it;
 
         if (@as(u8, @bitCast(self.irq_pending)) & @as(u8, @bitCast(self.irq_mask)) != 0) {
-            self.events.interrupt = true;
+            self.bus.setInterrupt(Interrupt.cdrom);
         }
     }
 

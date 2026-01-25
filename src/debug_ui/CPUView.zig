@@ -60,14 +60,14 @@ fn drawCop0Tab(self: *@This()) void {
             .flags = hex_field_flags,
             .v = @ptrCast(&self.bus.irq_mask),
         });
-        if (mask_changed) self.bus.updateCpuIRQ();
+        if (mask_changed) self.bus.updateCpuIrq();
 
         const pending_changed = zgui.inputInt("Pending", .{
             .step = 0,
             .flags = hex_field_flags,
             .v = @ptrCast(&self.bus.irq_stat),
         });
-        if (pending_changed) self.bus.updateCpuIRQ();
+        if (pending_changed) self.bus.updateCpuIrq();
     }
 }
 

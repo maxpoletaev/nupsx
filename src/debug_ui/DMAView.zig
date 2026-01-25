@@ -35,10 +35,9 @@ pub fn update(self: *@This()) void {
         const dpcr_val: u32 = @bitCast(self.dma.dpcr);
         const dicr_val: u32 = @bitCast(self.dma.dicr);
 
-        zgui.text("DPCR: 0x{x:0>8}  DICR: 0x{x:0>8}  IRQ: {s}", .{
+        zgui.text("DPCR: 0x{x:0>8}  DICR: 0x{x:0>8}", .{
             dpcr_val,
             dicr_val,
-            if (self.dma.irq_pending) "yes" else "no",
         });
 
         zgui.text("Master Enable: {s}  Master IRQ: {s}  Bus Error: {s}", .{

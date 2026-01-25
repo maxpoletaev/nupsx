@@ -1,8 +1,10 @@
 const std = @import("std");
-const mem_mod = @import("mem.zig");
+const mem = @import("mem.zig");
 const bits = @import("bits.zig");
 
-const Bus = mem_mod.Bus;
+const Bus = mem.Bus;
+const Interrupt = mem.Interrupt;
+
 const log = std.log.scoped(.dma);
 
 const SyncMode = enum(u2) { burst = 0, slice = 1, linked_list = 2 };
@@ -98,7 +100,6 @@ pub const DMA = struct {
     dpcr: ControlReg,
     dicr: IntterruptReg,
     channels: [7]Channel,
-    irq_pending: bool,
 
     pub fn init(allocator: std.mem.Allocator, bus: *Bus) !*@This() {
         const self = try allocator.create(@This());
@@ -109,7 +110,6 @@ pub const DMA = struct {
             .dpcr = @bitCast(@as(u32, 0x07654321)),
             .dicr = std.mem.zeroes(IntterruptReg),
             .channels = std.mem.zeroes([7]Channel),
-            .irq_pending = false,
         };
 
         return self;
@@ -117,12 +117,6 @@ pub const DMA = struct {
 
     pub fn deinit(self: *@This()) void {
         self.allocator.destroy(self);
-    }
-
-    pub fn consumeIrq(self: *@This()) bool {
-        const was_pending = self.irq_pending;
-        self.irq_pending = false;
-        return was_pending;
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -183,7 +177,7 @@ pub const DMA = struct {
             self.dicr.updateMasterIrq();
 
             if (self.dicr.master_irq) {
-                self.irq_pending = true;
+                self.bus.setInterrupt(Interrupt.dma);
             }
         }
     }

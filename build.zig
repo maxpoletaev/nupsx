@@ -13,6 +13,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .omit_frame_pointer = false,
+        .error_tracing = true,
+        .strip = false,
     });
     nupsx_mod.addImport("zglfw", zglfw.module("root"));
     nupsx_mod.addImport("zopengl", zopengl.module("root"));

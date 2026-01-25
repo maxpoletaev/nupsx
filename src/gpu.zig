@@ -5,6 +5,7 @@ const rasterizer = @import("rasterizer.zig");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
 
+const Interrupt = mem.Interrupt;
 const Rasterizer = rasterizer.Rasterizer;
 const Transparency = rasterizer.TransparencyMode;
 const RasterDepth = rasterizer.ColorDepth;
@@ -140,13 +141,6 @@ inline fn argTextpage(v: u32) Textpage {
     return .{ .x = base_x, .y = base_y, .depth = depth };
 }
 
-pub const GPUEvents = packed struct(u4) {
-    hblank_start: bool = false,
-    hblank_end: bool = false,
-    vblank_start: bool = false,
-    vblank_end: bool = false,
-};
-
 pub const GPU = struct {
     pub const vram_size = 1024 * 512;
     pub const addr_gp0: u32 = 0x1f801810;
@@ -186,11 +180,11 @@ pub const GPU = struct {
     in_hblank: bool = false,
     in_vblank: bool = false,
 
-    events: GPUEvents = .{},
+    bus: *mem.Bus,
     frame_ready: bool = false,
     debug_pause: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) !*@This() {
         const self = try allocator.create(@This());
 
         const vram_buf = try allocator.alignedAlloc(u16, .@"16", vram_size);
@@ -202,6 +196,7 @@ pub const GPU = struct {
             .gp0_state = .recv_command,
             .gp1_dma_direction = .off,
             .vram = vram,
+            .bus = bus,
         });
         self.rasterizer.fill(.{ .r = 8, .g = 8, .b = 8 });
         return self;
@@ -1096,12 +1091,6 @@ pub const GPU = struct {
     // GPU Timing
     // =========================================================================
 
-    pub inline fn consumeEvents(self: *@This()) GPUEvents {
-        const events = self.events;
-        self.events = .{};
-        return events;
-    }
-
     pub inline fn consumeFrameReady(self: *@This()) bool {
         const ready = self.frame_ready;
         self.frame_ready = false;
@@ -1113,23 +1102,24 @@ pub const GPU = struct {
 
         if (!self.in_hblank and self.cycle_f >= gpu_cycles_hblank_start_ntsc) {
             self.in_hblank = true;
-            self.events.hblank_start = true;
+            self.bus.dev.timers.hblankStart();
         } else if (self.in_hblank and self.cycle_f >= gpu_cycles_hblank_end_ntsc) {
             self.scanline += 1;
             self.in_hblank = false;
             self.cycle_f -= gpu_cycles_hblank_end_ntsc;
-            self.events.hblank_end = true;
+            self.bus.dev.timers.hblankEnd();
 
             switch (self.scanline) {
                 gpu_scans_vblank_start_ntsc => {
                     self.in_vblank = true;
                     self.frame_ready = true;
-                    self.events.vblank_start = true;
+                    self.bus.dev.timers.vblankStart();
+                    self.bus.setInterrupt(Interrupt.vblank);
                 },
                 gpu_scans_vblank_end_ntsc => {
                     self.scanline = 0;
                     self.in_vblank = false;
-                    self.events.vblank_end = true;
+                    self.bus.dev.timers.vblankEnd();
                 },
                 else => {},
             }

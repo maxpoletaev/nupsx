@@ -1,5 +1,8 @@
 const std = @import("std");
 const bits = @import("bits.zig");
+const mem = @import("mem.zig");
+
+const Interrupt = mem.Interrupt;
 
 const log = std.log.scoped(.timer);
 
@@ -37,12 +40,6 @@ const sync_mode_table = [3][4]SyncMode{
     .{ .pause_during_hblank, .reset_at_hblank, .reset_and_pause_outside_hblank, .pause_until_hblank },
     .{ .pause_during_vblank, .reset_at_vblank, .reset_and_pause_outside_vblank, .pause_until_vblank },
     .{ .stop_at_current, .free_run, .free_run, .stop_at_current },
-};
-
-const TimerEvent = struct {
-    t0_fired: bool = false,
-    t1_fired: bool = false,
-    t2_fired: bool = false,
 };
 
 const Mode = packed struct(u16) {
@@ -185,35 +182,21 @@ pub const Timers = struct {
     div8_counter: u8,
     in_hblank: bool = false,
     in_vblank: bool = false,
-    pending_events: TimerEvent = .{},
+    bus: *mem.Bus,
 
-    pub fn init(allocator: std.mem.Allocator) *@This() {
-        const self = allocator.create(@This()) catch unreachable;
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .div8_counter = 0,
             .allocator = allocator,
             .timers = .{ .init(0), .init(1), .init(2) },
+            .bus = bus,
         };
         return self;
     }
 
     pub fn deinit(self: *@This()) void {
         self.allocator.destroy(self);
-    }
-
-    pub inline fn consumeEvents(self: *@This()) TimerEvent {
-        const events = self.pending_events;
-        self.pending_events = .{};
-        return events;
-    }
-
-    inline fn setTimerFired(self: *@This(), idx: u2) void {
-        switch (idx) {
-            0 => self.pending_events.t0_fired = true,
-            1 => self.pending_events.t1_fired = true,
-            2 => self.pending_events.t2_fired = true,
-            else => unreachable,
-        }
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -267,13 +250,13 @@ pub const Timers = struct {
         switch (timer.getClockSource()) {
             .system_clock => {
                 const fired = timer.increment(cyc);
-                if (fired) self.setTimerFired(0);
+                if (fired) self.bus.setInterrupt(Interrupt.tmr0);
             },
             .dotclock => {
                 // Dotclock ticks depend on the current gpu mode.
                 // For now just increment on every system clock tick.
                 const fired = timer.increment(cyc);
-                if (fired) self.setTimerFired(0);
+                if (fired) self.bus.setInterrupt(Interrupt.tmr0);
             },
             else => {},
         }
@@ -285,7 +268,7 @@ pub const Timers = struct {
 
         if (timer.getClockSource() == .system_clock) {
             const fired = timer.increment(cyc);
-            if (fired) self.setTimerFired(1);
+            if (fired) self.bus.setInterrupt(Interrupt.tmr1);
         }
     }
 
@@ -296,13 +279,13 @@ pub const Timers = struct {
         switch (timer.getClockSource()) {
             .system_clock => {
                 const fired = timer.increment(cyc);
-                if (fired) self.setTimerFired(2);
+                if (fired) self.bus.setInterrupt(Interrupt.tmr2);
             },
             .system_clock_div8 => {
                 self.div8_counter += cyc;
                 if (self.div8_counter >= 8) {
                     const fired = timer.increment(self.div8_counter / 8);
-                    if (fired) self.setTimerFired(2);
+                    if (fired) self.bus.setInterrupt(Interrupt.tmr2);
                     self.div8_counter %= 8;
                 }
             },
@@ -333,7 +316,7 @@ pub const Timers = struct {
         // Timer 1 in hblank clock mode increments on hblank
         if (t1.getClockSource() == .hblank and !t1.paused) {
             const fired = t1.increment(1);
-            if (fired) self.setTimerFired(1);
+            if (fired) self.bus.setInterrupt(Interrupt.tmr1);
         }
     }
 

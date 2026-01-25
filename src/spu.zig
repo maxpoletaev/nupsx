@@ -2,6 +2,9 @@ const std = @import("std");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
 const adpcm = @import("adpcm.zig");
+const mem = @import("mem.zig");
+
+const Interrupt = mem.Interrupt;
 
 const log = std.log.scoped(.spu);
 const clamp = std.math.clamp;
@@ -264,9 +267,9 @@ pub const SPU = struct {
 
     stub_data: [0x400]u16,
 
-    irq_pending: bool,
+    bus: *mem.Bus,
 
-    pub fn init(allocator: std.mem.Allocator) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
         const self = allocator.create(SPU) catch unreachable;
         self.* = .{
             .allocator = allocator,
@@ -279,7 +282,7 @@ pub const SPU = struct {
             .spucnt = .{},
             .spustat = .{},
             .stub_data = std.mem.zeroes([0x400]u16),
-            .irq_pending = false,
+            .bus = bus,
         };
         return self;
     }
@@ -293,7 +296,7 @@ pub const SPU = struct {
 
         if (self.spucnt.irq9_enable and voice.curr_addr == self.irq_addr) {
             self.spustat.irq9_flag = true;
-            self.irq_pending = true;
+            self.bus.setInterrupt(Interrupt.spu);
         }
 
         const block_addr = @as(u32, voice.curr_addr) * 8;
@@ -320,12 +323,6 @@ pub const SPU = struct {
             voice.curr_addr = voice.repeat_addr;
             if (!flags.loop_repeat) voice.key_on = false;
         }
-    }
-
-    pub fn consumeIrq(self: *@This()) bool {
-        const was_pending = self.irq_pending;
-        self.irq_pending = false;
-        return was_pending;
     }
 
     inline fn getVoiceSample(self: *@This(), voice_i: u8) [2]i32 {
@@ -574,7 +571,7 @@ pub const SPU = struct {
 
         if (self.spucnt.irq9_enable and self.data_addr_internal == self.irq_addr * 8) {
             self.spustat.irq9_flag = true;
-            self.irq_pending = true;
+            self.bus.setInterrupt(Interrupt.spu);
         }
     }
 };

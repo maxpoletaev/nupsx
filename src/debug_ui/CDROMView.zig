@@ -76,7 +76,6 @@ pub fn update(self: *@This()) void {
         if (zgui.collapsingHeader("IRQ State", .{})) {
             zgui.text("IRQ Mask: 0x{x:0>2}", .{self.cdrom.irq_mask.int_enable});
             zgui.text("IRQ Pending: 0x{x:0>2}", .{self.cdrom.irq_pending.ints});
-            zgui.text("Events Interrupt: {s}", .{if (self.cdrom.events.interrupt) "yes" else "no"});
         }
 
         // FIFOs

@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-
 const gpu_mod = @import("gpu.zig");
 const sched = @import("sched.zig");
 
@@ -166,6 +165,11 @@ const addr_irq_mask: u32 = 0x1f801074;
 
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {
+    const page_size = 0x10000;
+    const num_pages = 0x100000000 / page_size;
+
+    const MemPage = [page_size]u8;
+
     allocator: std.mem.Allocator,
     dev: Devices,
 
@@ -174,12 +178,21 @@ pub const Bus = struct {
 
     breakpoint: bool = false,
 
+    read_pages: [num_pages]?*MemPage,
+    write_pages: [num_pages]?*MemPage,
+
     pub fn init(allocator: std.mem.Allocator) !*@This() {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
             .dev = undefined,
+            .read_pages = undefined,
+            .write_pages = undefined,
         };
+
+        @memset(&self.read_pages, null);
+        @memset(&self.write_pages, null);
+
         return self;
     }
 
@@ -189,9 +202,32 @@ pub const Bus = struct {
 
     pub fn connect(self: *@This(), dev: Devices) void {
         self.dev = dev;
+        self.initFastMem();
     }
 
-    pub inline fn updateCpuIRQ(self: *@This()) void {
+    fn initFastMem(self: *@This()) void {
+        // RAM: 2MB (0x200000 bytes) = 32 pages of 64KB each
+        // 0x00000000-0x001fffff (pages 0x0000-0x001f)
+        var page_idx: u32 = 0;
+        while (page_idx < 32) : (page_idx += 1) {
+            const offset = page_idx * page_size;
+            const page_ptr: *MemPage = @ptrCast(&self.dev.ram.data[offset]);
+            self.read_pages[page_idx] = page_ptr;
+            self.write_pages[page_idx] = page_ptr;
+        }
+
+        // BIOS: 512KB = 8 pages, read-only
+        // Physical range: 0x1fc00000-0x1fc7ffff (pages 0x1fc0-0x1fc7)
+        page_idx = 0;
+        while (page_idx < 8) : (page_idx += 1) {
+            const offset = page_idx * page_size;
+            const page_ptr: *MemPage = @ptrCast(&self.dev.bios.rom[offset]);
+            self.read_pages[0x1fc0 + page_idx] = page_ptr;
+            // write_pages left as null for BIOS (read-only)
+        }
+    }
+
+    pub inline fn updateCpuIrq(self: *@This()) void {
         const pending = (self.irq_stat & self.irq_mask) != 0;
         self.dev.cpu.requestInterrupt(pending);
     }
@@ -201,7 +237,7 @@ pub const Bus = struct {
         //     log.debug("CPU interrupt set {x}", .{v});
         // }
         self.irq_stat |= v;
-        self.updateCpuIRQ();
+        self.updateCpuIrq();
     }
 
     pub fn tick(self: *@This()) void {
@@ -210,35 +246,6 @@ pub const Bus = struct {
         self.dev.cdrom.tick(cyc);
         self.dev.joy.tick(cyc);
         self.dev.timers.tick(cyc);
-
-        // GPU events dispatch
-        const gpu_events = self.dev.gpu.consumeEvents();
-        if (gpu_events.hblank_start) self.dev.timers.hblankStart();
-        if (gpu_events.hblank_end) self.dev.timers.hblankEnd();
-        if (gpu_events.vblank_start) {
-            self.dev.timers.vblankStart();
-            self.setInterrupt(Interrupt.vblank);
-        }
-        if (gpu_events.vblank_end) self.dev.timers.vblankEnd();
-
-        // Timer events dispatch
-        const timer_events = self.dev.timers.consumeEvents();
-        if (timer_events.t0_fired) self.setInterrupt(Interrupt.tmr0);
-        if (timer_events.t1_fired) self.setInterrupt(Interrupt.tmr1);
-        if (timer_events.t2_fired) self.setInterrupt(Interrupt.tmr2);
-
-        const cdrom_events = self.dev.cdrom.consumeEvents();
-        if (cdrom_events.interrupt) self.setInterrupt(Interrupt.cdrom);
-        if (cdrom_events.breakpoint) self.breakpoint = true;
-
-        const dma_irq = self.dev.dma.consumeIrq();
-        if (dma_irq) self.setInterrupt(Interrupt.dma);
-
-        const joy_irq = self.dev.joy.consumeIrq();
-        if (joy_irq) self.setInterrupt(Interrupt.joy_mc_byte);
-
-        const spu_irq = self.dev.spu.consumeIrq();
-        if (spu_irq) self.setInterrupt(Interrupt.spu);
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
@@ -246,24 +253,34 @@ pub const Bus = struct {
         //     log.debug("CPU interrupt ack: {x}", .{~v});
         // }
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`
-        self.updateCpuIRQ();
+        self.updateCpuIrq();
     }
 
     inline fn setIrqMask(self: *@This(), v: u32) void {
         self.irq_mask = v;
-        self.updateCpuIRQ();
+        self.updateCpuIrq();
         // log.debug("irq_mask write: {x}", .{v});
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
         const masked_addr = maskAddr(addr);
 
+        // Fast path: check fastmem page table first
+        const page_idx = masked_addr >> 16;
+        const offset = masked_addr & 0xffff;
+        if (self.read_pages[page_idx]) |page| {
+            return readBuf(T, page, offset);
+        }
+
+        // Slow path: I/O and special regions
+        return self.readSlow(T, masked_addr);
+    }
+
+    inline fn readSlow(self: *@This(), comptime T: type, masked_addr: u32) T {
         return switch (masked_addr) {
             addr_irq_stat => @as(T, @truncate(self.irq_stat)),
             addr_irq_mask => @as(T, @truncate(self.irq_mask)),
 
-            RAM.addr_start...RAM.addr_end => self.dev.ram.read(T, masked_addr),
-            BIOS.addr_start...BIOS.addr_end => self.dev.bios.read(T, masked_addr),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.read(T, masked_addr),
             DMA.addr_start...DMA.addr_end => self.dev.dma.read(T, masked_addr),
             MDEC.addr_start...MDEC.addr_end => self.dev.mdec.read(T, masked_addr),
@@ -288,8 +305,7 @@ pub const Bus = struct {
                     u32 => 0xacabacab,
                     else => @compileError("unsupported type"),
                 };
-                std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
-                // log.warn("unhandled read ({s}) at {x}", .{ @typeName(T), addr });
+                std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), masked_addr });
                 break :blk v;
             },
         };
@@ -298,15 +314,25 @@ pub const Bus = struct {
     pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
         const masked_addr = maskAddr(addr);
 
+        // Fast path: check fastmem page table first
+        const page_idx = masked_addr >> 16;
+        const offset = masked_addr & 0xffff;
+
+        if (self.write_pages[page_idx]) |page| {
+            writeBuf(T, page, offset, v);
+            self.dev.cpu.invalidateBlock(masked_addr); // sadly need that for self-modifying code
+            return;
+        }
+
+        // Slow path: I/O and special regions
+        self.writeSlow(T, masked_addr, v);
+    }
+
+    inline fn writeSlow(self: *@This(), comptime T: type, masked_addr: u32, v: T) void {
         switch (masked_addr) {
             addr_irq_stat => self.setIrqStat(v),
             addr_irq_mask => self.setIrqMask(v),
 
-            RAM.addr_start...RAM.addr_end => {
-                self.dev.ram.write(T, masked_addr, v);
-                self.dev.cpu.invalidateBlock(masked_addr);
-            },
-            BIOS.addr_start...BIOS.addr_end => self.dev.bios.write(T, masked_addr, v),
             GPU.addr_start...GPU.addr_end => self.dev.gpu.write(T, masked_addr, v),
             DMA.addr_start...DMA.addr_end => self.dev.dma.write(T, masked_addr, v),
             MDEC.addr_start...MDEC.addr_end => self.dev.mdec.write(T, masked_addr, v),
@@ -324,8 +350,7 @@ pub const Bus = struct {
             0x1f802000...0x1f802041 => {}, // expansion 2
 
             else => {
-                std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
-                // log.warn("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), addr, v });
+                std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), masked_addr, v });
             },
         }
     }

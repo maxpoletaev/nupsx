@@ -1,6 +1,9 @@
 const std = @import("std");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
+const mem = @import("mem.zig");
+
+const Interrupt = mem.Interrupt;
 
 const log = std.log.scoped(.joy);
 
@@ -91,10 +94,10 @@ pub const Joypad = struct {
     tx_data: fifo.StaticFifo(u8, 16),
     rx_data: fifo.StaticFifo(u8, 16),
 
-    irq_pending: bool = false,
+    bus: *mem.Bus,
     irq_delay: u32 = 0,
 
-    pub fn init(allocator: std.mem.Allocator) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
         const self = allocator.create(@This()) catch unreachable;
         self.* = .{
             .allocator = allocator,
@@ -103,6 +106,7 @@ pub const Joypad = struct {
             .ctrl = .{},
             .tx_data = .empty,
             .rx_data = .empty,
+            .bus = bus,
         };
         return self;
     }
@@ -137,7 +141,6 @@ pub const Joypad = struct {
         if (ctrl.reset) {
             self.mode = .{};
             self.stat = .{};
-            self.irq_pending = false;
             self.irq_delay = 0;
             self.state = .idle;
             self.tx_data.clear();
@@ -167,18 +170,12 @@ pub const Joypad = struct {
         }
     }
 
-    pub fn consumeIrq(self: *@This()) bool {
-        const was_pending = self.irq_pending;
-        self.irq_pending = false;
-        return was_pending;
-    }
-
     pub fn tick(self: *@This(), cpu_cyc: u32) void {
         if (self.irq_delay > 0) {
             self.irq_delay -|= cpu_cyc;
 
             if (self.irq_delay == 0) {
-                self.irq_pending = true;
+                self.bus.setInterrupt(Interrupt.joy_mc_byte);
                 self.stat.irq_pending = true;
                 self.stat.ack_signal_level = .low;
             }

@@ -158,7 +158,7 @@ pub fn main() !void {
     const scratchpad = try Scratchpad.init(allocator);
     defer scratchpad.deinit(allocator);
 
-    const gpu = try GPU.init(allocator);
+    const gpu = try GPU.init(allocator, bus);
     defer gpu.deinit();
 
     const cpu = try CPU.init(allocator, bus);
@@ -170,19 +170,19 @@ pub fn main() !void {
     const mdec = MDEC.init(allocator);
     defer mdec.deinit();
 
-    const timers = Timers.init(allocator);
+    const timers = Timers.init(allocator, bus);
     defer timers.deinit();
 
-    const spu = SPU.init(allocator);
+    const spu = SPU.init(allocator, bus);
     defer spu.deinit();
 
-    const joy = Joypad.init(allocator);
+    const joy = Joypad.init(allocator, bus);
     defer joy.deinit();
 
     var disc: ?Disc = null;
     defer if (disc) |*d| d.deinit();
 
-    const cdrom = CDROM.init(allocator);
+    const cdrom = CDROM.init(allocator, bus);
     defer cdrom.deinit();
 
     if (args.cd_image_path) |path| {
