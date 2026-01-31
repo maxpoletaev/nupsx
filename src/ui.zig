@@ -12,7 +12,6 @@ const log = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
-const target_frame_time: f64 = 1.0 / 60.0;
 
 const vertex_shader_source = @embedFile("shaders/vertex.glsl");
 const fragment_shader_source = @embedFile("shaders/fragment.glsl");
@@ -78,8 +77,6 @@ pub const UI = struct {
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
     is_running: bool = true,
-    next_frame_time: f64 = 0,
-    uncapped: bool = false,
     filename: ?[]const u8 = null,
 
     const vertices = [_]f32{ // [x, y, u, v]
@@ -183,20 +180,8 @@ pub const UI = struct {
     }
 
     pub fn update(self: *@This()) void {
-        const now = glfw.getTime();
-
-        if (!self.uncapped) {
-            if (self.next_frame_time > now) {
-                const sleep_seconds = self.next_frame_time - now;
-                std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
-            }
-        }
-
         self.handleInput();
         self.updateInternal(glfw.getTime());
-
-        const after = glfw.getTime();
-        self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
     }
 
     const KeyMapping = struct { glfw.Key, joy_mod.Button };

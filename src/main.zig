@@ -117,11 +117,12 @@ const Audio = struct {
         const buf: [*]i16 = @ptrCast(@alignCast(output.?));
 
         for (0..frame_count) |i| {
-            const sample = self.bus.dev.spu.consumeAudioSample();
-            const cd_sample = self.bus.dev.cdrom.consumeAudioSample();
-            buf[i * 2 + 0] = sample[0] +| cd_sample[0]; // left
-            buf[i * 2 + 1] = sample[1] +| cd_sample[1]; // right
+            const sample = self.bus.audio_stream.pop();
+            buf[i * 2 + 0] = sample[0];
+            buf[i * 2 + 1] = sample[1];
         }
+
+        self.bus.audio_stream.signal();
     }
 };
 
@@ -268,18 +269,10 @@ pub fn main() !void {
 
         cpu.tty = &stdout.interface;
 
-        if (args.uncapped) {
-            std.log.warn("running in uncapped mode", .{});
-            ui.uncapped = true;
-        }
-
-        while (true) {
+        while (ui.is_running) {
             bus.tick();
 
             if (gpu.consumeFrameReady()) {
-                if (!ui.is_running) {
-                    break;
-                }
                 ui.update();
             }
         }

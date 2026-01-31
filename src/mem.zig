@@ -163,6 +163,49 @@ pub const Interrupt = opaque {
 const addr_irq_stat: u32 = 0x1f801070;
 const addr_irq_mask: u32 = 0x1f801074;
 
+pub const AudioStream = struct {
+    const capacity = 1024;
+
+    buf: [capacity][2]i16 = undefined,
+    head: std.atomic.Value(usize) = .init(0),
+    tail: std.atomic.Value(usize) = .init(0),
+    sem: std.Thread.Semaphore = .{},
+
+    inline fn isFull(self: *@This()) bool {
+        const tail = self.tail.load(.monotonic);
+        const next_tail = (tail + 1) % capacity;
+        return next_tail == self.head.load(.acquire);
+    }
+
+    pub fn push(self: *@This(), sample: [2]i16) void {
+        while (self.isFull()) {
+            self.sem.wait();
+        }
+
+        const tail = self.tail.load(.monotonic);
+        const next_tail = (tail + 1) % capacity;
+
+        self.buf[tail] = sample;
+        self.tail.store(next_tail, .release);
+    }
+
+    pub fn pop(self: *@This()) [2]i16 {
+        const head = self.head.load(.monotonic);
+
+        if (head == self.tail.load(.acquire)) {
+            return .{ 0, 0 };
+        }
+
+        const sample = self.buf[head];
+        self.head.store((head + 1) % capacity, .release);
+        return sample;
+    }
+
+    pub fn signal(self: *@This()) void {
+        self.sem.post();
+    }
+};
+
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {
     const page_size = 0x10000;
@@ -180,6 +223,9 @@ pub const Bus = struct {
 
     read_pages: [num_pages]?*MemPage,
     write_pages: [num_pages]?*MemPage,
+
+    audio_stream: AudioStream = .{},
+    audio_counter: u32 = 0,
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
@@ -246,6 +292,17 @@ pub const Bus = struct {
         self.dev.cdrom.tick(cyc);
         self.dev.joy.tick(cyc);
         self.dev.timers.tick(cyc);
+
+        self.audio_counter += cyc;
+        if (self.audio_counter >= 768) {
+            self.audio_counter -= 768;
+            const sample = self.dev.spu.consumeAudioSample();
+            const cd_sample = self.dev.cdrom.consumeAudioSample();
+            self.audio_stream.push(.{
+                sample[0] +| cd_sample[0],
+                sample[1] +| cd_sample[1],
+            });
+        }
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
