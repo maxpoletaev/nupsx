@@ -257,6 +257,12 @@ pub fn main() !void {
         const ui = try UI.init(allocator, gpu, joy);
         defer ui.deinit();
 
+        if (args.cd_image_path) |path| {
+            try ui.setFilename(path);
+        } else if (args.exe_path) |path| {
+            try ui.setFilename(path);
+        }
+
         var buf: [1024]u8 = undefined;
         var stdout = std.fs.File.stdout().writer(&buf);
 

@@ -80,6 +80,7 @@ pub const UI = struct {
     is_running: bool = true,
     next_frame_time: f64 = 0,
     uncapped: bool = false,
+    filename: ?[]const u8 = null,
 
     const vertices = [_]f32{ // [x, y, u, v]
         -1.0, 1.0, 0.0, 0.0, // top left
@@ -161,6 +162,7 @@ pub const UI = struct {
     }
 
     pub fn deinit(self: *@This()) void {
+        if (self.filename) |f| self.allocator.free(f);
         gl.deleteTextures(1, &self.texture_id);
         gl.deleteBuffers(1, &self.vbo);
         gl.deleteVertexArrays(1, &self.vao);
@@ -170,6 +172,14 @@ pub const UI = struct {
 
         const allocator = self.allocator;
         allocator.destroy(self);
+    }
+
+    pub fn setFilename(self: *@This(), path: []const u8) !void {
+        if (self.filename) |old| {
+            self.allocator.free(old);
+        }
+        const basename = std.fs.path.basename(path);
+        self.filename = try self.allocator.dupe(u8, basename);
     }
 
     pub fn update(self: *@This()) void {
@@ -182,8 +192,8 @@ pub const UI = struct {
             }
         }
 
-        self.updateInternal(glfw.getTime());
         self.handleInput();
+        self.updateInternal(glfw.getTime());
 
         const after = glfw.getTime();
         self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
@@ -259,11 +269,27 @@ pub const UI = struct {
 
         self.frame_count += 1;
         const fps_elapsed = now - self.last_fps_update_time;
+
         if (fps_elapsed >= 1.0) {
-            var title_buf: [64]u8 = undefined;
             const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
-            const title = std.fmt.bufPrintZ(&title_buf, "{s} ({d:.1} FPS)", .{ window_title, fps }) catch unreachable;
-            self.window.setTitle(title);
+            var title_buf: [256]u8 = undefined;
+
+            if (self.filename) |filename| {
+                const title = std.fmt.bufPrintZ(
+                    &title_buf,
+                    "{s} - {s} - {d:.1} FPS",
+                    .{ window_title, filename, fps },
+                ) catch unreachable;
+                self.window.setTitle(title);
+            } else {
+                const title = std.fmt.bufPrintZ(
+                    &title_buf,
+                    "{s} - NO DISK - {d:.1} FPS",
+                    .{ window_title, fps },
+                ) catch unreachable;
+                self.window.setTitle(title);
+            }
+
             self.last_fps_update_time = now;
             self.frame_count = 0;
         }

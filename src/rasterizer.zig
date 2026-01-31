@@ -320,7 +320,7 @@ pub const Rasterizer = struct {
 
             var out = texel;
             if (mode.blend) out = applyBlending(out, dithered);
-            if (mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
+            if (mode.semi_trans and out.mask_bit) out = applyTransparency(out, back, self.transparency_mode);
             if (self.force_mask_bit) out.mask_bit = true;
 
             self.vram[addr] = @bitCast(out);

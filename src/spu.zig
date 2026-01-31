@@ -334,7 +334,7 @@ pub const SPU = struct {
 
         if (voice.pitch_counter >> fp_bits >= 28) {
             self.loadAdpcmBlock(@intCast(voice_i));
-            voice.pitch_counter -= @as(u32, 28) << fp_bits;
+            voice.pitch_counter -|= @as(u32, 28) << fp_bits;
         }
 
         voice.stepAdsrEnvelope();
