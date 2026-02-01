@@ -394,10 +394,13 @@ pub const GTE = struct {
 
     /// NCLIP - Normal clipping
     fn nclip(self: *GTE, _: Command) void {
-        const s = self.sxy;
-        const result = @as(i64, s[0][0]) *% (s[1][1] -% s[2][1]) +%
-            @as(i64, s[1][0]) *% (s[2][1] -% s[0][1]) +%
-            @as(i64, s[2][0]) *% (s[0][1] -% s[1][1]);
+        const sx0: i64 = self.sxy[0][0];
+        const sy0: i64 = self.sxy[0][1];
+        const sx1: i64 = self.sxy[1][0];
+        const sy1: i64 = self.sxy[1][1];
+        const sx2: i64 = self.sxy[2][0];
+        const sy2: i64 = self.sxy[2][1];
+        const result = sx0 * (sy1 - sy2) + sx1 * (sy2 - sy0) + sx2 * (sy0 - sy1);
         self.mac[0] = self.saturateMAC0(result);
     }
 
@@ -483,7 +486,7 @@ pub const GTE = struct {
         }
 
         inline for (1..4) |i| {
-            const value = (self.far_color[i - 1] << 12) - (rgb[i - 1] << 12);
+            const value = (@as(i64, self.far_color[i - 1]) << 12) - (rgb[i - 1] << 12);
             self.setMACtoIR(i, value, false, cmd.sf);
         }
 
@@ -496,7 +499,7 @@ pub const GTE = struct {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
         inline for (1..4) |i| {
-            const value = (self.far_color[i - 1] << 12) - self.rgbScaled(i - 1) * prev[i - 1];
+            const value = (@as(i64, self.far_color[i - 1]) << 12) - self.rgbScaled(i - 1) * prev[i - 1];
             self.setMACtoIR(i, value, false, cmd.sf);
         }
 
@@ -513,7 +516,7 @@ pub const GTE = struct {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
         inline for (1..4) |i| {
-            const value = (self.far_color[i - 1] << 12) - (@as(i64, prev[i - 1]) << 12);
+            const value = (@as(i64, self.far_color[i - 1]) << 12) - (@as(i64, prev[i - 1]) << 12);
             self.setMACtoIR(i, value, false, cmd.sf);
         }
 
@@ -546,10 +549,17 @@ pub const GTE = struct {
 
     /// OP - Outer product
     fn op(self: *GTE, cmd: Command) void {
-        const d = [3]i64{ self.rotation.m[0][0], self.rotation.m[1][1], self.rotation.m[2][2] };
-        self.setMACtoIR(1, d[2] * self.ir[3] - d[1] * self.ir[2], cmd.lm, cmd.sf);
-        self.setMACtoIR(2, d[0] * self.ir[1] - d[2] * self.ir[3], cmd.lm, cmd.sf);
-        self.setMACtoIR(3, d[1] * self.ir[2] - d[0] * self.ir[1], cmd.lm, cmd.sf);
+        const d = [3]i64{
+            self.rotation.m[0][0],
+            self.rotation.m[1][1],
+            self.rotation.m[2][2],
+        };
+        const ir1: i64 = self.ir[1];
+        const ir2: i64 = self.ir[2];
+        const ir3: i64 = self.ir[3];
+        self.setMACtoIR(1, ir3 * d[1] - ir2 * d[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, ir1 * d[2] - ir3 * d[0], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, ir2 * d[0] - ir1 * d[1], cmd.lm, cmd.sf);
     }
 
     fn mvmvaBuggy(self: *GTE, cmd: Command, matrix: [3][3]i16, vec: [3]i16) void {
@@ -557,7 +567,7 @@ pub const GTE = struct {
 
         // Flags from first component, but IR gets intermediate result
         inline for (1..4) |i| {
-            const value = (self.far_color[i - 1] << 12) + @as(i64, matrix[i - 1][0]) * vec[0];
+            const value = (@as(i64, self.far_color[i - 1]) << 12) + @as(i64, matrix[i - 1][0]) * vec[0];
             const val = self.saturateMAC(i, value);
             self.ir[i] = self.saturateIR(i, val >> shift, false);
         }
@@ -629,7 +639,7 @@ pub const GTE = struct {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
         inline for (1..4) |i| {
-            const value = (self.far_color[i - 1] << 12) - self.rgbScaled(i - 1) * self.ir[i];
+            const value = (@as(i64, self.far_color[i - 1]) << 12) - self.rgbScaled(i - 1) * self.ir[i];
             self.setMACtoIR(i, value, false, cmd.sf);
         }
 
@@ -714,9 +724,9 @@ pub const GTE = struct {
         self.rgb[0] = self.rgb[1];
         self.rgb[1] = self.rgb[2];
         self.rgb[2] = .{
-            self.saturateRGB(0, @divTrunc(self.mac[1], 16)),
-            self.saturateRGB(1, @divTrunc(self.mac[2], 16)),
-            self.saturateRGB(2, @divTrunc(self.mac[3], 16)),
+            self.saturateRGB(0, self.mac[1] >> 4),
+            self.saturateRGB(1, self.mac[2] >> 4),
+            self.saturateRGB(2, self.mac[3] >> 4),
             self.rgbc[3],
         };
     }
