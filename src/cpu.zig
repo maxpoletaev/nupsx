@@ -430,13 +430,8 @@ pub const CPU = struct {
     }
 
     fn unhandled(self: *@This(), instr: *const DecodedInstr) void {
-        std.debug.panic(
-            "unhandled instruction at {x}: opcode={x}",
-            .{ self.instr_addr, instr.opcode },
-        );
-
-        // _ = self;
-        // log.err("unhandled instruction {x} at {x}", .{ code, self.instr_addr });
+        std.debug.panic("unhandled instruction {x} at {x}", .{ instr.opcode, self.instr_addr });
+        // log.err("unhandled instruction {x} at {x}", .{ instr.opcode, self.instr_addr });
     }
 
     fn exception(self: *@This(), exc_code: Cop0.ExcCode) void {
@@ -681,7 +676,7 @@ pub const CPU = struct {
         if ((self.pc == 0xa0 and self.gpr[9] == 0x3c) or
             (self.pc == 0xb0 and self.gpr[9] == 0x3d))
         {
-            @branchHint(.unlikely);
+            @branchHint(.cold);
             if (self.tty) |tty| {
                 const char: u8 = @truncate(self.gpr[4]);
                 tty.writeByte(char) catch @panic("TTY write");

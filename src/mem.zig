@@ -191,7 +191,6 @@ pub const AudioStream = struct {
 
     pub fn pop(self: *@This()) [2]i16 {
         const head = self.head.load(.monotonic);
-
         if (head == self.tail.load(.acquire)) {
             return .{ 0, 0 };
         }
@@ -357,14 +356,9 @@ pub const Bus = struct {
             0x1f801054 => 0x05, // sio1 status (padtest.exe stalls without this)
 
             else => blk: {
-                const v = switch (T) {
-                    u8 => 0xac,
-                    u16 => 0xacab,
-                    u32 => 0xacabacab,
-                    else => @compileError("unsupported type"),
-                };
-                std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), masked_addr });
-                break :blk v;
+                // std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), masked_addr });
+                log.err("unhandled read ({s}) at {x}", .{ @typeName(T), masked_addr });
+                break :blk 0;
             },
         };
     }
@@ -409,7 +403,8 @@ pub const Bus = struct {
             0x1f802000...0x1f802041 => {}, // expansion 2
 
             else => {
-                std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), masked_addr, v });
+                // std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), masked_addr, v });
+                log.err("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), masked_addr, v });
             },
         }
     }

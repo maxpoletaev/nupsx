@@ -428,7 +428,7 @@ pub const SPU = struct {
                 break :blk (stat & ~@as(u16, 0x1f)) | (cnt & 0x1f); // lower 5 bits are from SPUCNT
             },
             else => blk: {
-                // log.warn("unhandled SPU read at {x}", .{addr});
+                log.warn("unhandled read at {x}", .{addr});
                 const offset = addr - addr_start;
                 break :blk self.stub_data[offset];
             },

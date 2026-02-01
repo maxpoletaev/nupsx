@@ -15,8 +15,11 @@ const cdrom_file_offset_bytes_cue = cdrom_file_offset_sectors_cue * cdrom_sector
 const cdrom_avg_delay_cycles = 50_401;
 const cdrom_init_delay_cycles = 81_102;
 const cdrom_seekl_delay_cycles = 450_000;
-const cdrom_read_delay_cycles = (33868800 / 75);
-const cdrom_read_2x_delay_cycles = (33868800 / (75 * 2));
+const cdrom_read_delay_cycles = (33_868_800 / 75);
+const cdrom_read_2x_delay_cycles = (33_868_800 / 150);
+const cdrom_pause_delay_cycles = 2_168_860;
+const cdrom_pause_2x_delay_cycles = 1_097_107;
+const cdrom_spinup_delay_cycles = 33_868_800; // 1 second
 
 const cdrom_getid_nodisk = [_]u8{ 0x08, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 const cdrom_getid_region = 'A'; // A=America, I=Japan, E=Europe
@@ -382,13 +385,13 @@ pub const CDROM = struct {
         const is_playing = !self.mute and
             self.read_state == .playing and
             self.mode.cdda;
-
-        if (!is_playing) return .{ 0, 0 };
-
-        return self.audio_buffer.pop() orelse blk: {
-            log.warn("audio buffer underrun", .{});
-            break :blk [2]i16{ 0, 0 };
-        };
+        if (is_playing) {
+            return self.audio_buffer.pop() orelse blk: {
+                log.warn("audio buffer underrun", .{});
+                break :blk [2]i16{ 0, 0 };
+            };
+        }
+        return [2]i16{ 0, 0 };
     }
 
     pub fn consumeData(self: *@This(), comptime T: type) T {
@@ -409,9 +412,9 @@ pub const CDROM = struct {
     }
 
     fn consumeResultByte(self: *@This()) u8 {
-        const v = self.results.pop() orelse {
+        const v = self.results.pop() orelse blk: {
             log.warn("read from empty result fifo", .{});
-            return 0;
+            break :blk 0;
         };
         return v;
     }
@@ -421,6 +424,9 @@ pub const CDROM = struct {
     // =========================================================================
 
     pub fn tick(self: *@This(), cyc: u32) void {
+        if (self.irq_pending.ints != 0) {
+            return;
+        }
         if (self.cmd_delay > 0) {
             self.cmd_delay -|= cyc;
             if (self.cmd_delay == 0) {
@@ -440,23 +446,69 @@ pub const CDROM = struct {
         }
     }
 
+    fn beginPlaying(self: *@This()) void {
+        self.read_state = .playing;
+        if (self.seekloc != null) {
+            self.stat.seek = true;
+            self.read_delay = cdrom_seekl_delay_cycles;
+        } else {
+            self.stat.play = true;
+            self.read_delay = cdrom_read_delay_cycles;
+        }
+    }
+
     fn stepPlaying(self: *@This()) void {
-        const sector = self.disc.?.readSectorRaw();
-        const samples = std.mem.bytesAsSlice(i16, sector);
-        self.read_delay = cdrom_read_delay_cycles;
-        self.fillAudioBuffer(samples);
+        if (self.seekloc) |loc| {
+            self.disc.?.seek(loc);
+            self.seekloc = null;
+            self.stat.seek = false;
+            self.read_delay = cdrom_read_delay_cycles;
+        } else {
+            self.stat.play = true;
+            const sector = self.disc.?.readSectorRaw();
+            const samples = std.mem.bytesAsSlice(i16, sector);
+            self.read_delay = cdrom_read_delay_cycles;
+            self.fillAudioBuffer(samples);
+        }
+    }
+
+    fn beginReading(self: *@This()) void {
+        self.read_state = .reading;
+        if (self.seekloc != null) {
+            self.stat.seek = true;
+            self.read_delay = cdrom_seekl_delay_cycles;
+        } else {
+            self.stat.read = true;
+            self.read_delay = switch (self.mode.speed) {
+                .normal => cdrom_read_delay_cycles,
+                .double => cdrom_read_2x_delay_cycles,
+            };
+        }
     }
 
     fn stepReading(self: *@This()) void {
-        self.results.clear();
-        const sector = self.disc.?.readSector(self.mode.sector_size);
-        self.read_delay = switch (self.mode.speed) {
-            .normal => cdrom_read_delay_cycles,
-            .double => cdrom_read_2x_delay_cycles,
-        };
-        self.pushResultByte(self.readStat());
-        self.setDataBuffer(sector);
-        self.setInterrupt(1);
+        if (self.seekloc) |loc| {
+            self.disc.?.seek(loc);
+            self.seekloc = null;
+            self.stat.seek = false;
+            self.read_delay = switch (self.mode.speed) {
+                .normal => cdrom_read_delay_cycles,
+                .double => cdrom_read_2x_delay_cycles,
+            };
+        } else {
+            self.stat.read = true;
+            self.results.clear();
+
+            const sector = self.disc.?.readSector(self.mode.sector_size);
+            self.read_delay = switch (self.mode.speed) {
+                .normal => cdrom_read_delay_cycles,
+                .double => cdrom_read_2x_delay_cycles,
+            };
+
+            self.pushResultByte(self.readStat());
+            self.setDataBuffer(sector);
+            self.setInterrupt(1);
+        }
     }
 
     fn resetReadState(self: *@This()) void {
@@ -465,6 +517,7 @@ pub const CDROM = struct {
         self.audio_buffer.clear();
         self.data_buffer = null;
         self.data_pos = 0;
+        self.stat.seek = false;
         self.stat.read = false;
         self.stat.play = false;
     }
@@ -472,6 +525,10 @@ pub const CDROM = struct {
     fn stepCommand(self: *@This()) void {
         if (self.cmd == null) return;
         const cmd = self.cmd.?;
+
+        // This fixes some games but should we actually do this?
+        self.irq_pending.ints = 0;
+        self.results.clear();
 
         switch (cmd) {
             0x01 => commands.getStat(self),
@@ -704,11 +761,12 @@ const commands = opaque {
             .resp1 => {
                 log.debug("CDROM PAUSE", .{});
                 self.pushResultByte(self.readStat());
-                self.stat.read = false;
-                self.stat.play = false;
-                self.setInterrupt(3);
-                self.cmd_delay = cdrom_avg_delay_cycles;
+                self.cmd_delay = switch (self.mode.speed) {
+                    .normal => cdrom_pause_delay_cycles,
+                    .double => cdrom_pause_2x_delay_cycles,
+                };
                 self.cmd_state = .resp2;
+                self.setInterrupt(3);
             },
             .resp2 => {
                 self.pushResultByte(self.readStat());
@@ -821,25 +879,11 @@ const commands = opaque {
                 self.cmd_delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp1;
                 self.stat.motor_on = true;
-
-                if (self.seekloc) |loc| { // unacknowledged seek
-                    log.debug("CDROM READN seek to {d}", .{loc});
-                    self.cmd_delay += cdrom_seekl_delay_cycles;
-                    self.disc.?.seek(loc);
-                    self.seekloc = null;
-                    self.stat.seek = true;
-                }
             },
             .resp1 => {
                 log.debug("CDROM READN", .{});
+                self.beginReading();
                 self.pushResultByte(self.readStat());
-                self.read_delay = switch (self.mode.speed) {
-                    .normal => cdrom_read_delay_cycles,
-                    .double => cdrom_read_2x_delay_cycles,
-                };
-                self.read_state = .reading;
-                self.stat.seek = false;
-                self.stat.read = true;
                 self.setInterrupt(3);
                 self.finishCommand();
             },
@@ -852,29 +896,20 @@ const commands = opaque {
             .recv_cmd => {
                 self.cmd_delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp1;
-
+                self.stat.motor_on = true;
+            },
+            .resp1 => {
                 const track_id = self.params.pop();
                 if (track_id) |id| {
                     const track = self.disc.?.getTrackByNumber(id) orelse {
                         std.debug.panic("cdrom - play: invalid track id {d}", .{id});
                     };
-                    self.cmd_delay += cdrom_seekl_delay_cycles;
-                    self.disc.?.seek(track.start_sector);
+                    self.seekloc = track.start_sector;
                     log.debug("seek to track {d}", .{id});
-                } else if (self.seekloc) |loc| {
-                    log.debug("seek to loc {d}", .{loc});
-                    self.cmd_delay += cdrom_seekl_delay_cycles;
-                    self.disc.?.seek(loc);
-                    self.seekloc = null;
-                    self.stat.seek = true;
                 }
-            },
-            .resp1 => {
+
+                self.beginPlaying();
                 self.pushResultByte(self.readStat());
-                self.read_delay = cdrom_read_delay_cycles;
-                self.read_state = .playing;
-                self.stat.seek = false;
-                self.stat.play = true;
                 self.setInterrupt(3);
                 self.finishCommand();
             },
@@ -890,15 +925,15 @@ const commands = opaque {
             },
             .resp1 => {
                 log.debug("CDROM INIT", .{});
-                self.mode = @bitCast(@as(u8, 0x20));
-                self.stat.motor_on = true;
-                self.resetReadState();
                 self.pushResultByte(self.readStat());
                 self.cmd_delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp2;
                 self.setInterrupt(3);
             },
             .resp2 => {
+                self.stat.motor_on = true;
+                self.mode = @bitCast(@as(u8, 0x20));
+                self.resetReadState();
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(2);
                 self.finishCommand();
