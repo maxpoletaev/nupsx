@@ -35,7 +35,7 @@ pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .spu, .level = .debug },
-        // .{ .scope = .cdrom, .level = .debug },
+        .{ .scope = .cdrom, .level = .debug },
         // .{ .scope = .cue, .level = .debug },
         // .{ .scope = .mem, .level = .debug },
         // .{ .scope = .timer, .level = .debug },

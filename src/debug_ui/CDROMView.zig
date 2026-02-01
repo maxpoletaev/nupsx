@@ -69,7 +69,7 @@ pub fn update(self: *@This()) void {
                 zgui.text("Current Command: none", .{});
             }
             zgui.text("Command State: {s}", .{@tagName(self.cdrom.cmd_state)});
-            zgui.text("Delay Cycles: {d}", .{self.cdrom.delay});
+            // zgui.text("Delay Cycles: {d}", .{self.cdrom.cmd_delay});
         }
 
         // IRQ State
@@ -116,12 +116,6 @@ pub fn update(self: *@This()) void {
                 zgui.text("Seek Location: {d}", .{loc});
             } else {
                 zgui.text("Seek Location: none", .{});
-            }
-
-            if (self.cdrom.sect_buf) |_| {
-                zgui.text("Sector Buffer: loaded ({d} bytes read)", .{self.cdrom.sect_pos});
-            } else {
-                zgui.text("Sector Buffer: empty", .{});
             }
         }
 

@@ -341,7 +341,7 @@ pub const DMA = struct {
 
         switch (chan.ctrl.direction) {
             .to_ram => for (0..transfer_len) |i| {
-                const v = self.bus.dev.cdrom.consumeSectorData(u32);
+                const v = self.bus.dev.cdrom.consumeData(u32);
                 self.bus.write(u32, chan.maddr, v);
                 chan.maddr +%= addr_inc;
 
