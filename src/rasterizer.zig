@@ -33,6 +33,7 @@ pub const RGB5 = packed struct {
     }
 
     inline fn isZero(self: RGB5) bool {
+        // return @as(u16, @bitCast(self)) & 0x7fff == 0;
         return @as(u16, @bitCast(self)) == 0;
     }
 };
@@ -182,7 +183,6 @@ pub const Rasterizer = struct {
         if (!front.mask_bit) {
             return front; // not semi-transparent pixel
         }
-
         const out: RGB5 = switch (mode) {
             .@"B/2+F/2" => .{
                 .r = back.r / 2 +| front.r / 2,
@@ -316,14 +316,16 @@ pub const Rasterizer = struct {
             // write-protected
         } else {
             var dithered = blend_color;
-            if (mode.dither and self.enable_dithering) dithered = applyDithering(dithered, x, y);
+            if (mode.dither and self.enable_dithering) {
+                dithered = applyDithering(dithered, x, y);
+            }
 
-            var out = texel;
-            if (mode.blend) out = applyBlending(out, dithered);
-            if (mode.semi_trans and out.mask_bit) out = applyTransparency(out, back, self.transparency_mode);
-            if (self.force_mask_bit) out.mask_bit = true;
+            var front = texel;
+            if (mode.blend) front = applyBlending(front, dithered);
+            if (mode.semi_trans) front = applyTransparency(front, back, self.transparency_mode);
+            if (self.force_mask_bit) front.mask_bit = true;
 
-            self.vram[addr] = @bitCast(out);
+            self.vram[addr] = @bitCast(front);
         }
     }
 

@@ -396,24 +396,29 @@ pub const GPU = struct {
         self.rasterizer.setTextureWindow(mask_x, mask_y, offset_x, offset_y);
     }
 
+    inline fn transparencyModeFromInt(v: u2) Transparency {
+        return switch (v) {
+            0 => .@"B/2+F/2",
+            1 => .@"B+F",
+            2 => .@"B-F",
+            3 => .@"B+F/4",
+        };
+    }
+
     fn setDrawMode(self: *@This(), v: u32) void {
         self.gp0_draw_mode = @bitCast(v);
-        const transparency = switch (self.gp0_draw_mode.semi_transparency) {
-            0 => Transparency.@"B/2+F/2",
-            1 => Transparency.@"B+F",
-            2 => Transparency.@"B-F",
-            3 => Transparency.@"B+F/4",
-        };
-        self.rasterizer.setTransparencyMode(transparency);
         self.rasterizer.setDithering(self.gp0_draw_mode.dithering);
+        self.rasterizer.setTransparencyMode(transparencyModeFromInt(self.gp0_draw_mode.semi_transparency));
         log.debug("setDrawMode: {any}", .{self.gp0_draw_mode});
     }
 
     fn setDrawModeFromArg(self: *@This(), v: u32) void {
-        const texp = v >> 16;
-        self.gp0_draw_mode.texpage_x = bits.field(texp, 0, u4);
-        self.gp0_draw_mode.texpage_y = bits.field(texp, 4, u1);
-        self.gp0_draw_mode.texpage_color_mode = @enumFromInt(bits.field(texp, 7, u2));
+        const mode: DrawMode = @bitCast(v >> 16);
+        self.gp0_draw_mode.texpage_x = mode.texpage_x;
+        self.gp0_draw_mode.texpage_y = mode.texpage_y;
+        self.gp0_draw_mode.semi_transparency = mode.semi_transparency;
+        self.gp0_draw_mode.texpage_color_mode = mode.texpage_color_mode;
+        self.rasterizer.setTransparencyMode(transparencyModeFromInt(self.gp0_draw_mode.semi_transparency));
     }
 
     fn setDrawAreaStart(self: *@This(), v: u32) void {

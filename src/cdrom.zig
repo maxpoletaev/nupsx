@@ -527,8 +527,8 @@ pub const CDROM = struct {
         const cmd = self.cmd.?;
 
         // This fixes some games but should we actually do this?
-        self.irq_pending.ints = 0;
-        self.results.clear();
+        // self.irq_pending.ints = 0;
+        // self.results.clear();
 
         switch (cmd) {
             0x01 => commands.getStat(self),
@@ -557,7 +557,7 @@ pub const CDROM = struct {
     }
 
     fn finishCommand(self: *@This()) void {
-        self.params.clear();
+        // self.params.clear();
         self.cmd_state = .recv_cmd;
         self.stat.err = false;
         self.cmd = null;
