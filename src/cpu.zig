@@ -4,7 +4,10 @@ const bits = @import("bits.zig");
 const GTE = @import("gte.zig").GTE;
 
 const log = std.log.scoped(.cpu);
-const reset_addr = 0xbfc00000; // start of the BIOS
+
+const cpu_reset_addr = 0xbfc00000; // start of the BIOS
+const cpu_enable_cached_interpreter = true;
+const cpu_enable_block_execution = true;
 
 // zig fmt: off
 pub const Reg = enum(u8) {
@@ -371,6 +374,7 @@ pub const CPU = struct {
     instr_addr: u32,
     cached_blocks: *[1 << 21]?*CachedBlock,
     block_allocator: BlockAllocator,
+    instr: CachedInstr,
     delay_load: LoadSlot,
     delay_load_next: LoadSlot,
     branch_taken: bool,
@@ -395,6 +399,7 @@ pub const CPU = struct {
             .allocator = allocator,
             .cached_blocks = cached_blocks,
             .block_allocator = block_allocator,
+            .instr = std.mem.zeroes(CachedInstr),
             .instr_addr = 0,
             .gpr = undefined,
             .cop0 = undefined,
@@ -425,7 +430,7 @@ pub const CPU = struct {
     }
 
     pub fn reset(self: *@This()) void {
-        self.pc = reset_addr;
+        self.pc = cpu_reset_addr;
         self.next_pc = self.pc + 4;
     }
 
@@ -653,7 +658,7 @@ pub const CPU = struct {
         self.cached_blocks[block_i] = null;
     }
 
-    inline fn fetch(self: *@This(), pc: u32) *CachedInstr {
+    inline fn fetchCached(self: *@This(), pc: u32) *CachedInstr {
         const addr = pc & 0x1fffffff; // drop segment selector (0x80000000/0xa0000000)
 
         const block_i = addr >> 8; // upper 21 bits
@@ -669,7 +674,20 @@ pub const CPU = struct {
         }
     }
 
+    inline fn fetchUncached(self: *@This(), pc: u32) *CachedInstr {
+        const word = self.memRead(u32, pc);
+        self.instr = decode(RawInstr{ .raw = word });
+        return &self.instr;
+    }
+
+    const fetch = if (cpu_enable_cached_interpreter) fetchCached else fetchUncached;
+
     inline fn tickInternal(self: *@This()) bool {
+        // During the execution:
+        //  * pc - incremented after fetch but before execute, so it points to the NEXT instruction to execute
+        //  * next_pc - address that will be loaded into pc after the current instruction (for branches/jumps)
+        //  * instr_addr - points to the current instruction being executed
+
         self.gpr[0] = 0;
 
         // Handle TTY output
@@ -724,15 +742,15 @@ pub const CPU = struct {
     pub fn tick(self: *@This()) u8 {
         var total_cycles: u8 = 0;
 
-        // During the execution:
-        //  * pc - incremented after fetch but before execute, so it points to the NEXT instruction to execute
-        //  * next_pc - address that will be loaded into pc after the current instruction (for branches/jumps)
-        //  * instr_addr - points to the current instruction being executed
-
-        for (0..64) |_| {
-            const continue_exec = self.tickInternal();
+        if (comptime cpu_enable_block_execution) {
+            for (0..64) |_| {
+                const continue_exec = self.tickInternal();
+                total_cycles += self.cycles;
+                if (!continue_exec) break;
+            }
+        } else {
+            _ = self.tickInternal();
             total_cycles += self.cycles;
-            if (!continue_exec) break;
         }
 
         return total_cycles;

@@ -317,7 +317,15 @@ pub const DMA = struct {
                     self.setChannelIrq(ChanId.spu, .block);
                 }
             },
-            .to_ram => @panic("spu dma to ram not implemented"),
+            .to_ram => for (0..transfer_len) |i| {
+                const v = self.bus.dev.spu.readData();
+                self.bus.write(u32, chan.maddr, v);
+                chan.maddr +%= addr_inc;
+
+                if ((i + 1) % chan.block.size == 0) {
+                    self.setChannelIrq(ChanId.spu, .block);
+                }
+            },
         }
 
         self.setChannelIrq(ChanId.spu, .full_transfer);

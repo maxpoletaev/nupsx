@@ -19,6 +19,7 @@ const GPUView = @import("GPUView.zig");
 const TimerView = @import("TimerView.zig");
 const CDROMView = @import("CDROMView.zig");
 const DMAView = @import("DMAView.zig");
+const InterruptView = @import("InterruptView.zig");
 
 const default_font = @embedFile("../assets/freepixel.ttf");
 const default_font_size = 16.0;
@@ -40,6 +41,7 @@ vram_view: *VramView,
 tty_view: *TTYView,
 cdrom_view: *CDROMView,
 dma_view: *DMAView,
+interrupt_view: *InterruptView,
 last_frame_time: f64 = 0,
 next_frame_time: f64 = 0,
 is_running: bool = true,
@@ -82,6 +84,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     const vram_view = try VramView.init(allocator, bus.dev.gpu);
     const cdrom_view = try CDROMView.init(allocator, bus.dev.cdrom);
     const dma_view = try DMAView.init(allocator, bus.dev.dma);
+    const interrupt_view = try InterruptView.init(allocator, cpu, bus);
 
     const self = try allocator.create(@This());
     self.* = .{
@@ -95,6 +98,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
         .vram_view = vram_view,
         .cdrom_view = cdrom_view,
         .dma_view = dma_view,
+        .interrupt_view = interrupt_view,
         .window = window,
     };
 
@@ -110,6 +114,7 @@ pub fn deinit(self: *@This()) void {
     self.vram_view.deinit();
     self.cdrom_view.deinit();
     self.dma_view.deinit();
+    self.interrupt_view.deinit();
 
     zgui.backend.deinit();
     zgui.deinit();
@@ -201,6 +206,7 @@ inline fn updateInternal(self: *@This(), now: f64) void {
     self.vram_view.update();
     self.cdrom_view.update();
     self.dma_view.update();
+    self.interrupt_view.update();
 
     zgui.backend.draw();
     self.window.swapBuffers();

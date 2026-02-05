@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const clamp = std.math.clamp;
 const log = std.log.scoped(.rasterizer);
 
 pub const RGB8 = packed struct {
@@ -138,8 +139,8 @@ pub const Rasterizer = struct {
 
     inline fn applyOffset(self: *@This(), v: Vertex) Vertex {
         return .{
-            .x = v.x + self.draw_offset[0],
-            .y = v.y + self.draw_offset[1],
+            .x = v.x +% self.draw_offset[0],
+            .y = v.y +% self.draw_offset[1],
             .u = v.u,
             .v = v.v,
             .color = v.color,
@@ -173,9 +174,9 @@ pub const Rasterizer = struct {
         const b = @as(i16, color.b) + v;
 
         return .{
-            .r = @intCast(std.math.clamp(r, 0, 255)),
-            .g = @intCast(std.math.clamp(g, 0, 255)),
-            .b = @intCast(std.math.clamp(b, 0, 255)),
+            .r = @intCast(clamp(r, 0, 255)),
+            .g = @intCast(clamp(g, 0, 255)),
+            .b = @intCast(clamp(b, 0, 255)),
         };
     }
 

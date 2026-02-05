@@ -574,6 +574,16 @@ pub const SPU = struct {
             self.bus.setInterrupt(Interrupt.spu);
         }
     }
+
+    pub fn readData(self: *@This()) u32 {
+        if (self.data_addr_internal > self.ram.len - 1) {
+            log.warn("SPU data read out of bounds at addr {x}", .{self.data_addr_internal});
+            return 0;
+        }
+        const v = mem.readBuf(u32, &self.ram, self.data_addr_internal);
+        self.data_addr_internal += 4;
+        return v;
+    }
 };
 
 fn interpolate(samples: *[28]i16, prev_samples: *[4]i16, sample_i: u32) i16 {

@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const cpu_mod = @import("cpu.zig");
 const gpu_mod = @import("gpu.zig");
 const sched = @import("sched.zig");
 
+const CPU = cpu_mod.CPU;
 const GPU = gpu_mod.GPU;
 const DMA = @import("dma.zig").DMA;
-const CPU = @import("cpu.zig").CPU;
 const SPU = @import("spu.zig").SPU;
 const CDROM = @import("cdrom.zig").CDROM;
 const MDEC = @import("mdec.zig").MDEC;
@@ -253,18 +254,16 @@ pub const Bus = struct {
     fn initFastMem(self: *@This()) void {
         // RAM: 2MB (0x200000 bytes) = 32 pages of 64KB each
         // 0x00000000-0x001fffff (pages 0x0000-0x001f)
-        var page_idx: u32 = 0;
-        while (page_idx < 32) : (page_idx += 1) {
-            const offset = page_idx * page_size;
-            const page_ptr: *MemPage = @ptrCast(&self.dev.ram.data[offset]);
+        for (0..128) |page_idx| {
+            const ram_offset = (page_idx & 0x1f) * page_size; // wraps every 32 pages
+            const page_ptr: *MemPage = @ptrCast(&self.dev.ram.data[ram_offset]);
             self.read_pages[page_idx] = page_ptr;
             self.write_pages[page_idx] = page_ptr;
         }
 
         // BIOS: 512KB = 8 pages, read-only
         // Physical range: 0x1fc00000-0x1fc7ffff (pages 0x1fc0-0x1fc7)
-        page_idx = 0;
-        while (page_idx < 8) : (page_idx += 1) {
+        for (0..8) |page_idx| {
             const offset = page_idx * page_size;
             const page_ptr: *MemPage = @ptrCast(&self.dev.bios.rom[offset]);
             self.read_pages[0x1fc0 + page_idx] = page_ptr;
@@ -305,9 +304,6 @@ pub const Bus = struct {
     }
 
     inline fn setIrqStat(self: *@This(), v: u32) void {
-        // if (~v & Interrupt.tmr2 != 0) {
-        //     log.debug("CPU interrupt ack: {x}", .{~v});
-        // }
         self.irq_stat &= v; // (0=acknowledge, 1=no change)`
         self.updateCpuIrq();
     }
@@ -315,7 +311,6 @@ pub const Bus = struct {
     inline fn setIrqMask(self: *@This(), v: u32) void {
         self.irq_mask = v;
         self.updateCpuIrq();
-        // log.debug("irq_mask write: {x}", .{v});
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -378,10 +373,10 @@ pub const Bus = struct {
         }
 
         // Slow path: I/O and special regions
-        self.writeSlow(T, masked_addr, v);
+        self.writeSlow(T, addr, masked_addr, v);
     }
 
-    inline fn writeSlow(self: *@This(), comptime T: type, masked_addr: u32, v: T) void {
+    inline fn writeSlow(self: *@This(), comptime T: type, addr: u32, masked_addr: u32, v: T) void {
         switch (masked_addr) {
             addr_irq_stat => self.setIrqStat(v),
             addr_irq_mask => self.setIrqMask(v),
@@ -404,7 +399,7 @@ pub const Bus = struct {
 
             else => {
                 // std.debug.panic("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), masked_addr, v });
-                log.err("unhandled write ({s}) at {x} = {x}", .{ @typeName(T), masked_addr, v });
+                log.warn("unhandled write ({s}) at {x} ({x}) = {x}", .{ @typeName(T), masked_addr, addr, v });
             },
         }
     }
