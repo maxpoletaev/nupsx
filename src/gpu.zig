@@ -169,7 +169,7 @@ pub const GPU = struct {
 
     gp1_display_area_start: packed struct(u32) { x: u10, y: u9, _pad: u13 },
     gp1_display_range_x: packed struct(u32) { x1: u12, x2: u12, _pad: u8 },
-    gp1_display_range_y: packed struct(u32) { y1: u11, y2: u11, _pad: u10 },
+    gp1_display_range_y: packed struct(u32) { y1: u10, y2: u10, _pad: u12 },
     gp1_display_enable: enum(u1) { on = 0, off = 1 },
     gp1_dma_direction: DmaDirection,
     gp1_display_mode: DisplayMode,
@@ -198,7 +198,10 @@ pub const GPU = struct {
             .vram = vram,
             .bus = bus,
         });
+
         self.rasterizer.fill(.{ .r = 8, .g = 8, .b = 8 });
+        self.reset();
+
         return self;
     }
 
@@ -1060,8 +1063,8 @@ pub const GPU = struct {
         // log.debug("gp1 - command: {x}", .{cmd});
 
         switch (cmd) {
-            0x00 => {}, // self.reset(v),
-            0x01 => self.resetCommand(v),
+            0x00 => self.reset(),
+            0x01 => self.resetCommand(),
             0x02 => self.interrupt_request = false,
             0x03 => self.gp1_display_enable = @enumFromInt(@as(u1, @truncate(v))),
             0x04 => self.gp1_dma_direction = @enumFromInt(@as(u2, @truncate(v))),
@@ -1074,7 +1077,12 @@ pub const GPU = struct {
         }
     }
 
-    fn resetCommand(self: *@This(), _: u32) void {
+    fn reset(self: *@This()) void {
+        self.gp1_display_range_y.y1 = 0x10;
+        self.gp1_display_range_y.y2 = 0x10 + 240;
+    }
+
+    fn resetCommand(self: *@This()) void {
         self.gp0_state = .recv_command;
         self.gp0_fifo.clear();
     }

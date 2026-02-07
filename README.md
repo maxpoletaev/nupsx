@@ -10,7 +10,7 @@ Still in early development with no intention of becoming usable by the general b
 
 ## State
 
-Can boot and play a few commercial games (notably Crash Bandicoot) and homebrew demos. Lots of things are still missing or incomplete. Tested 2D games are mostly fine, 3D games often have graphical glitches. Sound is very basic.
+Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and homebrew demos. Lots of things are still missing or incomplete. Tested 2D games are mostly fine, 3D games have minor graphical glitches. Sound system is not complete but functional enough to play music and most of sound effects in tested games.
 
 ## Compatibility List
 
@@ -19,9 +19,9 @@ Can boot and play a few commercial games (notably Crash Bandicoot) and homebrew 
 |Battle Arena Toshinden|🟢 Playable||
 |Colin McRae Rally 2.0|🔴 Crashes||
 |Crash Bandicoot|🟢 Playable||
-|Crash Team Racing|🔴 Crashes||
+|Crash Team Racing|🟠 Crashes|Sound issues|
 |Earthworm Jim 2|🟢 Playable||
-|Metal Gear Solid|🟢 Playable||
+|Metal Gear Solid|🟢 Playable|Cutscene glitches|
 |Mortal Kombat 2|🟢 Playable||
 |Ridge Racer|🟢 Playable||
 |Spyro the Dragon|🟠 In game|Sound issues|

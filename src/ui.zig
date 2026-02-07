@@ -73,6 +73,7 @@ pub const UI = struct {
     shader_program: gl.Uint,
     uniform_display_offset: gl.Int,
     uniform_display_size: gl.Int,
+    uniform_display_range_y: gl.Int,
     uniform_vram_size: gl.Int,
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
@@ -138,6 +139,7 @@ pub const UI = struct {
         // Cache uniform locations
         const uniform_display_offset = gl.getUniformLocation(shader_program, "uDisplayOffset");
         const uniform_display_size = gl.getUniformLocation(shader_program, "uDisplaySize");
+        const uniform_display_range_y = gl.getUniformLocation(shader_program, "uDisplayRangeY");
         const uniform_vram_size = gl.getUniformLocation(shader_program, "uVramSize");
 
         const self = try allocator.create(@This());
@@ -152,6 +154,7 @@ pub const UI = struct {
             .shader_program = shader_program,
             .uniform_display_offset = uniform_display_offset,
             .uniform_display_size = uniform_display_size,
+            .uniform_display_range_y = uniform_display_range_y,
             .uniform_vram_size = uniform_vram_size,
         };
 
@@ -301,9 +304,13 @@ pub const UI = struct {
         var start_y = self.gpu.gp1_display_area_start.y;
         if (start_y == 2) start_y = 0; // HACK: old bioses set this to 2, resulting in cluts being displayed in the viewport
 
+        const display_range_y1: f32 = @floatFromInt(self.gpu.gp1_display_range_y.y1);
+        const display_range_y2: f32 = @floatFromInt(self.gpu.gp1_display_range_y.y2);
+
         // Set uniform values
         gl.uniform2f(self.uniform_display_offset, @as(f32, @floatFromInt(start_x)), @as(f32, @floatFromInt(start_y)));
         gl.uniform2f(self.uniform_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
+        gl.uniform2f(self.uniform_display_range_y, display_range_y1, display_range_y2);
         gl.uniform2f(self.uniform_vram_size, 1024.0, 512.0);
 
         // Draw fullscreen quad
