@@ -118,42 +118,42 @@ pub const DMA = struct {
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
-        std.debug.assert(T == u32);
-
-        const v = switch (addr) {
+        const aligned_addr = addr & ~@as(u32, 3);
+        const v = switch (aligned_addr) {
             addr_dpcr => @as(u32, @bitCast(self.dpcr)),
             addr_dicr => @as(u32, @bitCast(self.dicr)),
 
             else => blk: {
-                const offset = addr - addr_start;
+                const offset = aligned_addr - addr_start;
                 const reg_id = bits.field(offset, 2, u2);
                 const chan_id = bits.field(offset, 4, u3);
                 break :blk self.readChannelReg(chan_id, reg_id);
             },
         };
 
-        return @truncate(v);
+        return partalRead(T, v, addr);
     }
 
     pub fn write(self: *@This(), comptime T: type, addr: u32, v: T) void {
-        std.debug.assert(T == u32);
-
-        switch (addr) {
+        const aligned_addr = addr & ~@as(u32, 3);
+        switch (aligned_addr) {
             addr_dpcr => {
-                self.dpcr = @bitCast(@as(u32, v));
+                self.dpcr = @bitCast(partalWrite(T, @bitCast(self.dpcr), addr, v));
             },
             addr_dicr => {
-                var new_dicr: IntterruptReg = @bitCast(@as(u32, v));
+                var new_dicr: IntterruptReg = @bitCast(partalWrite(T, @bitCast(self.dicr), addr, v));
                 new_dicr.irq_flags = self.dicr.irq_flags & ~new_dicr.irq_flags; // write 1 to clear
                 new_dicr.master_irq = self.dicr.master_irq; // bit 31 is read-only
-                self.dicr = new_dicr;
+                self.dicr = @bitCast(new_dicr);
                 self.dicr.updateMasterIrq();
             },
             else => {
-                const offset = addr - addr_start;
+                const offset = aligned_addr - addr_start;
                 const reg_id = bits.field(offset, 2, u2);
                 const chan_id = bits.field(offset, 4, u3);
-                self.writeChannelReg(chan_id, reg_id, v);
+                const old_val = self.readChannelReg(chan_id, reg_id);
+                const new_val = partalWrite(T, old_val, addr, v);
+                self.writeChannelReg(chan_id, reg_id, new_val);
             },
         }
     }
@@ -181,6 +181,11 @@ pub const DMA = struct {
     }
 
     fn readChannelReg(self: *@This(), chan_id: u8, reg_id: u8) u32 {
+        if (chan_id >= 7) {
+            log.warn("read from invalid dma channel: {d}", .{chan_id});
+            return 0;
+        }
+
         const chan = &self.channels[chan_id];
 
         return switch (reg_id) {
@@ -192,6 +197,11 @@ pub const DMA = struct {
     }
 
     fn writeChannelReg(self: *@This(), chan_id: u8, reg_id: u8, v: u32) void {
+        if (chan_id >= 7) {
+            log.warn("write to invalid dma channel: {d}", .{chan_id});
+            return;
+        }
+
         const chan = &self.channels[chan_id];
 
         switch (reg_id) {
@@ -388,3 +398,35 @@ pub const DMA = struct {
         self.setChannelIrq(ChanId.otc, .full_transfer);
     }
 };
+
+inline fn partalRead(comptime T: type, base: u32, addr: u32) T {
+    return switch (T) {
+        u8 => blk: {
+            const shift: u5 = @intCast((addr & 3) * 8);
+            break :blk @truncate(base >> shift);
+        },
+        u16 => blk: {
+            const shift: u5 = @intCast((addr & 2) * 8);
+            break :blk @truncate(base >> shift);
+        },
+        u32 => base,
+        else => unreachable,
+    };
+}
+
+inline fn partalWrite(comptime T: type, base: u32, addr: u32, value: T) u32 {
+    return switch (T) {
+        u8 => blk: {
+            const shift: u5 = @intCast((addr & 3) * 8);
+            const mask: u32 = @as(u32, 0xff) << shift;
+            break :blk (base & ~mask) | (@as(u32, value) << shift);
+        },
+        u16 => blk: {
+            const shift: u5 = @intCast((addr & 2) * 8);
+            const mask: u32 = @as(u32, 0xffff) << shift;
+            break :blk (base & ~mask) | (@as(u32, value) << shift);
+        },
+        u32 => value,
+        else => unreachable,
+    };
+}
