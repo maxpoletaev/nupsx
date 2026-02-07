@@ -265,6 +265,9 @@ pub const SPU = struct {
     spucnt: CntReg,
     spustat: StatReg,
 
+    capture_pos: u32,
+    capture_irq_pos: u32,
+
     stub_data: [0x400]u16,
 
     bus: *mem.Bus,
@@ -279,9 +282,11 @@ pub const SPU = struct {
             .data_ctrl = 0,
             .data_addr_internal = 0,
             .irq_addr = 0,
+            .capture_irq_pos = 0,
             .spucnt = .{},
             .spustat = .{},
             .stub_data = std.mem.zeroes([0x400]u16),
+            .capture_pos = 0,
             .bus = bus,
         };
         return self;
@@ -353,6 +358,24 @@ pub const SPU = struct {
         return .{ @intCast(left), @intCast(right) };
     }
 
+    fn stepCaptureBuffer(self: *@This()) void {
+        self.capture_pos += 1;
+        if (self.capture_pos >= 512) {
+            self.capture_pos = 0;
+        }
+        const second_half = self.capture_pos >= 256;
+        self.spustat.writing_capture_buffer_half = second_half;
+
+        // Capture buffer IRQ emulation. We don't emulate capture buffers themselves, but need to fire
+        // the irq at the right time. CTR seems to rely on this for lipsync and some scenes freeze without it.
+        if (self.irq_addr < 0x0200 and self.spucnt.irq9_enable) {
+            if (self.capture_pos == self.capture_irq_pos) {
+                self.spustat.irq9_flag = true;
+                self.bus.setInterrupt(Interrupt.spu);
+            }
+        }
+    }
+
     pub fn consumeAudioSample(self: *@This()) [2]i16 {
         if (!self.spucnt.spu_enable) return .{ 0, 0 };
 
@@ -363,6 +386,8 @@ pub const SPU = struct {
             mix[0] +|= @as(i32, sample[0]);
             mix[1] +|= @as(i32, sample[1]);
         }
+
+        self.stepCaptureBuffer();
 
         return .{
             @intCast(clamp(mix[0], -0x8000, 0x7fff)),
@@ -541,8 +566,12 @@ pub const SPU = struct {
         switch (addr) {
             0x1f801d88, 0x1f801d8a => self.setVoiceKeyOn(addr, v),
             0x1f801d8c, 0x1f801d8e => self.setVoiceKeyOff(addr, v),
-            0x1f801d94, 0x1f801d96 => self.setVoiceNoiseMode(addr, v), // NON register
-            0x1f801da4 => self.irq_addr = v,
+            0x1f801d94, 0x1f801d96 => self.setVoiceNoiseMode(addr, v),
+            0x1f801da4 => {
+                self.irq_addr = v;
+                self.capture_pos = 0;
+                self.capture_irq_pos = (@as(u32, v) * 4) % 512;
+            },
             0x1f801da6 => {
                 self.data_addr = v;
                 self.data_addr_internal = @as(u32, v) * 8;
@@ -565,14 +594,14 @@ pub const SPU = struct {
             return;
         }
 
-        self.ram[self.data_addr_internal + 0] = @truncate((v >> 0) & 0xff);
-        self.ram[self.data_addr_internal + 1] = @truncate((v >> 8) & 0xff);
-        self.data_addr_internal += 2;
-
         if (self.spucnt.irq9_enable and self.data_addr_internal == self.irq_addr * 8) {
             self.spustat.irq9_flag = true;
             self.bus.setInterrupt(Interrupt.spu);
         }
+
+        self.ram[self.data_addr_internal + 0] = @truncate((v >> 0) & 0xff);
+        self.ram[self.data_addr_internal + 1] = @truncate((v >> 8) & 0xff);
+        self.data_addr_internal += 2;
     }
 
     pub fn readData(self: *@This()) u32 {
@@ -580,6 +609,12 @@ pub const SPU = struct {
             log.warn("SPU data read out of bounds at addr {x}", .{self.data_addr_internal});
             return 0;
         }
+
+        if (self.spucnt.irq9_enable and self.data_addr_internal == self.irq_addr * 8) {
+            self.spustat.irq9_flag = true;
+            self.bus.setInterrupt(Interrupt.spu);
+        }
+
         const v = mem.readBuf(u32, &self.ram, self.data_addr_internal);
         self.data_addr_internal += 4;
         return v;
