@@ -33,7 +33,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 ```
 git clone https://github.com/maxpoletaev/nupsx.git
 cd nupsx
-zig build --release=fast
+zig build --release=safe
 ./zig-out/bin/nupsx --bios SCPH1001.bin
 ```
 
