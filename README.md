@@ -4,11 +4,13 @@ nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig, bui
 
 Still in early development with no intention of becoming usable by the general public. If you are looking for the emulator to play games, check out DuckStation.
 
+<p>
 <img src="./images/crash.webp" width="49%">
 <img src="./images/spyro.webp" width="49%">
 <img src="./images/mgs.webp" width="49%">
 <img src="./images/rr.webp" width="49%">
 <img src="./images/debugger.png" width="99%">
+</p>
 
 ## State
 
