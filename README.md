@@ -1,25 +1,26 @@
 # nuPSX
 
-![screenshot](res/screenshot.png)
+nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig, built as a learning exercise to explore Zig's capabilities and PSX hardware architecture. 
 
-nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig, built as a learning exercise to explore Zig's capabilities and PSX hardware architecture.
+Still in early development with no intention of becoming usable by the general public. If you are looking for the emulator to play games, check out DuckStation.
 
-Still in early development with no intention of becoming usable by the general bublic. If you are looking for the emulator to play games, check out DuckStation or PCSX-Redux.
-
-> Built using [zig-gamedev](https://github.com/zig-gamedev)—a collection of high quality idiomatic wrappers for graphics and audio APIs like WebGPU, OpenGL, SDL, ImGui, and more.
+<img src="./images/crash.webp" width="49%">
+<img src="./images/spyro.webp" width="49%">
+<img src="./images/mgs.webp" width="49%">
+<img src="./images/rr.webp" width="49%">
+<img src="./images/debugger.png" width="99%">
 
 ## State
 
 Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and homebrew demos. Lots of things are still missing or incomplete. Tested 2D games are mostly fine, 3D games have minor graphical glitches. Sound system is not complete but functional enough to play music and most of sound effects in tested games.
-
-## Compatibility List
 
 |Game|Status|Note|
 |-|-|-|
 |Battle Arena Toshinden|🟢 Playable||
 |Colin McRae Rally 2.0|🔴 Crashes||
 |Crash Bandicoot|🟢 Playable||
-|Crash Team Racing|🟠 Crashes|Sound issues|
+|Crash Team Racing|🟢 Playable|Sound issues (no voice)|
+|Tekken 3|🟠 In game|Wrong screen resolution|
 |Earthworm Jim 2|🟢 Playable||
 |Metal Gear Solid|🟢 Playable|Cutscene glitches|
 |Mortal Kombat 2|🟢 Playable||
@@ -71,7 +72,11 @@ Options:
   ← = A     ◻ = J     [SELECT] = R-Shift
   ↓ = S     × = K     [L1] = E  [R1] = U
   → = D     ◯ = L     [L2] = Q  [R2] = O
-````
+```
+
+## Dependencies
+
+nuPSX relies on [zig-gamedev](https://github.com/zig-gamedev) libraries for graphics, audio and ImGui bindings.
 
 ## Credits
 
