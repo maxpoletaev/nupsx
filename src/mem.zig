@@ -34,25 +34,67 @@ test "maskAddr" {
     try expectEqual(0x00000000, maskAddr(0xa0000000));
 }
 
+const Error = error{
+    InvalidBiosSize,
+    FileReadError,
+};
+
 /// BIOS ROM (512KB)
 pub const BIOS = struct {
     pub const addr_start: u32 = 0x1fc00000;
     pub const addr_end: u32 = 0x1fc7ffff;
+    pub const bios_rom_size = 0x80000;
 
     allocator: std.mem.Allocator,
     rom: []u8,
 
-    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !*@This() {
-        const file = try std.fs.cwd().openFile(path, .{});
+    pub fn loadFromBuffer(allocator: std.mem.Allocator, buf: []const u8) Error!*@This() {
+        if (buf.len != bios_rom_size) {
+            log.err("invalid BIOS size: expected 512KB, got {d} bytes", .{buf.len});
+            return Error.InvalidBiosSize;
+        }
+
+        const rom = allocator.alloc(u8, buf.len) catch @panic("OOM");
+        @memcpy(rom, buf);
+
+        const self = allocator.create(@This()) catch @panic("OOM");
+        self.* = .{
+            .allocator = allocator,
+            .rom = rom,
+        };
+
+        return self;
+    }
+
+    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) Error!*@This() {
+        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+            log.err("failed to open BIOS file: {}", .{err});
+            return Error.FileReadError;
+        };
         defer file.close();
 
-        const file_size = try file.getEndPos();
+        const file_size = file.getEndPos() catch |err| {
+            log.err("failed to read BIOS file size: {}", .{err});
+            return Error.FileReadError;
+        };
+
+        if (file_size != bios_rom_size) {
+            log.err("invalid BIOS file size: expected 512KB, got {d} bytes", .{file_size});
+            return Error.InvalidBiosSize;
+        }
 
         const rom = allocator.alloc(u8, file_size) catch @panic("OOM");
         errdefer allocator.free(rom);
 
-        const bytes_read = try file.readAll(rom);
-        if (bytes_read != file_size) return error.FileReadError;
+        const bytes_read = file.readAll(rom) catch |err| {
+            log.err("failed to read BIOS file: {}", .{err});
+            return Error.FileReadError;
+        };
+
+        if (bytes_read != file_size) {
+            log.err("incomplete read of BIOS file: expected {d} bytes, got {d}", .{ file_size, bytes_read });
+            return Error.FileReadError;
+        }
 
         const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
@@ -164,7 +206,15 @@ pub const Interrupt = opaque {
 const addr_irq_stat: u32 = 0x1f801070;
 const addr_irq_mask: u32 = 0x1f801074;
 
-pub const AudioStream = struct {
+const AudioStreamWasm = struct {
+    pub fn push(_: *@This(), _: [2]i16) void {}
+    pub fn pop(_: *@This()) [2]i16 {
+        return .{ 0, 0 };
+    }
+    pub fn signal(_: *@This()) void {}
+};
+
+const AudioStreamNative = struct {
     const capacity = 1024;
 
     buf: [capacity][2]i16 = undefined,
@@ -204,6 +254,11 @@ pub const AudioStream = struct {
     pub fn signal(self: *@This()) void {
         self.sem.post();
     }
+};
+
+pub const AudioStream = switch (builtin.target.cpu.arch) {
+    .wasm32, .wasm64 => AudioStreamWasm,
+    else => AudioStreamNative,
 };
 
 /// The main interconnect bus for all the devices within the console.

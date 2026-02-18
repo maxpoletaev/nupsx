@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>nuPSX</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #222;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    a {
+      color: #aaa;
+    }
+    a:hover {
+      color: #fff;
+    }
+    #setup {
+      margin-bottom: 10px;
+    }
+    #screen {
+      position: relative;
+      width: 1024px;
+      height: 512px;
+      background: #000;
+      margin-bottom: 10px;
+    }
+    #display {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+    #fps {
+      color: #fff;
+      text-shadow: 1px 1px 0 #000;
+      padding: 2px 5px;
+      position: absolute;
+      left: 5px;
+      top: 5px;
+    }
+</style>
+</head>
+<body>
+  <div id="setup">
+    <span>
+      <label for="biosFile">Select BIOS file (.bin):</label>
+      <input type="file" id="biosFile" accept=".bin">
+    </span>
+    <button id="startBtn" disabled>Start</button>
+  </div>
+
+  <div id="screen">
+    <div id="fps" style="display: none;">FPS: 0</div>
+    <canvas id="display" width="1024" height="512"></canvas>
+  </div>
+
+  <script src="nupsx.js" defer></script>
+</body>
+</html>

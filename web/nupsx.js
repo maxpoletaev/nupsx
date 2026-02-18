@@ -1,0 +1,178 @@
+class NuPSX {
+    constructor() {
+        this.instance = null;
+        this.memory = null;
+        this.decoder = new TextDecoder('utf-8');
+    }
+
+    async load(wasmPath = 'nupsx.wasm') {
+        const response = await fetch(wasmPath);
+        const buffer = await response.arrayBuffer();
+        const module = await WebAssembly.compile(buffer);
+
+        const imports = {
+            env: {
+                js_console_log: (ptr, len) => {
+                    const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+                    const text = this.decoder.decode(bytes);
+                    console.log(text);
+                }
+            }
+        };
+
+        this.instance = await WebAssembly.instantiate(module, imports);
+        this.memory = this.instance.exports.memory;
+        return this;
+    }
+
+    alloc(size) {
+        return this.instance.exports.alloc(size);
+    }
+
+    init(biosPtr, biosLen) {
+        this.instance.exports.init(biosPtr, biosLen);
+    }
+
+    runFrame() {
+        this.instance.exports.runFrame();
+    }
+
+    getVRAM() {
+        const ptr = this.instance.exports.getVRAMPtr();
+        return new Uint16Array(this.memory.buffer, ptr, 1024 * 512);
+    }
+
+    setButtonState(state) {
+        this.instance.exports.setButtonState(state);
+    }
+
+    static Button = {
+        SELECT: 1 << 0,
+        L3: 1 << 1,
+        R3: 1 << 2,
+        START: 1 << 3,
+        UP: 1 << 4,
+        RIGHT: 1 << 5,
+        DOWN: 1 << 6,
+        LEFT: 1 << 7,
+        L2: 1 << 8,
+        R2: 1 << 9,
+        L1: 1 << 10,
+        R1: 1 << 11,
+        TRIANGLE: 1 << 12,
+        CIRCLE: 1 << 13,
+        CROSS: 1 << 14,
+        SQUARE: 1 << 15,
+    };
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const $biosFile = document.getElementById('biosFile');
+    const $startBtn = document.getElementById('startBtn');
+    const $setup = document.getElementById('setup');
+    const $fps = document.getElementById('fps');
+    const $display = document.getElementById('display');
+
+    const ctx = $display.getContext('2d');
+    const imageData = ctx.createImageData(1024, 512);
+    let emu = null;
+    let buttonState = 0;
+
+    let lastTime = performance.now();
+    let frameCount = 0;
+
+    const keyMap = {
+        'KeyW': NuPSX.Button.UP,
+        'KeyA': NuPSX.Button.LEFT,
+        'KeyS': NuPSX.Button.DOWN,
+        'KeyD': NuPSX.Button.RIGHT,
+        'KeyK': NuPSX.Button.CROSS,
+        'KeyL': NuPSX.Button.CIRCLE,
+        'KeyJ': NuPSX.Button.SQUARE,
+        'KeyI': NuPSX.Button.TRIANGLE,
+        'KeyE': NuPSX.Button.L1,
+        'KeyQ': NuPSX.Button.L2,
+        'KeyU': NuPSX.Button.R1,
+        'KeyO': NuPSX.Button.R2,
+        'Enter': NuPSX.Button.START,
+        'ShiftRight': NuPSX.Button.SELECT,
+    };
+
+    async function init(biosData) {
+        emu = await new NuPSX().load();
+
+        const biosPtr = emu.alloc(biosData.length);
+
+        const wasmMemory = new Uint8Array(emu.memory.buffer);
+        wasmMemory.set(biosData, biosPtr);
+
+        emu.init(biosPtr, biosData.length);
+
+        window.addEventListener('keydown', (e) => {
+            if (keyMap[e.code] !== undefined) {
+                e.preventDefault();
+                buttonState |= keyMap[e.code];
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keyMap[e.code] !== undefined) {
+                e.preventDefault();
+                buttonState &= ~keyMap[e.code];
+            }
+        });
+
+        requestAnimationFrame(loop);
+    }
+
+    function loop() {
+        emu.setButtonState(buttonState);
+        emu.runFrame();
+        frameCount++;
+
+        const vram = emu.getVRAM();
+        for (let i = 0; i < vram.length; i++) {
+            const rgb555 = vram[i];
+            imageData.data[i * 4 + 0] = ((rgb555 >> 0) & 0x1f) << 3;
+            imageData.data[i * 4 + 1] = ((rgb555 >> 5) & 0x1f) << 3;
+            imageData.data[i * 4 + 2] = ((rgb555 >> 10) & 0x1f) << 3;
+            imageData.data[i * 4 + 3] = 255;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        const now = performance.now();
+        if (now - lastTime >= 1000) {
+            $fps.textContent = `FPS: ${frameCount}`;
+            frameCount = 0;
+            lastTime = now;
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    let loadedBiosData = null;
+
+    $biosFile.addEventListener('change', async function(e) {
+        const file = this.files[0];
+        if (!file) {
+            return;
+        }
+        loadedBiosData = new Uint8Array(await file.arrayBuffer());
+        $startBtn.disabled = !loadedBiosData;
+    });
+
+    if ($biosFile.files.length > 0) {
+        $biosFile.files[0].arrayBuffer().then(buffer => {
+            loadedBiosData = new Uint8Array(buffer);
+            $startBtn.disabled = false;
+        });
+    }
+
+    $startBtn.addEventListener('click', async function() {
+        if (!loadedBiosData) return;
+        $startBtn.disabled = true;
+        await init(loadedBiosData);
+        $setup.style.display = 'none';
+        $fps.style.display = 'block';
+    });
+});

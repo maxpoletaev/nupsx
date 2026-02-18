@@ -564,6 +564,10 @@ pub const CDROM = struct {
     }
 
     fn pushResultByte(self: *@This(), byte: u8) void {
+        if (self.results.isFull()) {
+            log.warn("result fifo is full", .{});
+            _ = self.results.pop();
+        }
         self.results.push(byte);
     }
 
