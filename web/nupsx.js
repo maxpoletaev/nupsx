@@ -180,6 +180,53 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(loop);
     }
 
+    const GAMEPAD_DEADZONE = 0.25;
+    const GAMEPAD_THRESHOLD = 0.5;
+
+    function readGamepadInput() {
+        const gamepads = navigator.getGamepads();
+        if (!gamepads || !gamepads[0]) return 0;
+
+        const gp = gamepads[0];
+        let buttons = 0;
+
+        // D-pad
+        if (gp.buttons[12]?.pressed) buttons |= NuPSX.Button.UP;
+        if (gp.buttons[13]?.pressed) buttons |= NuPSX.Button.DOWN;
+        if (gp.buttons[14]?.pressed) buttons |= NuPSX.Button.LEFT;
+        if (gp.buttons[15]?.pressed) buttons |= NuPSX.Button.RIGHT;
+
+        // Face buttons (standard layout: A=Cross, B=Circle, X=Square, Y=Triangle)
+        if (gp.buttons[0]?.pressed) buttons |= NuPSX.Button.CROSS;
+        if (gp.buttons[1]?.pressed) buttons |= NuPSX.Button.CIRCLE;
+        if (gp.buttons[2]?.pressed) buttons |= NuPSX.Button.SQUARE;
+        if (gp.buttons[3]?.pressed) buttons |= NuPSX.Button.TRIANGLE;
+
+        // Shoulders
+        if (gp.buttons[4]?.pressed) buttons |= NuPSX.Button.L1;
+        if (gp.buttons[5]?.pressed) buttons |= NuPSX.Button.R1;
+        if (gp.buttons[6]?.pressed) buttons |= NuPSX.Button.L2;
+        if (gp.buttons[7]?.pressed) buttons |= NuPSX.Button.R2;
+
+        // Select / Start
+        if (gp.buttons[8]?.pressed) buttons |= NuPSX.Button.SELECT;
+        if (gp.buttons[9]?.pressed) buttons |= NuPSX.Button.START;
+
+        // L3 / R3
+        if (gp.buttons[10]?.pressed) buttons |= NuPSX.Button.L3;
+        if (gp.buttons[11]?.pressed) buttons |= NuPSX.Button.R3;
+
+        // Left analog stick as d-pad
+        let lx = Math.abs(gp.axes[0] || 0) < GAMEPAD_DEADZONE ? 0 : gp.axes[0];
+        let ly = Math.abs(gp.axes[1] || 0) < GAMEPAD_DEADZONE ? 0 : gp.axes[1];
+        if (lx < -GAMEPAD_THRESHOLD) buttons |= NuPSX.Button.LEFT;
+        if (lx >  GAMEPAD_THRESHOLD) buttons |= NuPSX.Button.RIGHT;
+        if (ly < -GAMEPAD_THRESHOLD) buttons |= NuPSX.Button.UP;
+        if (ly >  GAMEPAD_THRESHOLD) buttons |= NuPSX.Button.DOWN;
+
+        return buttons;
+    }
+
     function isInFocus() {
         return document.hasFocus() && document.visibilityState === 'visible';
     }
@@ -195,7 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         lastFrameTime = now - (elapsed % FRAME_TIME);
 
-        emu.setButtonState(buttonState);
+        emu.setButtonState(buttonState | readGamepadInput());
         emu.runFrame();
         frameCount++;
 
