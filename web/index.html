@@ -1,75 +1,100 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>nuPSX</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {
-      font-family: monospace;
-      background: #222;
-      color: #eee;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 10px;
-    }
-    a {
-      color: #aaa;
-    }
-    a:hover {
-      color: #fff;
-    }
-    #setup {
-      margin-bottom: 10px;
-    }
-    #screen {
-      position: relative;
-      background: #000;
-      margin-bottom: 10px;
-      line-height: 0;
-      width: min(640px, 100%);
-    }
-    #display {
-      width: 100%;
-      height: auto;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }
-    #fps {
-      color: #fff;
-      text-shadow: 1px 1px 0 #000;
-      padding: 2px 5px;
-      position: absolute;
-      left: 5px;
-      top: 5px;
-    }
-</style>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="setup">
-    <div>
-      <label for="biosFile">BIOS (.bin):</label>
+
+  <div id="setup" class="setup">
+    <div class="setup__title">nu<span class="setup__title-accent">PSX</span><span class="setup__title-wasm">.wasm</span></div>
+    <div class="setup__desc">PlayStation 1 emulator</div>
+
+    <div class="setup__field">
+      <span class="setup__label">BIOS</span>
       <input type="file" id="biosFile" accept=".bin">
     </div>
-    <div>
-      <label for="exeFile">PS-EXE file (optional):</label>
+
+    <div class="exe-group">
+      <span class="exe-group__label">PS-EXE</span>
       <input type="file" id="exeFile" accept=".exe,.ps-exe">
-    </div>
-    <div>
-      <label for="binFile">BIN file (optional):</label>
+
+      <span class="exe-group__label">Game BIN</span>
       <input type="file" id="binFile" accept=".bin">
+
+      <span class="exe-group__bracket">select<br>the executable</span>
     </div>
-    <div>
-      <button id="startBtn">Start</button>
+
+    <div class="setup__actions">
+      <div></div>
+      <button id="startBtn" class="setup__submit">&#9654; Start</button>
     </div>
+
+    <div class="controls">
+      <div class="controls__grid">
+        <div class="binding"><b class="binding__key">WASD</b>   <span class="binding__action">D-Pad</span></div>
+        <div class="binding"><b class="binding__key">Enter</b>  <span class="binding__action">Start</span></div>
+        <div class="binding"><b class="binding__key">RShift</b> <span class="binding__action">Select</span></div>
+        <div class="binding"><b class="binding__key">K</b>      <span class="binding__action">✕ Cross</span></div>
+        <div class="binding"><b class="binding__key">L</b>      <span class="binding__action">○ Circle</span></div>
+        <div class="binding"><b class="binding__key">J</b>      <span class="binding__action">□ Square</span></div>
+        <div class="binding"><b class="binding__key">I</b>      <span class="binding__action">△ Triangle</span></div>
+        <div class="binding"><b class="binding__key">Q / E</b>  <span class="binding__action">L2 / L1</span></div>
+        <div class="binding"><b class="binding__key">O / U</b>  <span class="binding__action">R2 / R1</span></div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <a class="footer__link" href="https://github.com/maxpoletaev/nupsx" target="_blank">github.com/maxpoletaev/nupsx</a>
+      <span class="footer__sep">·</span>built with <a class="footer__link" href="https://ziglang.org" target="_blank">Zig</a> and
+      <a class="footer__link" href="https://github.com/zig-gamedev/zig-gamedev" target="_blank">zig-gamedev</a>
+      <div class="footer__legal">
+        nuPSX is a personal project made for fun and learning, based on publicly available hardware documentation.
+        BIOS and game files are not provided or distributed, you must supply your own legally obtained copies.
+        Please Sony don't sue me.
+      </div>
+    </footer>
   </div>
 
-  <div id="screen">
-    <div id="fps" style="display: none;">FPS: 0</div>
-    <canvas id="display" width="320" height="240"></canvas>
+  <div id="screen" class="screen">
+    <div id="fps" class="screen__fps" style="display: none;">FPS: 0</div>
+    <canvas id="display" class="screen__canvas" width="320" height="240"></canvas>
   </div>
 
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const $screen  = document.getElementById('screen');
+      const $display = document.getElementById('display');
+
+      function fitCanvas() {
+        const ar = ($display.width || 320) / ($display.height || 240);
+        const vw = window.innerWidth, vh = window.innerHeight;
+        if (vw / vh >= ar) {
+          $display.style.height = vh + 'px';
+          $display.style.width  = (vh * ar) + 'px';
+        } else {
+          $display.style.width  = vw + 'px';
+          $display.style.height = (vw / ar) + 'px';
+        }
+      }
+
+      window.addEventListener('resize', fitCanvas);
+      new MutationObserver(fitCanvas).observe($display, {
+        attributes: true, attributeFilter: ['width', 'height']
+      });
+      new MutationObserver(() => {
+        if (document.getElementById('setup').style.display === 'none') {
+          $screen.style.display = 'flex';
+          fitCanvas();
+        }
+      }).observe(document.getElementById('setup'), {
+        attributes: true, attributeFilter: ['style']
+      });
+    });
+  </script>
   <script src="nupsx.js" defer></script>
 </body>
 </html>
