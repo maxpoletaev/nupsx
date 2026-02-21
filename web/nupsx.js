@@ -122,6 +122,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let emu = null;
     let buttonState = 0;
 
+    const TARGET_FPS = 60;
+    const FRAME_TIME = 1000 / TARGET_FPS;
+
+    let lastFrameTime = performance.now();
     let lastTime = performance.now();
     let frameCount = 0;
 
@@ -176,7 +180,21 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(loop);
     }
 
+    function isInFocus() {
+        return document.hasFocus() && document.visibilityState === 'visible';
+    }
+
     function loop() {
+        requestAnimationFrame(loop);
+
+        if (!isInFocus()) return;
+
+        const now = performance.now();
+        const elapsed = now - lastFrameTime;
+        if (elapsed < FRAME_TIME) return;
+
+        lastFrameTime = now - (elapsed % FRAME_TIME);
+
         emu.setButtonState(buttonState);
         emu.runFrame();
         frameCount++;
@@ -205,14 +223,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         ctx.putImageData(imageData, 0, 0);
 
-        const now = performance.now();
         if (now - lastTime >= 1000) {
             $fps.textContent = `FPS: ${frameCount}`;
             frameCount = 0;
             lastTime = now;
         }
-
-        requestAnimationFrame(loop);
     }
 
     async function readFile(input) {
