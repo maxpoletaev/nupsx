@@ -20,30 +20,11 @@ const Header = struct {
     sp_offset: u32,
 };
 
-pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *Bus) Error!void {
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
-        log.err("failed to open EXE file: {}", .{err});
-        return Error.FileReadError;
-    };
-    defer file.close();
-
-    const file_size = file.getEndPos() catch |err| {
-        log.err("failed to get EXE file size: {}", .{err});
-        return Error.FileReadError;
-    };
-    if (file_size < 0x800) {
-        log.err("unexpected EXE file size: {}", .{file_size});
+pub fn loadExeFromBuffer(buf: []const u8, cpu: *CPU, bus: *Bus) Error!void {
+    if (buf.len < 0x800) {
+        log.err("unexpected EXE buffer size: {}", .{buf.len});
         return Error.InvalidExeFormat;
     }
-
-    var reader_buf: [1024]u8 = undefined;
-    var reader = file.reader(&reader_buf);
-
-    const buf = reader.interface.readAlloc(allocator, file_size) catch |err| {
-        log.err("faled to read exe file: {}", .{err});
-        return Error.FileReadError;
-    };
-    defer allocator.free(buf);
 
     const header: Header = .{
         .magic = buf[0x00..0x08].*,
@@ -60,13 +41,11 @@ pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *
         return Error.InvalidExeFormat;
     }
 
-    // Load EXE payload to RAM
     for (0..header.exe_size) |i| {
         const addr = header.ram_addr + i;
         bus.write(u8, @intCast(addr), buf[0x800 + i]);
     }
 
-    // Set initial register values
     cpu.resetPC(header.initial_pc);
     cpu.gpr[28] = header.initial_gp;
 
@@ -74,4 +53,30 @@ pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *
         cpu.gpr[29] = header.initial_sp + header.sp_offset;
         cpu.gpr[30] = cpu.gpr[29];
     }
+
+    log.info("exe loaded: pc=0x{x:0>8}", .{header.initial_pc});
+}
+
+pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *Bus) Error!void {
+    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        log.err("failed to open EXE file: {}", .{err});
+        return Error.FileReadError;
+    };
+    defer file.close();
+
+    var reader_buf: [1024]u8 = undefined;
+    var reader = file.reader(&reader_buf);
+
+    const file_size = file.getEndPos() catch |err| {
+        log.err("failed to get EXE file size: {}", .{err});
+        return Error.FileReadError;
+    };
+
+    const buf = reader.interface.readAlloc(allocator, file_size) catch |err| {
+        log.err("failed to read exe file: {}", .{err});
+        return Error.FileReadError;
+    };
+    defer allocator.free(buf);
+
+    try loadExeFromBuffer(buf, cpu, bus);
 }

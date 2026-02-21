@@ -115,7 +115,6 @@ const Track = struct {
 
 pub const Disc = struct {
     allocator: std.mem.Allocator,
-    cue: cue.CueSheet,
     data: []align(2) const u8,
     tracks: []Track,
     track_count: u8,
@@ -221,8 +220,53 @@ pub const Disc = struct {
             .tracks = tracks_slice,
             .track_count = @intCast(tracks_slice.len),
             .data = disc_data,
-            .cue = cue_sheet,
         };
+    }
+
+    pub fn loadBinFromOwnedBuffer(allocator: std.mem.Allocator, buf: []align(2) const u8) @This() {
+        var tracks: std.ArrayList(Track) = .empty;
+        const total_sectors: u32 = @intCast(buf.len / cdrom_sector_size_cue);
+
+        tracks.append(allocator, Track{
+            .number = 1,
+            .start_sector = cdrom_file_offset_sectors_cue,
+            .end_sector = cdrom_file_offset_sectors_cue + total_sectors,
+        }) catch @panic("OOM");
+
+        const tracks_slice = tracks.toOwnedSlice(allocator) catch @panic("OOM");
+
+        return .{
+            .allocator = allocator,
+            .tracks = tracks_slice,
+            .track_count = 1,
+            .data = buf,
+        };
+    }
+
+    pub fn loadBin(allocator: std.mem.Allocator, path: []const u8) Error!@This() {
+        const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| {
+            log.err("failed to open bin file {s}: {}", .{ path, err });
+            return Error.FileIoError;
+        };
+        defer file.close();
+
+        const file_size = file.getEndPos() catch |err| {
+            log.err("failed to stat file {s}: {}", .{ path, err });
+            return Error.FileIoError;
+        };
+
+        var reader_buf: [8192]u8 = undefined;
+        const disc_data = allocator.alignedAlloc(u8, .@"2", file_size) catch @panic("OOM");
+        errdefer allocator.free(disc_data);
+
+        var reader = file.reader(&reader_buf);
+        reader.interface.readSliceAll(disc_data) catch |err| {
+            log.err("failed to read file {s}: {}", .{ path, err });
+            return Error.FileIoError;
+        };
+
+        log.info("loaded bin file: {s} ({d} bytes)", .{ path, file_size });
+        return loadBinFromOwnedBuffer(allocator, disc_data);
     }
 
     pub fn deinit(self: *@This()) void {

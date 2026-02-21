@@ -189,6 +189,8 @@ pub fn main() !void {
     if (args.cd_image_path) |path| {
         if (std.mem.endsWith(u8, path, ".cue")) {
             disc = try Disc.loadCue(allocator, path);
+        } else if (std.mem.endsWith(u8, path, ".bin")) {
+            disc = try Disc.loadBin(allocator, path);
         } else {
             std.log.err("unsupported cd image format: {s}", .{path});
             std.process.exit(1);

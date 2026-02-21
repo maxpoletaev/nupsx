@@ -9,6 +9,7 @@ const joy_mod = @import("joy.zig");
 const CPU = @import("cpu.zig").CPU;
 const DMA = @import("dma.zig").DMA;
 const MDEC = @import("mdec.zig").MDEC;
+const exe_mod = @import("exe.zig");
 
 const Bus = mem_mod.Bus;
 const BIOS = mem_mod.BIOS;
@@ -70,12 +71,25 @@ export fn alloc(size: usize) [*]u8 {
     return buf.ptr;
 }
 
+export fn allocAligned(size: usize, alignment: usize) [*]u8 {
+    const allocator = fba.allocator();
+    const buf = switch (alignment) {
+        1 => allocator.alignedAlloc(u8, .@"1", size) catch @panic("OOM"),
+        2 => allocator.alignedAlloc(u8, .@"2", size) catch @panic("OOM"),
+        4 => allocator.alignedAlloc(u8, .@"4", size) catch @panic("OOM"),
+        8 => allocator.alignedAlloc(u8, .@"8", size) catch @panic("OOM"),
+        16 => allocator.alignedAlloc(u8, .@"16", size) catch @panic("OOM"),
+        32 => allocator.alignedAlloc(u8, .@"32", size) catch @panic("OOM"),
+        else => @panic("unsupported alignment"),
+    };
+    return buf.ptr;
+}
+
 export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     const allocator = fba.allocator();
 
     bios = BIOS.loadFromBuffer(allocator, bios_ptr[0..bios_len]) catch |err| {
         std.debug.panic("invalid bios: {}", .{err});
-        return;
     };
 
     bus = Bus.init(allocator);
@@ -105,6 +119,21 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     });
 
     std.log.info("nuPSX initialized", .{});
+}
+
+export fn loadExe(exe_ptr: [*]const u8, exe_len: usize) void {
+    while (cpu.pc != 0x80030000) {
+        cpu.tickOnce();
+    }
+    exe_mod.loadExeFromBuffer(exe_ptr[0..exe_len], cpu, bus) catch |err| {
+        std.debug.panic("failed to load exe: {}", .{err});
+    };
+}
+
+export fn loadBin(bin_ptr: [*]const u8, bin_len: usize) void {
+    const buf: []align(2) const u8 = @alignCast(bin_ptr[0..bin_len]);
+    const disc = cdrom_mod.Disc.loadBinFromOwnedBuffer(fba.allocator(), buf);
+    cdrom.insertDisc(disc);
 }
 
 export fn runFrame() void {

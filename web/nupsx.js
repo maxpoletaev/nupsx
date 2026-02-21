@@ -1,8 +1,25 @@
+function formatWasmError(err) {
+    const type = err?.name ?? 'Error';
+    const msg  = err?.message ?? String(err);
+    return `${type}: ${msg}`;
+}
+
 class NuPSX {
     constructor() {
         this.instance = null;
         this.memory = null;
         this.decoder = new TextDecoder('utf-8');
+        this._lastLog = null;
+    }
+
+    _call(fn) {
+        try {
+            return fn();
+        } catch (err) {
+            const wasmMsg = this._lastLog ? `\nLast log: ${this._lastLog}` : '';
+            alert(`nuPSX error\n${formatWasmError(err)}${wasmMsg}`);
+            throw err;
+        }
     }
 
     async load(wasmPath = 'nupsx.wasm') {
@@ -15,6 +32,7 @@ class NuPSX {
                 js_console_log: (ptr, len) => {
                     const bytes = new Uint8Array(this.memory.buffer, ptr, len);
                     const text = this.decoder.decode(bytes);
+                    this._lastLog = text;
                     console.log(text);
                 }
             }
@@ -26,24 +44,36 @@ class NuPSX {
     }
 
     alloc(size) {
-        return this.instance.exports.alloc(size);
+        return this._call(() => this.instance.exports.alloc(size));
+    }
+
+    allocAligned(size, alignment) {
+        return this._call(() => this.instance.exports.allocAligned(size, alignment));
     }
 
     init(biosPtr, biosLen) {
-        this.instance.exports.init(biosPtr, biosLen);
+        this._call(() => this.instance.exports.init(biosPtr, biosLen));
+    }
+
+    loadExe(exePtr, exeLen) {
+        this._call(() => this.instance.exports.loadExe(exePtr, exeLen));
+    }
+
+    loadBin(binPtr, binLen) {
+        this._call(() => this.instance.exports.loadBin(binPtr, binLen));
     }
 
     runFrame() {
-        this.instance.exports.runFrame();
+        this._call(() => this.instance.exports.runFrame());
     }
 
     getVRAM() {
-        const ptr = this.instance.exports.getVRAMPtr();
+        const ptr = this._call(() => this.instance.exports.getVRAMPtr());
         return new Uint16Array(this.memory.buffer, ptr, 1024 * 512);
     }
 
     getDisplayInfo() {
-        const ptr = this.instance.exports.getDisplayInfoPtr();
+        const ptr = this._call(() => this.instance.exports.getDisplayInfoPtr());
         const mem = new Uint16Array(this.memory.buffer);
         const base = ptr / 2; // each field is u16
         return {
@@ -55,7 +85,7 @@ class NuPSX {
     }
 
     setButtonState(state) {
-        this.instance.exports.setButtonState(state);
+        this._call(() => this.instance.exports.setButtonState(state));
     }
 
     static Button = {
@@ -80,6 +110,8 @@ class NuPSX {
 
 document.addEventListener('DOMContentLoaded', () => {
     const $biosFile = document.getElementById('biosFile');
+    const $exeFile = document.getElementById('exeFile');
+    const $binFile = document.getElementById('binFile');
     const $startBtn = document.getElementById('startBtn');
     const $setup = document.getElementById('setup');
     const $fps = document.getElementById('fps');
@@ -110,15 +142,22 @@ document.addEventListener('DOMContentLoaded', () => {
         'ShiftRight': NuPSX.Button.SELECT,
     };
 
-    async function init(biosData) {
+    async function init(biosData, exeData, binData) {
         emu = await new NuPSX().load();
 
         const biosPtr = emu.alloc(biosData.length);
-
-        const wasmMemory = new Uint8Array(emu.memory.buffer);
-        wasmMemory.set(biosData, biosPtr);
-
+        new Uint8Array(emu.memory.buffer).set(biosData, biosPtr);
         emu.init(biosPtr, biosData.length);
+
+        if (exeData) {
+            const exePtr = emu.alloc(exeData.length);
+            new Uint8Array(emu.memory.buffer).set(exeData, exePtr);
+            emu.loadExe(exePtr, exeData.length);
+        } else if (binData) {
+            const binPtr = emu.allocAligned(binData.length, 2);
+            new Uint8Array(emu.memory.buffer).set(binData, binPtr);
+            emu.loadBin(binPtr, binData.length);
+        }
 
         window.addEventListener('keydown', (e) => {
             if (keyMap[e.code] !== undefined) {
@@ -176,28 +215,22 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(loop);
     }
 
-    let loadedBiosData = null;
-
-    $biosFile.addEventListener('change', async function(e) {
-        const file = this.files[0];
-        if (!file) {
-            return;
-        }
-        loadedBiosData = new Uint8Array(await file.arrayBuffer());
-        $startBtn.disabled = !loadedBiosData;
-    });
-
-    if ($biosFile.files.length > 0) {
-        $biosFile.files[0].arrayBuffer().then(buffer => {
-            loadedBiosData = new Uint8Array(buffer);
-            $startBtn.disabled = false;
-        });
+    async function readFile(input) {
+        const file = input.files[0];
+        if (!file) return null;
+        return new Uint8Array(await file.arrayBuffer());
     }
 
     $startBtn.addEventListener('click', async function() {
-        if (!loadedBiosData) return;
+        const biosData = await readFile($biosFile);
+        if (!biosData) { alert('Please select a BIOS file.'); return; }
+
+        const exeData = await readFile($exeFile);
+        const binData = await readFile($binFile);
+        if (!exeData && !binData) { alert('Please select a PS-EXE or BIN file.'); return; }
+
         $startBtn.disabled = true;
-        await init(loadedBiosData);
+        await init(biosData, exeData, binData);
         $setup.style.display = 'none';
         $fps.style.display = 'block';
     });

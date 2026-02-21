@@ -48,11 +48,21 @@
 </head>
 <body>
   <div id="setup">
-    <span>
-      <label for="biosFile">Select BIOS file (.bin):</label>
+    <div>
+      <label for="biosFile">BIOS (.bin):</label>
       <input type="file" id="biosFile" accept=".bin">
-    </span>
-    <button id="startBtn" disabled>Start</button>
+    </div>
+    <div>
+      <label for="exeFile">PS-EXE file (optional):</label>
+      <input type="file" id="exeFile" accept=".exe,.ps-exe">
+    </div>
+    <div>
+      <label for="binFile">BIN file (optional):</label>
+      <input type="file" id="binFile" accept=".bin">
+    </div>
+    <div>
+      <button id="startBtn">Start</button>
+    </div>
   </div>
 
   <div id="screen">
