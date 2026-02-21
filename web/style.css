@@ -78,12 +78,10 @@ body {
 .setup__title-accent {
   color: var(--accent);
 }
-
 .setup__title-wasm {
   color: var(--text-dimmer);
   font-size: 0.6em;
 }
-
 .setup__desc {
   color: var(--text-bright);
   margin-bottom: 36px;
@@ -188,6 +186,11 @@ input[type="file"]::file-selector-button:hover {
   padding-top: 16px;
   border-top: 1px solid var(--border-dim);
 }
+.controls__title {
+  font-size: 1.4em;
+  color: var(--text-bright);
+  margin-bottom: 20px;
+}
 .controls__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -202,11 +205,20 @@ input[type="file"]::file-selector-button:hover {
 .binding__key {
   color: var(--text-bright);
   font-weight: normal;
-  min-width: 60px;
+  min-width: 40px;
   text-align: right;
 }
 .binding__action {
   color: var(--text-muted);
+}
+.controls__gamepad {
+  margin-top: 14px;
+  font-size: 1em;
+  color: var(--text-dim);
+  text-align: center;
+}
+.controls__gamepad--on {
+  color: var(--accent);
 }
 
 @media (max-width: 480px) {

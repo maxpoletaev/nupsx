@@ -34,6 +34,7 @@
     </div>
 
     <div class="controls">
+      <div class="controls__title">Controls</div>
       <div class="controls__grid">
         <div class="binding"><b class="binding__key">WASD</b>   <span class="binding__action">D-Pad</span></div>
         <div class="binding"><b class="binding__key">Enter</b>  <span class="binding__action">Start</span></div>
@@ -45,6 +46,7 @@
         <div class="binding"><b class="binding__key">Q / E</b>  <span class="binding__action">L2 / L1</span></div>
         <div class="binding"><b class="binding__key">O / U</b>  <span class="binding__action">R2 / R1</span></div>
       </div>
+      <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
     </div>
 
     <footer class="footer">
@@ -93,6 +95,19 @@
       }).observe(document.getElementById('setup'), {
         attributes: true, attributeFilter: ['style']
       });
+
+      const $gamepadStatus = document.getElementById('gamepadStatus');
+
+      function setGamepadConnected(gp) {
+        $gamepadStatus.innerHTML = gp
+          ? `<span>●</span> Gamepad connected - ${gp.id}`
+          : '<span style="visibility:hidden">●</span> Or connect an external gamepad and press any button';
+        $gamepadStatus.classList.toggle('controls__gamepad--on', !!gp);
+      }
+
+      window.addEventListener('gamepadconnected',    e => setGamepadConnected(e.gamepad));
+      window.addEventListener('gamepaddisconnected', () => setGamepadConnected(null));
+      setGamepadConnected((navigator.getGamepads() || []).find(gp => gp) || null);
     });
   </script>
   <script src="nupsx.js" defer></script>
