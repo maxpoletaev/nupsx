@@ -117,6 +117,31 @@ export fn getVRAMPtr() [*]u16 {
     return @ptrCast(gpu.vram);
 }
 
+const DisplayInfo = extern struct {
+    offset_x: u16,
+    offset_y: u16,
+    width: u16,
+    height: u16,
+};
+
+var display_info: DisplayInfo = .{
+    .offset_x = 0,
+    .offset_y = 0,
+    .width = 320,
+    .height = 240,
+};
+
+export fn getDisplayInfoPtr() *DisplayInfo {
+    const res = gpu.getDisplayRes();
+    display_info = .{
+        .offset_x = @intCast(gpu.gp1_display_area_start.x),
+        .offset_y = @intCast(gpu.gp1_display_area_start.y),
+        .width = res[0],
+        .height = res[1],
+    };
+    return &display_info;
+}
+
 export fn setButtonState(state: u16) void {
     joy.buttons[0] = @bitCast(state);
 }

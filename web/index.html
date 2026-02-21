@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>nuPSX</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
       font-family: monospace;
@@ -11,7 +12,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px;
+      padding: 10px;
     }
     a {
       color: #aaa;
@@ -24,12 +25,14 @@
     }
     #screen {
       position: relative;
-      width: 1024px;
-      height: 512px;
       background: #000;
       margin-bottom: 10px;
+      line-height: 0;
+      width: min(640px, 100%);
     }
     #display {
+      width: 100%;
+      height: auto;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
@@ -54,7 +57,7 @@
 
   <div id="screen">
     <div id="fps" style="display: none;">FPS: 0</div>
-    <canvas id="display" width="1024" height="512"></canvas>
+    <canvas id="display" width="320" height="240"></canvas>
   </div>
 
   <script src="nupsx.js" defer></script>

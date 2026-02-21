@@ -42,6 +42,18 @@ class NuPSX {
         return new Uint16Array(this.memory.buffer, ptr, 1024 * 512);
     }
 
+    getDisplayInfo() {
+        const ptr = this.instance.exports.getDisplayInfoPtr();
+        const mem = new Uint16Array(this.memory.buffer);
+        const base = ptr / 2; // each field is u16
+        return {
+            offsetX: mem[base + 0],
+            offsetY: mem[base + 1],
+            width:   mem[base + 2],
+            height:  mem[base + 3],
+        };
+    }
+
     setButtonState(state) {
         this.instance.exports.setButtonState(state);
     }
@@ -74,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const $display = document.getElementById('display');
 
     const ctx = $display.getContext('2d');
-    const imageData = ctx.createImageData(1024, 512);
+    let imageData = ctx.createImageData(320, 240);
     let emu = null;
     let buttonState = 0;
 
@@ -130,13 +142,27 @@ document.addEventListener('DOMContentLoaded', () => {
         emu.runFrame();
         frameCount++;
 
+        const { offsetX, offsetY, width, height } = emu.getDisplayInfo();
+
+        if ($display.width !== width || $display.height !== height) {
+            $display.width = width;
+            $display.height = height;
+            imageData = ctx.createImageData(width, height);
+        }
+
         const vram = emu.getVRAM();
-        for (let i = 0; i < vram.length; i++) {
-            const rgb555 = vram[i];
-            imageData.data[i * 4 + 0] = ((rgb555 >> 0) & 0x1f) << 3;
-            imageData.data[i * 4 + 1] = ((rgb555 >> 5) & 0x1f) << 3;
-            imageData.data[i * 4 + 2] = ((rgb555 >> 10) & 0x1f) << 3;
-            imageData.data[i * 4 + 3] = 255;
+        const pixels = imageData.data;
+        for (let row = 0; row < height; row++) {
+            const vramRow = (offsetY + row) * 1024;
+            const outRow = row * width;
+            for (let col = 0; col < width; col++) {
+                const rgb555 = vram[vramRow + offsetX + col];
+                const i = (outRow + col) * 4;
+                pixels[i + 0] = ((rgb555 >>  0) & 0x1f) << 3;
+                pixels[i + 1] = ((rgb555 >>  5) & 0x1f) << 3;
+                pixels[i + 2] = ((rgb555 >> 10) & 0x1f) << 3;
+                pixels[i + 3] = 255;
+            }
         }
         ctx.putImageData(imageData, 0, 0);
 
