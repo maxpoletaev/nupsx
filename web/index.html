@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>nuPSX</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,15 +13,15 @@
     <div class="setup__desc">PlayStation 1 emulator</div>
 
     <div class="setup__field">
-      <span class="setup__label">BIOS</span>
+      <label class="setup__label" for="biosFile">BIOS</label>
       <input type="file" id="biosFile" accept=".bin">
     </div>
 
     <div class="exe-group">
-      <span class="exe-group__label">PS-EXE</span>
+      <label class="exe-group__label" for="exeFile">PS-EXE</label>
       <input type="file" id="exeFile" accept=".exe,.ps-exe">
 
-      <span class="exe-group__label">Game BIN</span>
+      <label class="exe-group__label" for="binFile">Game BIN</label>
       <input type="file" id="binFile" accept=".bin">
 
       <span class="exe-group__bracket">select<br>the executable</span>
@@ -36,15 +35,15 @@
     <div class="controls">
       <div class="controls__title">Controls</div>
       <div class="controls__grid">
-        <div class="binding"><b class="binding__key">WASD</b>   <span class="binding__action">D-Pad</span></div>
-        <div class="binding"><b class="binding__key">Enter</b>  <span class="binding__action">Start</span></div>
-        <div class="binding"><b class="binding__key">RShift</b> <span class="binding__action">Select</span></div>
-        <div class="binding"><b class="binding__key">K</b>      <span class="binding__action">✕ Cross</span></div>
-        <div class="binding"><b class="binding__key">L</b>      <span class="binding__action">○ Circle</span></div>
-        <div class="binding"><b class="binding__key">J</b>      <span class="binding__action">□ Square</span></div>
-        <div class="binding"><b class="binding__key">I</b>      <span class="binding__action">△ Triangle</span></div>
-        <div class="binding"><b class="binding__key">Q / E</b>  <span class="binding__action">L2 / L1</span></div>
-        <div class="binding"><b class="binding__key">O / U</b>  <span class="binding__action">R2 / R1</span></div>
+        <div class="binding"><span class="binding__action">D-Pad</span>      <b class="binding__key">WASD</b></div>
+        <div class="binding"><span class="binding__action">Start</span>      <b class="binding__key">Enter</b></div>
+        <div class="binding"><span class="binding__action">Select</span>     <b class="binding__key">RShift</b></div>
+        <div class="binding"><span class="binding__action">✕ Cross</span>    <b class="binding__key">K</b></div>
+        <div class="binding"><span class="binding__action">○ Circle</span>   <b class="binding__key">L</b></div>
+        <div class="binding"><span class="binding__action">□ Square</span>   <b class="binding__key">J</b></div>
+        <div class="binding"><span class="binding__action">△ Triangle</span> <b class="binding__key">I</b></div>
+        <div class="binding"><span class="binding__action">L2 / L1</span>    <b class="binding__key">Q / E</b></div>
+        <div class="binding"><span class="binding__action">R2 / R1</span>    <b class="binding__key">O / U</b></div>
       </div>
       <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
     </div>
