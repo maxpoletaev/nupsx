@@ -6,7 +6,7 @@ const zopengl = @import("zopengl");
 const mem = @import("../mem.zig");
 const joy_mod = @import("../joy.zig");
 const cpu_mod = @import("../cpu.zig");
-const Disasm = @import("../Disasm.zig");
+const disasm = @import("../disasm.zig");
 
 const Bus = mem.Bus;
 const CPU = cpu_mod.CPU;
