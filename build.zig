@@ -26,6 +26,35 @@ pub fn build(b: *std.Build) void {
         .name = "nupsx",
         .root_module = nupsx_mod,
     });
+    switch (target.result.os.tag) {
+        .windows => {
+            if (target.result.cpu.arch.isX86()) {
+                if (target.result.abi.isGnu() or target.result.abi.isMusl()) {
+                    if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
+                        nupsx_exe.addLibraryPath(system_sdk.path("windows/lib/x86_64-windows-gnu"));
+                    }
+                }
+            }
+        },
+        .macos => {
+            if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
+                nupsx_exe.addLibraryPath(system_sdk.path("macos12/usr/lib"));
+                nupsx_exe.addFrameworkPath(system_sdk.path("macos12/System/Library/Frameworks"));
+            }
+        },
+        .linux => {
+            if (target.result.cpu.arch.isX86()) {
+                if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
+                    nupsx_exe.addLibraryPath(system_sdk.path("linux/lib/x86_64-linux-gnu"));
+                }
+            } else if (target.result.cpu.arch == .aarch64) {
+                if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
+                    nupsx_exe.addLibraryPath(system_sdk.path("linux/lib/aarch64-linux-gnu"));
+                }
+            }
+        },
+        else => {},
+    }
     nupsx_exe.linkLibrary(zgui.artifact("imgui"));
     nupsx_exe.linkLibrary(zglfw.artifact("glfw"));
     nupsx_exe.linkLibrary(zaudio.artifact("miniaudio"));

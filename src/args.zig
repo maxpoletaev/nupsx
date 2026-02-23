@@ -39,7 +39,7 @@ pub const Args = struct {
     }
 
     pub fn parse(allocator: std.mem.Allocator) Error!@This() {
-        var iter = try std.process.argsWithAllocator(allocator);
+        var iter = std.process.argsWithAllocator(allocator) catch @panic("OOM");
         var args = std.mem.zeroInit(Args, .{ .iter = &iter });
 
         while (iter.next()) |arg| {
