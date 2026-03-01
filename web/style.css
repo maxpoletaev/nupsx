@@ -233,6 +233,27 @@ input[type="file"]::file-selector-button:hover {
   color: var(--accent);
 }
 
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f0f0f0;
+    --bg-button: #e0e0e0;
+    --bg-button-hover: #d4d4d4;
+    --accent: #3d7fff;
+    --accent-hover: #2d6fee;
+
+    --text: #333;
+    --text-bright: #111;
+    --text-muted: #777;
+    --text-dim: #777;
+    --text-dimmer: #999;
+    --text-faint: #bbb;
+
+    --border: #bbb;
+    --border-hover: #888;
+    --border-dim: #d8d8d8;
+  }
+}
+
 @media (max-width: 480px) {
   :root {
     --font-size: 20px;
@@ -295,6 +316,6 @@ input[type="file"]::file-selector-button:hover {
   right: 8px;
   font-family: var(--font);
   font-size: 20px;
-  color: var(--text-bright);
+  color: #fff;
   text-shadow: 0 1px 3px #000;
 }
