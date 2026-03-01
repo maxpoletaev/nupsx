@@ -335,7 +335,7 @@ pub const Rasterizer = struct {
     // =========================================================================
 
     inline fn edgeFunc(a: Vertex, b: Vertex, c: Vertex) i32 {
-        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        return (b.x -% a.x) *% (c.y -% a.y) -% (b.y -% a.y) *% (c.x -% a.x);
     }
 
     inline fn isTopLeft(v0: Vertex, v1: Vertex) bool {
@@ -462,16 +462,16 @@ pub const Rasterizer = struct {
         const b1: i32 = v1.color.b;
         const b2: i32 = v2.color.b;
 
-        const r_dx = @divTrunc(((r1 - r0) * (v2.y - v0.y) - (r2 - r0) * (v1.y - v0.y)) * fp_one, abc);
-        const r_dy = @divTrunc(((r2 - r0) * (v1.x - v0.x) - (r1 - r0) * (v2.x - v0.x)) * fp_one, abc);
-        const g_dx = @divTrunc(((g1 - g0) * (v2.y - v0.y) - (g2 - g0) * (v1.y - v0.y)) * fp_one, abc);
-        const g_dy = @divTrunc(((g2 - g0) * (v1.x - v0.x) - (g1 - g0) * (v2.x - v0.x)) * fp_one, abc);
-        const b_dx = @divTrunc(((b1 - b0) * (v2.y - v0.y) - (b2 - b0) * (v1.y - v0.y)) * fp_one, abc);
-        const b_dy = @divTrunc(((b2 - b0) * (v1.x - v0.x) - (b1 - b0) * (v2.x - v0.x)) * fp_one, abc);
+        const r_dx = @divTrunc(((r1 -% r0) *% (v2.y -% v0.y) -% (r2 -% r0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const r_dy = @divTrunc(((r2 -% r0) *% (v1.x -% v0.x) -% (r1 -% r0) *% (v2.x -% v0.x)) *% fp_one, abc);
+        const g_dx = @divTrunc(((g1 -% g0) *% (v2.y -% v0.y) -% (g2 -% g0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const g_dy = @divTrunc(((g2 -% g0) *% (v1.x -% v0.x) -% (g1 -% g0) *% (v2.x -% v0.x)) *% fp_one, abc);
+        const b_dx = @divTrunc(((b1 -% b0) *% (v2.y -% v0.y) -% (b2 -% b0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const b_dy = @divTrunc(((b2 -% b0) *% (v1.x -% v0.x) -% (b1 -% b0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
-        var r_row = r0 * fp_one + (x_min - v0.x) * r_dx + (y_min - v0.y) * r_dy;
-        var g_row = g0 * fp_one + (x_min - v0.x) * g_dx + (y_min - v0.y) * g_dy;
-        var b_row = b0 * fp_one + (x_min - v0.x) * b_dx + (y_min - v0.y) * b_dy;
+        var r_row = r0 *% fp_one +% (x_min -% v0.x) *% r_dx +% (y_min -% v0.y) *% r_dy;
+        var g_row = g0 *% fp_one +% (x_min -% v0.x) *% g_dx +% (y_min -% v0.y) *% g_dy;
+        var b_row = b0 *% fp_one +% (x_min -% v0.x) *% b_dx +% (y_min -% v0.y) *% b_dy;
 
         var abp_row = abp_row_start;
         var bcp_row = bcp_row_start;
@@ -505,17 +505,17 @@ pub const Rasterizer = struct {
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
-                r += r_dx;
-                g += g_dx;
-                b += b_dx;
+                r +%= r_dx;
+                g +%= g_dx;
+                b +%= b_dx;
             }
 
             abp_row += abp_dy;
             bcp_row += bcp_dy;
             cap_row += cap_dy;
-            r_row += r_dy;
-            g_row += g_dy;
-            b_row += b_dy;
+            r_row +%= r_dy;
+            g_row +%= g_dy;
+            b_row +%= b_dy;
         }
     }
 
@@ -573,13 +573,13 @@ pub const Rasterizer = struct {
         const tex_v1: i32 = @intCast(v1.v);
         const tex_v2: i32 = @intCast(v2.v);
 
-        const u_dx = @divTrunc(((tex_u1 - tex_u0) * (v2.y - v0.y) - (tex_u2 - tex_u0) * (v1.y - v0.y)) * fp_one, abc);
-        const u_dy = @divTrunc(((tex_u2 - tex_u0) * (v1.x - v0.x) - (tex_u1 - tex_u0) * (v2.x - v0.x)) * fp_one, abc);
-        const v_dx = @divTrunc(((tex_v1 - tex_v0) * (v2.y - v0.y) - (tex_v2 - tex_v0) * (v1.y - v0.y)) * fp_one, abc);
-        const v_dy = @divTrunc(((tex_v2 - tex_v0) * (v1.x - v0.x) - (tex_v1 - tex_v0) * (v2.x - v0.x)) * fp_one, abc);
+        const u_dx = @divTrunc(((tex_u1 -% tex_u0) *% (v2.y -% v0.y) -% (tex_u2 -% tex_u0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const u_dy = @divTrunc(((tex_u2 -% tex_u0) *% (v1.x -% v0.x) -% (tex_u1 -% tex_u0) *% (v2.x -% v0.x)) *% fp_one, abc);
+        const v_dx = @divTrunc(((tex_v1 -% tex_v0) *% (v2.y -% v0.y) -% (tex_v2 -% tex_v0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const v_dy = @divTrunc(((tex_v2 -% tex_v0) *% (v1.x -% v0.x) -% (tex_v1 -% tex_v0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
-        var u_row = tex_u0 * fp_one + (x_min - v0.x) * u_dx + (y_min - v0.y) * u_dy;
-        var v_row = tex_v0 * fp_one + (x_min - v0.x) * v_dx + (y_min - v0.y) * v_dy;
+        var u_row = tex_u0 *% fp_one +% (x_min -% v0.x) *% u_dx +% (y_min -% v0.y) *% u_dy;
+        var v_row = tex_v0 *% fp_one +% (x_min -% v0.x) *% v_dx +% (y_min -% v0.y) *% v_dy;
 
         var abp_row = abp_row_start;
         var bcp_row = bcp_row_start;
@@ -619,15 +619,15 @@ pub const Rasterizer = struct {
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
-                u += u_dx;
-                v += v_dx;
+                u +%= u_dx;
+                v +%= v_dx;
             }
 
             abp_row += abp_dy;
             bcp_row += bcp_dy;
             cap_row += cap_dy;
-            u_row += u_dy;
-            v_row += v_dy;
+            u_row +%= u_dy;
+            v_row +%= v_dy;
         }
     }
 
@@ -683,10 +683,10 @@ pub const Rasterizer = struct {
         const tex_v1: i32 = @intCast(v1.v);
         const tex_v2: i32 = @intCast(v2.v);
 
-        const u_dx = @divTrunc(((tex_u1 - tex_u0) * (v2.y - v0.y) - (tex_u2 - tex_u0) * (v1.y - v0.y)) * fp_one, abc);
-        const u_dy = @divTrunc(((tex_u2 - tex_u0) * (v1.x - v0.x) - (tex_u1 - tex_u0) * (v2.x - v0.x)) * fp_one, abc);
-        const v_dx = @divTrunc(((tex_v1 - tex_v0) * (v2.y - v0.y) - (tex_v2 - tex_v0) * (v1.y - v0.y)) * fp_one, abc);
-        const v_dy = @divTrunc(((tex_v2 - tex_v0) * (v1.x - v0.x) - (tex_v1 - tex_v0) * (v2.x - v0.x)) * fp_one, abc);
+        const u_dx = @divTrunc(((tex_u1 -% tex_u0) *% (v2.y -% v0.y) -% (tex_u2 -% tex_u0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const u_dy = @divTrunc(((tex_u2 -% tex_u0) *% (v1.x -% v0.x) -% (tex_u1 -% tex_u0) *% (v2.x -% v0.x)) *% fp_one, abc);
+        const v_dx = @divTrunc(((tex_v1 -% tex_v0) *% (v2.y -% v0.y) -% (tex_v2 -% tex_v0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const v_dy = @divTrunc(((tex_v2 -% tex_v0) *% (v1.x -% v0.x) -% (tex_v1 -% tex_v0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
         const r0: i32 = v0.color.r;
         const r1: i32 = v1.color.r;
@@ -698,18 +698,18 @@ pub const Rasterizer = struct {
         const b1: i32 = v1.color.b;
         const b2: i32 = v2.color.b;
 
-        const r_dx = @divTrunc(((r1 - r0) * (v2.y - v0.y) - (r2 - r0) * (v1.y - v0.y)) * fp_one, abc);
-        const r_dy = @divTrunc(((r2 - r0) * (v1.x - v0.x) - (r1 - r0) * (v2.x - v0.x)) * fp_one, abc);
-        const g_dx = @divTrunc(((g1 - g0) * (v2.y - v0.y) - (g2 - g0) * (v1.y - v0.y)) * fp_one, abc);
-        const g_dy = @divTrunc(((g2 - g0) * (v1.x - v0.x) - (g1 - g0) * (v2.x - v0.x)) * fp_one, abc);
-        const b_dx = @divTrunc(((b1 - b0) * (v2.y - v0.y) - (b2 - b0) * (v1.y - v0.y)) * fp_one, abc);
-        const b_dy = @divTrunc(((b2 - b0) * (v1.x - v0.x) - (b1 - b0) * (v2.x - v0.x)) * fp_one, abc);
+        const r_dx = @divTrunc(((r1 -% r0) *% (v2.y -% v0.y) -% (r2 -% r0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const r_dy = @divTrunc(((r2 -% r0) *% (v1.x -% v0.x) -% (r1 -% r0) *% (v2.x -% v0.x)) *% fp_one, abc);
+        const g_dx = @divTrunc(((g1 -% g0) *% (v2.y -% v0.y) -% (g2 -% g0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const g_dy = @divTrunc(((g2 -% g0) *% (v1.x -% v0.x) -% (g1 -% g0) *% (v2.x -% v0.x)) *% fp_one, abc);
+        const b_dx = @divTrunc(((b1 -% b0) *% (v2.y -% v0.y) -% (b2 -% b0) *% (v1.y -% v0.y)) *% fp_one, abc);
+        const b_dy = @divTrunc(((b2 -% b0) *% (v1.x -% v0.x) -% (b1 -% b0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
-        var u_row = tex_u0 * fp_one + (x_min - v0.x) * u_dx + (y_min - v0.y) * u_dy;
-        var v_row = tex_v0 * fp_one + (x_min - v0.x) * v_dx + (y_min - v0.y) * v_dy;
-        var r_row = r0 * fp_one + (x_min - v0.x) * r_dx + (y_min - v0.y) * r_dy;
-        var g_row = g0 * fp_one + (x_min - v0.x) * g_dx + (y_min - v0.y) * g_dy;
-        var b_row = b0 * fp_one + (x_min - v0.x) * b_dx + (y_min - v0.y) * b_dy;
+        var u_row = tex_u0 *% fp_one +% (x_min -% v0.x) *% u_dx +% (y_min -% v0.y) *% u_dy;
+        var v_row = tex_v0 *% fp_one +% (x_min -% v0.x) *% v_dx +% (y_min -% v0.y) *% v_dy;
+        var r_row = r0 *% fp_one +% (x_min -% v0.x) *% r_dx +% (y_min -% v0.y) *% r_dy;
+        var g_row = g0 *% fp_one +% (x_min -% v0.x) *% g_dx +% (y_min -% v0.y) *% g_dy;
+        var b_row = b0 *% fp_one +% (x_min -% v0.x) *% b_dx +% (y_min -% v0.y) *% b_dy;
 
         var abp_row = abp_row_start;
         var bcp_row = bcp_row_start;
@@ -758,21 +758,21 @@ pub const Rasterizer = struct {
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
-                u += u_dx;
-                v += v_dx;
-                r += r_dx;
-                g += g_dx;
-                b += b_dx;
+                u +%= u_dx;
+                v +%= v_dx;
+                r +%= r_dx;
+                g +%= g_dx;
+                b +%= b_dx;
             }
 
             abp_row += abp_dy;
             bcp_row += bcp_dy;
             cap_row += cap_dy;
-            u_row += u_dy;
-            v_row += v_dy;
-            r_row += r_dy;
-            g_row += g_dy;
-            b_row += b_dy;
+            u_row +%= u_dy;
+            v_row +%= v_dy;
+            r_row +%= r_dy;
+            g_row +%= g_dy;
+            b_row +%= b_dy;
         }
     }
 
