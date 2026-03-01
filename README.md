@@ -19,14 +19,27 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Battle Arena Toshinden|🟢 Playable||
 |Colin McRae Rally 2.0|🔴 Crashes||
 |Crash Bandicoot|🟢 Playable||
+|Crash Bandicoot 2|🟢 Playable||
+|Crash Bash|🔴 Freezes||
 |Crash Team Racing|🟢 Playable|Sound issues (no voice)|
-|Tekken 3|🟠 In game|Wrong screen resolution|
 |Earthworm Jim 2|🟢 Playable||
+|Gran Turismo|🟢 Playable||
 |Metal Gear Solid|🟢 Playable|Cutscene glitches|
 |Mortal Kombat 2|🟢 Playable||
+|Rayman|🔴 Freezes||
+|Rayman 2|🟠 In game|Graphics and sound issues|
+|Resident Evil 2|🟢 Playable||
 |Ridge Racer|🟢 Playable||
 |Spyro the Dragon|🟠 In game|Sound issues|
+|Spyro Year of the Dragon|🔴 Title screen||
+|Tekken 3|🟠 In game|Wrong screen resolution|
+|Tomb Raider III|🔴 Title screen||
 |Tomb Raider|🔴 Crashes||
+|Wipeout|🔴 Freezes||
+
+## Download
+
+Prebuilt binaries are available in the [Releases](https://github.com/maxpoletaev/nupsx/releases)
 
 ## Build & Run
 
