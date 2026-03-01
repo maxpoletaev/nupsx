@@ -35,14 +35,15 @@ pub const std_options = std.Options{
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
         // .{ .scope = .spu, .level = .debug },
-        .{ .scope = .cdrom, .level = .debug },
+        // .{ .scope = .cdrom, .level = .debug },
         // .{ .scope = .cue, .level = .debug },
         // .{ .scope = .mem, .level = .debug },
         // .{ .scope = .timer, .level = .debug },
         // .{ .scope = .gte, .level = .debug },
         // .{ .scope = .gpu, .level = .debug },
         // .{ .scope = .dma, .level = .debug },
-        .{ .scope = .joy, .level = .debug },
+        // .{ .scope = .mdec, .level = .debug },
+        // .{ .scope = .joy, .level = .debug },
     },
 };
 

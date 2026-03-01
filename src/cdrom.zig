@@ -754,15 +754,16 @@ pub const CDROM = struct {
 
     fn ackInterrupt(self: *@This(), v: u8) void {
         const ack: packed struct(u8) {
-            ack_int: u3,
-            _pad: u3,
-            clear_params: bool,
-            reset_chip: bool,
+            int_clear: u3, // 0-2 (CLRINT)
+            _unused: u2, // 3-4 (BFEMPT, BFBFWRDY)
+            xa_adpcm_clear: bool, // 5 (XAADPCMCLR)
+            param_clear: bool, // 6 (CLRPRM)
+            chip_reset: bool, // 7 (CHPRST)
         } = @bitCast(v);
 
-        self.irq_pending.ints &= ~ack.ack_int;
+        self.irq_pending.ints &= ~ack.int_clear;
 
-        if (ack.clear_params) self.params.clear();
+        if (ack.param_clear) self.params.clear();
 
         if (self.cmd == null and !self.cmd_queue.isEmpty()) {
             self.cmd = self.cmd_queue.pop().?;

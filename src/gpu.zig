@@ -24,7 +24,7 @@ const Hres1 = enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 };
 const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
 const Vres = enum(u1) { @"240" = 0, @"480" = 1 };
 const VideoMode = enum(u1) { ntsc = 0, pal = 1 };
-const ColorDepth = enum(u1) { bit15 = 0, bit24 = 1 };
+pub const ColorDepth = enum(u1) { bit15 = 0, bit24 = 1 };
 const TexpageColorMode = enum(u2) { bit4 = 0, bit8 = 1, bit15 = 2 };
 const DmaDirection = enum(u2) { off = 0, fifo = 1, cpu_to_gp0 = 2, gpuread_to_cpu = 3 };
 
@@ -264,7 +264,7 @@ pub const GPU = struct {
         return @as(u32, @bitCast(gpustat));
     }
 
-    pub fn getDisplayRes(self: *@This()) [2]u16 {
+    pub inline fn getDisplayRes(self: *@This()) [2]u16 {
         const w: u16 = switch (self.gp1_display_mode.hres) {
             .@"256" => 256,
             .@"320" => 320,
@@ -276,6 +276,10 @@ pub const GPU = struct {
             .@"480" => 480,
         };
         return .{ w, h };
+    }
+
+    pub inline fn getColorDepth(self: *@This()) ColorDepth {
+        return self.gp1_display_mode.color_depth;
     }
 
     // =========================================================================

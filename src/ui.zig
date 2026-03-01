@@ -291,27 +291,43 @@ pub const UI = struct {
             return;
         }
 
+        const color_depth = self.gpu.getColorDepth();
+
         // Upload full VRAM texture (1024x512)
         gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram);
+        switch (color_depth) {
+            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram),
+            .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 682, 512, 0, gl.RGB, gl.UNSIGNED_BYTE, self.gpu.vram),
+        }
 
         // Set shader uniforms for display area
         gl.useProgram(self.shader_program);
 
         const display_res = self.gpu.getDisplayRes();
-        const start_x = self.gpu.gp1_display_area_start.x;
-        var start_y = self.gpu.gp1_display_area_start.y;
+        const start_x: f32 = @floatFromInt(self.gpu.gp1_display_area_start.x);
+        var start_y: f32 = @floatFromInt(self.gpu.gp1_display_area_start.y);
         if (start_y == 2) start_y = 0; // HACK: old bioses set this to 2, resulting in cluts being displayed in the viewport
 
         const display_range_y1: f32 = @floatFromInt(self.gpu.gp1_display_range_y.y1);
         const display_range_y2: f32 = @floatFromInt(self.gpu.gp1_display_range_y.y2);
 
+        // GP1(05h) X offset is in halfword units. In 24-bit mode the texture is
+        // uploaded as 682 RGB pixels (1024 halfwords * 2/3), so convert the offset
+        // from halfword units to 24-bit pixel units.
+        const offset_x: f32 = switch (color_depth) {
+            .bit15 => start_x,
+            .bit24 => start_x * (2.0 / 3.0),
+        };
+
         // Set uniform values
-        gl.uniform2f(self.uniform_display_offset, @as(f32, @floatFromInt(start_x)), @as(f32, @floatFromInt(start_y)));
+        gl.uniform2f(self.uniform_display_offset, offset_x, start_y);
         gl.uniform2f(self.uniform_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
         gl.uniform2f(self.uniform_display_range_y, display_range_y1, display_range_y2);
-        gl.uniform2f(self.uniform_vram_size, 1024.0, 512.0);
+        switch (color_depth) {
+            .bit15 => gl.uniform2f(self.uniform_vram_size, 1024.0, 512.0),
+            .bit24 => gl.uniform2f(self.uniform_vram_size, 682.0, 512.0),
+        }
 
         // Draw fullscreen quad
         gl.bindVertexArray(self.vao);

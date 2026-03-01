@@ -213,6 +213,8 @@ pub const DMA = struct {
 
         if (reg_id == 2) {
             switch (chan_id) {
+                0 => self.doMdecIn(),
+                1 => self.doMdecOut(),
                 2 => self.doGpu(),
                 3 => self.doCdrom(),
                 4 => self.doSpu(),
@@ -223,6 +225,60 @@ pub const DMA = struct {
                 },
             }
         }
+    }
+
+    fn doMdecIn(self: *@This()) void {
+        const chan = &self.channels[ChanId.mdec_in];
+        if (!chan.ctrl.start) return;
+        if (!self.bus.dev.mdec.dataInRequest()) return;
+        if (!self.dpcr.getChanMasterEnable(ChanId.mdec_in)) return;
+
+        const block_size = @as(u32, chan.block.size);
+        const step = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
+            .incr => @as(i32, 4),
+            .decr => @as(i32, -4),
+        }));
+
+        log.debug("DMA MDEC IN transfer, block_size={x}, count={x}", .{ block_size, chan.block.count });
+
+        while (chan.block.count > 0) {
+            for (0..block_size) |_| {
+                const v = self.bus.read(u32, chan.maddr);
+                self.bus.dev.mdec.write(u32, 0x1f801820, v);
+                chan.maddr +%= step;
+            }
+            chan.block.count -= 1;
+        }
+
+        chan.ctrl.start = false;
+        self.setChannelIrq(ChanId.mdec_in, .full_transfer);
+    }
+
+    fn doMdecOut(self: *@This()) void {
+        const chan = &self.channels[ChanId.mdec_out];
+        if (!chan.ctrl.start) return;
+        if (!self.bus.dev.mdec.dataOutRequest()) return;
+        if (!self.dpcr.getChanMasterEnable(ChanId.mdec_out)) return;
+
+        const block_size = @as(u32, chan.block.size);
+        const step = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
+            .incr => @as(i32, 4),
+            .decr => @as(i32, -4),
+        }));
+
+        log.debug("DMA MDEC OUT transfer, block_size={x}, count={x}", .{ block_size, chan.block.count });
+
+        while (chan.block.count > 0) {
+            for (0..block_size) |_| {
+                const v = self.bus.dev.mdec.dmaReadWord();
+                self.bus.write(u32, chan.maddr, v);
+                chan.maddr +%= step;
+            }
+            chan.block.count -= 1;
+        }
+
+        chan.ctrl.start = false;
+        self.setChannelIrq(ChanId.mdec_out, .full_transfer);
     }
 
     fn doGpu(self: *@This()) void {

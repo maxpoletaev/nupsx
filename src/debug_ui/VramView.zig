@@ -44,16 +44,26 @@ pub fn deinit(self: *@This()) void {
 
 pub fn update(self: *@This()) void {
     if (zgui.begin("VRAM", .{})) {
+        const color_depth = self.gpu.getColorDepth();
+
         _ = zgui.checkbox("Show Draw Area", .{ .v = &self.show_draw_area });
         zgui.sameLine(.{});
         _ = zgui.checkbox("Show Display Area", .{ .v = &self.show_display_area });
+        zgui.sameLine(.{ .spacing = 30.0 });
+        _ = switch (color_depth) {
+            .bit15 => zgui.text("15-bit", .{}),
+            .bit24 => zgui.text("24-bit", .{}),
+        };
 
         gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram);
+        switch (color_depth) {
+            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram),
+            .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 682, 512, 0, gl.RGB, gl.UNSIGNED_BYTE, self.gpu.vram),
+        }
 
         const aspect_ratio = 1024.0 / 512.0; // 2:1 aspect ratio
         const available_width = zgui.getContentRegionAvail()[0];
