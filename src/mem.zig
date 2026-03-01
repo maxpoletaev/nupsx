@@ -12,6 +12,7 @@ const CDROM = @import("cdrom.zig").CDROM;
 const MDEC = @import("mdec.zig").MDEC;
 const Timers = @import("timer.zig").Timers;
 const Joypad = @import("joy.zig").Joypad;
+const AudioStream = @import("audio.zig").AudioStream;
 
 const expectEqual = std.testing.expectEqual;
 const log = std.log.scoped(.mem);
@@ -205,61 +206,6 @@ pub const Interrupt = opaque {
 
 const addr_irq_stat: u32 = 0x1f801070;
 const addr_irq_mask: u32 = 0x1f801074;
-
-const AudioStreamWasm = struct {
-    pub fn push(_: *@This(), _: [2]i16) void {}
-    pub fn pop(_: *@This()) [2]i16 {
-        return .{ 0, 0 };
-    }
-    pub fn signal(_: *@This()) void {}
-};
-
-const AudioStreamNative = struct {
-    const capacity = 1024;
-
-    buf: [capacity][2]i16 = undefined,
-    head: std.atomic.Value(usize) = .init(0),
-    tail: std.atomic.Value(usize) = .init(0),
-    sem: std.Thread.Semaphore = .{},
-
-    inline fn isFull(self: *@This()) bool {
-        const tail = self.tail.load(.monotonic);
-        const next_tail = (tail + 1) % capacity;
-        return next_tail == self.head.load(.acquire);
-    }
-
-    pub fn push(self: *@This(), sample: [2]i16) void {
-        while (self.isFull()) {
-            self.sem.wait();
-        }
-
-        const tail = self.tail.load(.monotonic);
-        const next_tail = (tail + 1) % capacity;
-
-        self.buf[tail] = sample;
-        self.tail.store(next_tail, .release);
-    }
-
-    pub fn pop(self: *@This()) [2]i16 {
-        const head = self.head.load(.monotonic);
-        if (head == self.tail.load(.acquire)) {
-            return .{ 0, 0 };
-        }
-
-        const sample = self.buf[head];
-        self.head.store((head + 1) % capacity, .release);
-        return sample;
-    }
-
-    pub fn signal(self: *@This()) void {
-        self.sem.post();
-    }
-};
-
-pub const AudioStream = switch (builtin.target.cpu.arch) {
-    .wasm32, .wasm64 => AudioStreamWasm,
-    else => AudioStreamNative,
-};
 
 /// The main interconnect bus for all the devices within the console.
 pub const Bus = struct {

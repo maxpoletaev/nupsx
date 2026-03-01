@@ -10,6 +10,21 @@ pub const Error = error{
     UnexpectedEof,
 };
 
+pub const Diagnostic = struct {
+    msg_buf: [256]u8 = undefined,
+    msg_len: usize = 0,
+    line: usize = 0,
+
+    pub fn msg(self: *const Diagnostic) []const u8 {
+        return self.msg_buf[0..self.msg_len];
+    }
+
+    pub fn setMessage(self: *Diagnostic, comptime fmt: []const u8, args: anytype) void {
+        const result = std.fmt.bufPrint(&self.msg_buf, fmt, args) catch self.msg_buf[0..];
+        self.msg_len = result.len;
+    }
+};
+
 pub const Position = struct {
     minute: u8,
     second: u8,
@@ -57,8 +72,8 @@ pub const CueSheet = struct {
     files: []FileNode,
 };
 
-pub fn parse(allocator: std.mem.Allocator, content: []const u8) Error!CueSheet {
-    var parser = Parser.init(allocator, content);
+pub fn parse(allocator: std.mem.Allocator, content: []const u8, diag: ?*Diagnostic) Error!CueSheet {
+    var parser = Parser.init(allocator, content, diag);
     defer parser.deinit();
 
     parser.skipBom();
@@ -81,9 +96,9 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) Error!CueSheet {
     return parser.finish();
 }
 
-pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8) Error!CueSheet {
+pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8, diag: ?*Diagnostic) Error!CueSheet {
     const file = std.fs.cwd().openFile(cue_path, .{}) catch |err| {
-        log.err("failed to open cue file {s}: {}", .{ cue_path, err });
+        if (diag) |d| d.setMessage("failed to open file: {}", .{err});
         return Error.FileIoError;
     };
     defer file.close();
@@ -91,12 +106,12 @@ pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8) Error!CueSh
     var buf: [4096]u8 = undefined;
     var reader = file.reader(&buf);
     const content = reader.interface.allocRemaining(allocator, .unlimited) catch |err| {
-        log.err("failed to read cue file {s}: {}", .{ cue_path, err });
+        if (diag) |d| d.setMessage("failed to read file: {}", .{err});
         return Error.FileIoError;
     };
     defer allocator.free(content);
 
-    return parse(allocator, content);
+    return parse(allocator, content, diag);
 }
 
 pub fn free(allocator: std.mem.Allocator, sheet: *CueSheet) void {
@@ -126,6 +141,7 @@ const Parser = struct {
     content: []const u8,
     pos: usize = 0,
     line: usize = 1,
+    diag: ?*Diagnostic,
 
     files: std.ArrayListUnmanaged(FileNode) = .{},
     tracks: std.ArrayListUnmanaged(TrackNode) = .{},
@@ -153,10 +169,11 @@ const Parser = struct {
         self.indices.deinit(self.allocator);
     }
 
-    fn init(allocator: std.mem.Allocator, content: []const u8) Parser {
+    fn init(allocator: std.mem.Allocator, content: []const u8, diag: ?*Diagnostic) Parser {
         return .{
             .allocator = allocator,
             .content = content,
+            .diag = diag,
         };
     }
 
@@ -202,8 +219,11 @@ const Parser = struct {
         }
     }
 
-    fn logError(self: *const @This(), comptime fmt: []const u8, args: anytype) void {
-        log.err(fmt ++ " (line {d})", args ++ .{self.line});
+    fn setError(self: *const @This(), comptime fmt: []const u8, args: anytype) void {
+        if (self.diag) |d| {
+            d.line = self.line;
+            d.setMessage(fmt, args);
+        }
     }
 
     fn parseWord(self: *@This()) []const u8 {
@@ -225,7 +245,7 @@ const Parser = struct {
         if (std.mem.eql(u8, word, "POSTGAP")) return .postgap;
         if (std.mem.eql(u8, word, "FLAGS")) return .flags;
 
-        log.warn("unknown keyword: {s} (line {d})", .{ word, self.line });
+        log.debug("unknown keyword: {s} (line {d})", .{ word, self.line });
 
         return .unknown;
     }
@@ -234,7 +254,7 @@ const Parser = struct {
         self.skipWhitespace();
 
         if (self.peek() != '"') {
-            self.logError("expected opening quote", .{});
+            self.setError("expected opening quote", .{});
             return Error.InvalidFormat;
         }
         _ = self.advance(); // Skip opening quote
@@ -247,7 +267,7 @@ const Parser = struct {
 
         const end = self.pos;
         if (self.peek() != '"') {
-            self.logError("expected opening quote", .{});
+            self.setError("expected closing quote", .{});
             return Error.UnexpectedEof;
         }
         _ = self.advance(); // Skip closing quote
@@ -269,7 +289,7 @@ const Parser = struct {
         }
 
         if (!found_digit) {
-            self.logError("expected number", .{});
+            self.setError("expected number", .{});
             return Error.InvalidFormat;
         }
         return num;
@@ -284,7 +304,7 @@ const Parser = struct {
         if (std.mem.eql(u8, mode, "MODE2/2336")) return .mode2_2336;
         if (std.mem.eql(u8, mode, "AUDIO")) return .audio;
 
-        self.logError("unknown track mode: {s}", .{mode});
+        self.setError("unknown track mode: {s}", .{mode});
         return Error.UnknownMode;
     }
 
@@ -297,7 +317,7 @@ const Parser = struct {
         if (std.mem.eql(u8, file_type, "MP3")) return .mp3;
         if (std.mem.eql(u8, file_type, "AIFF")) return .aiff;
 
-        self.logError("unknown file type: {s}", .{file_type});
+        self.setError("unknown file type: {s}", .{file_type});
         return Error.UnknownFileType;
     }
 
@@ -305,7 +325,7 @@ const Parser = struct {
         const minute = try self.parseNumber();
 
         if (self.peek() != ':') {
-            self.logError("expected ':' after minute", .{});
+            self.setError("expected ':' after minute", .{});
             return Error.InvalidFormat;
         }
         _ = self.advance(); // Skip ':'
@@ -313,7 +333,7 @@ const Parser = struct {
         const second = try self.parseNumber();
 
         if (self.peek() != ':') {
-            self.logError("expected ':' after second", .{});
+            self.setError("expected ':' after second", .{});
             return Error.InvalidFormat;
         }
         _ = self.advance(); // Skip ':'
@@ -346,7 +366,7 @@ const Parser = struct {
 
     fn handleTrack(self: *@This()) Error!void {
         if (self.tmp.file_name == null) {
-            self.logError("TRACK found before FILE", .{});
+            self.setError("TRACK found before FILE", .{});
             return Error.InvalidFormat;
         }
 
@@ -365,12 +385,12 @@ const Parser = struct {
 
     fn handleIndex(self: *@This()) Error!void {
         if (self.tmp.file_name == null) {
-            self.logError("INDEX found before FILE", .{});
+            self.setError("INDEX found before FILE", .{});
             return Error.InvalidFormat;
         }
 
         if (self.tmp.track_number == null) {
-            self.logError("INDEX found before TRACK", .{});
+            self.setError("INDEX found before TRACK", .{});
             return Error.InvalidFormat;
         }
 
@@ -428,7 +448,7 @@ const Parser = struct {
     }
 };
 
-test "parse multi-track multi-file CUE" {
+test "parseValid" {
     const content =
         \\REM Generated by some tool
         \\FILE "track01.bin" BINARY
@@ -449,7 +469,7 @@ test "parse multi-track multi-file CUE" {
         \\REM End of cue sheet
     ;
 
-    var sheet = try parse(std.testing.allocator, content);
+    var sheet = try parse(std.testing.allocator, content, null);
     defer free(std.testing.allocator, &sheet);
 
     try std.testing.expectEqual(@as(usize, 3), sheet.files.len);
@@ -487,4 +507,17 @@ test "parse multi-track multi-file CUE" {
 
     try std.testing.expectEqualStrings("track04.wav", sheet.files[2].filename);
     try std.testing.expectEqual(FileType.wave, sheet.files[2].file_type);
+}
+
+test "parseBadCueSheet" {
+    const content =
+        \\FILE missing opening quote BINARY
+        \\  TRACK 01 MODE2/2352
+        \\    INDEX 09 00:00:00
+    ;
+    var diag: Diagnostic = .{};
+    const ret = parse(std.testing.allocator, content, &diag);
+    try std.testing.expectError(Error.InvalidFormat, ret);
+    try std.testing.expectEqual(@as(usize, 1), diag.line);
+    try std.testing.expectEqualStrings("expected opening quote", diag.msg());
 }

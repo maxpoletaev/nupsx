@@ -121,15 +121,19 @@ pub const Disc = struct {
     pos: u32 = 0,
 
     pub fn loadCue(allocator: std.mem.Allocator, cue_path: []const u8) Error!@This() {
-        var cue_sheet = cue.parseFile(allocator, cue_path) catch {
-            log.err("failed to parse cue sheet: {s}", .{cue_path});
-            return Error.FileIoError;
+        var diag: cue.Diagnostic = .{};
+        var cue_sheet = cue.parseFile(allocator, cue_path, &diag) catch |err| {
+            log.err("failed to parse cue sheet {s}: {s}", .{ cue_path, diag.msg() });
+            return switch (err) {
+                cue.Error.FileIoError => Error.FileIoError,
+                else => Error.CueParseError,
+            };
         };
         defer cue.free(allocator, &cue_sheet);
 
         const cue_root = std.fs.path.dirname(cue_path) orelse ".";
-        const cue_dir = std.fs.cwd().openDir(cue_root, .{}) catch {
-            log.err("failed to open cue sheet directory: {s}", .{cue_root});
+        const cue_dir = std.fs.cwd().openDir(cue_root, .{}) catch |err| {
+            log.err("failed to open cue sheet directory {s}: {}", .{ cue_root, err });
             return Error.FileIoError;
         };
 
