@@ -75,6 +75,22 @@ const RequestReg = packed struct(u8) {
     want_data: bool = false, // 7 (BFRD)
 };
 
+const DriveError = enum(u8) {
+    // First response errors:
+    invalid_parameter = 0x10,
+    wrong_parameter_count = 0x20,
+    invalid_command = 0x40,
+    cannot_respond = 0x80,
+    // Second response errors:
+    seek_failed = 0x04,
+    // Async / unsolicited:
+    drive_door_opened = 0x08,
+
+    inline fn code(self: DriveError) u8 {
+        return @intFromEnum(self);
+    }
+};
+
 const Position = struct {
     minute: u8,
     second: u8,
@@ -297,7 +313,7 @@ pub const Disc = struct {
         return @alignCast(v);
     }
 
-    fn readSectorRaw(self: *@This()) []align(2) const u8 {
+    pub fn readSectorRaw(self: *@This()) []align(2) const u8 {
         if (self.pos + cdrom_sector_size_cue > self.data.len) {
             std.debug.panic("disc read out of bounds at {d}", .{self.pos});
         }
@@ -318,6 +334,11 @@ pub const Disc = struct {
             }
         }
         return null;
+    }
+
+    pub fn isAtValidLocation(self: *@This()) bool {
+        const pos = self.pos + cdrom_file_offset_bytes_cue;
+        return pos < self.data.len;
     }
 };
 
@@ -446,12 +467,10 @@ pub const CDROM = struct {
         if (self.data_buffer) |buf| {
             const v = mem.readBuf(T, buf, self.data_pos);
             self.data_pos += @sizeOf(T);
-
             if (self.data_pos >= buf.len) {
                 self.data_buffer = null;
                 self.data_pos = 0;
             }
-
             return v;
         } else {
             log.warn("read from empty data buffer", .{});
@@ -512,6 +531,13 @@ pub const CDROM = struct {
             self.stat.seek = false;
             self.read_delay = cdrom_read_delay_cycles;
         } else {
+            if (!self.disc.?.isAtValidLocation()) {
+                log.warn("play/read failed: invalid disc location", .{});
+                self.stat.motor_on = false;
+                self.pushError(.seek_failed);
+                self.resetReadState();
+                return;
+            }
             self.stat.play = true;
             const sector = self.disc.?.readSectorRaw();
             const samples = std.mem.bytesAsSlice(i16, sector);
@@ -544,6 +570,14 @@ pub const CDROM = struct {
                 .double => cdrom_read_2x_delay_cycles,
             };
         } else {
+            if (!self.disc.?.isAtValidLocation()) {
+                log.warn("play/read failed: invalid disc location", .{});
+                self.stat.motor_on = false;
+                self.pushError(.seek_failed);
+                self.resetReadState();
+                return;
+            }
+
             self.stat.read = true;
             self.results.clear();
 
@@ -568,6 +602,8 @@ pub const CDROM = struct {
         self.stat.seek = false;
         self.stat.read = false;
         self.stat.play = false;
+        self.stat.seekerr = false;
+        self.stat.err = false;
     }
 
     fn stepCommand(self: *@This()) void {
@@ -589,6 +625,7 @@ pub const CDROM = struct {
             0x0c => commands.demute(self),
             0x0d => commands.setFilter(self),
             0x0e => commands.setMode(self),
+            0x10 => commands.getLocL(self),
             0x11 => commands.getLocP(self),
             0x1b => commands.readN(self), // readS
             0x13 => commands.getTn(self),
@@ -623,11 +660,12 @@ pub const CDROM = struct {
         for (bytes) |b| self.pushResultByte(b);
     }
 
-    fn pushError(self: *@This(), err_code: u8) void {
+    fn pushError(self: *@This(), err: DriveError) void {
         var stat = self.stat;
         stat.err = true;
+        stat.seekerr = err == .seek_failed;
         self.pushResultByte(@bitCast(stat));
-        self.pushResultByte(err_code);
+        self.pushResultByte(err.code());
     }
 
     // =========================================================================
@@ -860,10 +898,8 @@ const commands = opaque {
                 const s = fromBCD(self.params.pop().?);
                 const f = fromBCD(self.params.pop().?);
 
-                self.seekloc = Position.init(m, s, f).toSectors();
-
                 log.debug("CDROM SETLOC to {d}:{d}:{d}", .{ m, s, f });
-
+                self.seekloc = Position.init(m, s, f).toSectors();
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
                 self.finishCommand();
@@ -1053,9 +1089,8 @@ const commands = opaque {
                 // std.debug.assert(self.params.len == 1);
 
                 const track_num = fromBCD(self.params.pop() orelse 0);
-
                 const track = self.disc.?.getTrackByNumber(track_num) orelse {
-                    self.pushError(0x10);
+                    self.pushError(.invalid_parameter);
                     self.setInterrupt(3);
                     self.finishCommand();
                     return;
@@ -1153,6 +1188,30 @@ const commands = opaque {
                 self.setInterrupt(2);
                 self.finishCommand();
             },
+        }
+    }
+
+    fn getLocL(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.cmd_delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                if (self.read_state != .reading) {
+                    log.warn("GETLOCL called while not reading", .{});
+                    self.pushError(.cannot_respond);
+                    self.setInterrupt(2);
+                    self.finishCommand();
+                    return;
+                }
+                log.debug("CDROM GETLOCL", .{});
+                const b = self.data_buffer.?;
+                self.pushResultSlice(b[0..8]);
+                self.setInterrupt(3);
+                self.finishCommand();
+            },
+            else => unreachable,
         }
     }
 };
