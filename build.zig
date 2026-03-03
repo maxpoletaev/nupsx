@@ -9,6 +9,9 @@ pub fn build(b: *std.Build) void {
     const zaudio = b.dependency("zaudio", .{ .target = target });
     const zopengl = b.dependency("zopengl", .{});
 
+    const options = b.addOptions();
+    options.addOption(bool, "uncapped", b.option(bool, "uncapped", "Run uncapped (no audio/video sync)") orelse false);
+
     const nupsx_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -17,6 +20,7 @@ pub fn build(b: *std.Build) void {
         .error_tracing = true,
         .strip = false,
     });
+    nupsx_mod.addOptions("build_options", options);
     nupsx_mod.addImport("zglfw", zglfw.module("root"));
     nupsx_mod.addImport("zopengl", zopengl.module("root"));
     nupsx_mod.addImport("zgui", zgui.module("root"));

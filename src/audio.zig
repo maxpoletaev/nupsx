@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const options = @import("build_options");
 
 const AudioStreamDummy = struct {
     pub fn push(_: *@This(), _: [2]i16) void {}
@@ -52,9 +53,9 @@ const AudioStreamNative = struct {
 };
 
 fn audioStreamType() type {
-    if (builtin.mode == .Debug) {
-        return AudioStreamDummy; // Debug is very slow and crackly
-    }
+    if (options.uncapped) return AudioStreamDummy;
+    if (builtin.mode == .Debug) return AudioStreamDummy; // Debug is very slow and crackly
+
     return switch (builtin.target.cpu.arch) {
         .wasm32, .wasm64 => AudioStreamDummy, // TODO: Needs separate implementation
         else => AudioStreamNative,

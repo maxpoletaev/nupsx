@@ -277,7 +277,7 @@ pub const Rasterizer = struct {
         self.vram[addr] = out;
     }
 
-    inline fn setPixelFlat(
+    fn setPixelFlat(
         self: *@This(),
         x: i32,
         y: i32,
@@ -304,7 +304,7 @@ pub const Rasterizer = struct {
         }
     }
 
-    inline fn setPixelTextured(
+    fn setPixelTextured(
         self: *@This(),
         x: i32,
         y: i32,
@@ -406,7 +406,7 @@ pub const Rasterizer = struct {
             while (x + 3 <= x_max) : (x += 4) {
                 const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
                 if (@reduce(.Or, inside)) {
-                    for (0..4) |lane| {
+                    inline for (0..4) |lane| {
                         if (inside[lane]) {
                             self.setPixelFlat(x + @as(i32, @intCast(lane)), y, color, .{
                                 .semi_trans = semi_trans,
@@ -527,7 +527,7 @@ pub const Rasterizer = struct {
             while (x + 3 <= x_max) : (x += 4) {
                 const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
                 if (@reduce(.Or, inside)) {
-                    for (0..4) |lane| {
+                    inline for (0..4) |lane| {
                         if (inside[lane]) {
                             const color: RGB8 = .{
                                 .r = @truncate(@as(u32, @bitCast(r_v[lane] >> fp_bits))),
@@ -671,7 +671,7 @@ pub const Rasterizer = struct {
             while (x + 3 <= x_max) : (x += 4) {
                 const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
                 if (@reduce(.Or, inside)) {
-                    for (0..4) |lane| {
+                    inline for (0..4) |lane| {
                         if (inside[lane]) {
                             const texel = self.sampleTexture(
                                 @truncate(@as(u32, @bitCast(u_v[lane] >> fp_bits))),
@@ -847,7 +847,7 @@ pub const Rasterizer = struct {
             while (x + 3 <= x_max) : (x += 4) {
                 const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
                 if (@reduce(.Or, inside)) {
-                    for (0..4) |lane| {
+                    inline for (0..4) |lane| {
                         if (inside[lane]) {
                             const texel = self.sampleTexture(
                                 @truncate(@as(u32, @bitCast(u_v[lane] >> fp_bits))),
