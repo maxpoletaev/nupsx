@@ -71,6 +71,12 @@ pub const Vertex = struct {
 
 const fp_bits = 12;
 const fp_one: i32 = 1 << fp_bits;
+const Vec4i = @Vector(4, i32);
+const vec4_offsets = Vec4i{ 0, 1, 2, 3 };
+
+inline fn vec4Init(base: i32, dx: i32) Vec4i {
+    return @as(Vec4i, @splat(base)) +% vec4_offsets *% @as(Vec4i, @splat(dx));
+}
 
 pub const Rasterizer = struct {
     const vram_res_x = 1024;
@@ -385,22 +391,45 @@ pub const Rasterizer = struct {
         var bcp_row = edgeFunc(v1, v2, p) + bias1;
         var cap_row = edgeFunc(v2, v0, p) + bias2;
 
+        const zero_v: Vec4i = @splat(0);
+        const abp_step4: Vec4i = @splat(abp_dx *% 4);
+        const bcp_step4: Vec4i = @splat(bcp_dx *% 4);
+        const cap_step4: Vec4i = @splat(cap_dx *% 4);
+
         var y = y_min;
         while (y <= y_max) : (y += 1) {
-            var abp = abp_row;
-            var bcp = bcp_row;
-            var cap = cap_row;
+            var abp_v = vec4Init(abp_row, abp_dx);
+            var bcp_v = vec4Init(bcp_row, bcp_dx);
+            var cap_v = vec4Init(cap_row, cap_dx);
 
             var x = x_min;
-            while (x <= x_max) : (x += 1) {
-                const inside = (abp >= 0 and bcp >= 0 and cap >= 0);
+            while (x + 3 <= x_max) : (x += 4) {
+                const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
+                if (@reduce(.Or, inside)) {
+                    for (0..4) |lane| {
+                        if (inside[lane]) {
+                            self.setPixelFlat(x + @as(i32, @intCast(lane)), y, color, .{
+                                .semi_trans = semi_trans,
+                            });
+                        }
+                    }
+                }
+                abp_v +%= abp_step4;
+                bcp_v +%= bcp_step4;
+                cap_v +%= cap_step4;
+            }
 
-                if (inside) {
+            // Scalar remainder
+            var abp = abp_v[0];
+            var bcp = bcp_v[0];
+            var cap = cap_v[0];
+
+            while (x <= x_max) : (x += 1) {
+                if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     self.setPixelFlat(x, y, color, .{
                         .semi_trans = semi_trans,
                     });
                 }
-
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
@@ -473,24 +502,63 @@ pub const Rasterizer = struct {
         var g_row = g0 *% fp_one +% (x_min -% v0.x) *% g_dx +% (y_min -% v0.y) *% g_dy;
         var b_row = b0 *% fp_one +% (x_min -% v0.x) *% b_dx +% (y_min -% v0.y) *% b_dy;
 
+        const zero_v: Vec4i = @splat(0);
+        const abp_step4: Vec4i = @splat(abp_dx *% 4);
+        const bcp_step4: Vec4i = @splat(bcp_dx *% 4);
+        const cap_step4: Vec4i = @splat(cap_dx *% 4);
+        const r_step4: Vec4i = @splat(r_dx *% 4);
+        const g_step4: Vec4i = @splat(g_dx *% 4);
+        const b_step4: Vec4i = @splat(b_dx *% 4);
+
         var abp_row = abp_row_start;
         var bcp_row = bcp_row_start;
         var cap_row = cap_row_start;
 
         var y = y_min;
         while (y <= y_max) : (y += 1) {
-            var abp = abp_row;
-            var bcp = bcp_row;
-            var cap = cap_row;
-            var r = r_row;
-            var g = g_row;
-            var b = b_row;
+            var abp_v = vec4Init(abp_row, abp_dx);
+            var bcp_v = vec4Init(bcp_row, bcp_dx);
+            var cap_v = vec4Init(cap_row, cap_dx);
+            var r_v = vec4Init(r_row, r_dx);
+            var g_v = vec4Init(g_row, g_dx);
+            var b_v = vec4Init(b_row, b_dx);
 
             var x = x_min;
-            while (x <= x_max) : (x += 1) {
-                const inside = (abp >= 0 and bcp >= 0 and cap >= 0);
+            while (x + 3 <= x_max) : (x += 4) {
+                const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
+                if (@reduce(.Or, inside)) {
+                    for (0..4) |lane| {
+                        if (inside[lane]) {
+                            const color: RGB8 = .{
+                                .r = @truncate(@as(u32, @bitCast(r_v[lane] >> fp_bits))),
+                                .g = @truncate(@as(u32, @bitCast(g_v[lane] >> fp_bits))),
+                                .b = @truncate(@as(u32, @bitCast(b_v[lane] >> fp_bits))),
+                            };
+                            self.setPixelFlat(x + @as(i32, @intCast(lane)), y, color, .{
+                                .semi_trans = semi_trans,
+                                .dither = true,
+                            });
+                        }
+                    }
+                }
+                abp_v +%= abp_step4;
+                bcp_v +%= bcp_step4;
+                cap_v +%= cap_step4;
+                r_v +%= r_step4;
+                g_v +%= g_step4;
+                b_v +%= b_step4;
+            }
 
-                if (inside) {
+            // Scalar remainder
+            var abp = abp_v[0];
+            var bcp = bcp_v[0];
+            var cap = cap_v[0];
+            var r = r_v[0];
+            var g = g_v[0];
+            var b = b_v[0];
+
+            while (x <= x_max) : (x += 1) {
+                if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const color: RGB8 = .{
                         .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
                         .g = @truncate(@as(u32, @bitCast(g >> fp_bits))),
@@ -501,7 +569,6 @@ pub const Rasterizer = struct {
                         .dither = true,
                     });
                 }
-
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
@@ -581,23 +648,65 @@ pub const Rasterizer = struct {
         var u_row = tex_u0 *% fp_one +% (x_min -% v0.x) *% u_dx +% (y_min -% v0.y) *% u_dy;
         var v_row = tex_v0 *% fp_one +% (x_min -% v0.x) *% v_dx +% (y_min -% v0.y) *% v_dy;
 
+        const zero_v: Vec4i = @splat(0);
+        const abp_step4: Vec4i = @splat(abp_dx *% 4);
+        const bcp_step4: Vec4i = @splat(bcp_dx *% 4);
+        const cap_step4: Vec4i = @splat(cap_dx *% 4);
+        const u_step4: Vec4i = @splat(u_dx *% 4);
+        const v_step4: Vec4i = @splat(v_dx *% 4);
+
         var abp_row = abp_row_start;
         var bcp_row = bcp_row_start;
         var cap_row = cap_row_start;
 
         var y = y_min;
         while (y <= y_max) : (y += 1) {
-            var abp = abp_row;
-            var bcp = bcp_row;
-            var cap = cap_row;
-            var u = u_row;
-            var v = v_row;
+            var abp_v = vec4Init(abp_row, abp_dx);
+            var bcp_v = vec4Init(bcp_row, bcp_dx);
+            var cap_v = vec4Init(cap_row, cap_dx);
+            var u_v = vec4Init(u_row, u_dx);
+            var v_v = vec4Init(v_row, v_dx);
 
             var x = x_min;
-            while (x <= x_max) : (x += 1) {
-                const inside = (abp >= 0 and bcp >= 0 and cap >= 0);
+            while (x + 3 <= x_max) : (x += 4) {
+                const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
+                if (@reduce(.Or, inside)) {
+                    for (0..4) |lane| {
+                        if (inside[lane]) {
+                            const texel = self.sampleTexture(
+                                @truncate(@as(u32, @bitCast(u_v[lane] >> fp_bits))),
+                                @truncate(@as(u32, @bitCast(v_v[lane] >> fp_bits))),
+                                texp_x,
+                                texp_y,
+                                clut_x,
+                                clut_y,
+                                depth,
+                            );
+                            if (!texel.isZero()) {
+                                self.setPixelTextured(x + @as(i32, @intCast(lane)), y, texel, blend_color, .{
+                                    .semi_trans = semi_trans,
+                                    .blend = tex_blend,
+                                });
+                            }
+                        }
+                    }
+                }
+                abp_v +%= abp_step4;
+                bcp_v +%= bcp_step4;
+                cap_v +%= cap_step4;
+                u_v +%= u_step4;
+                v_v +%= v_step4;
+            }
 
-                if (inside) {
+            // Scalar remainder
+            var abp = abp_v[0];
+            var bcp = bcp_v[0];
+            var cap = cap_v[0];
+            var u = u_v[0];
+            var v = v_v[0];
+
+            while (x <= x_max) : (x += 1) {
+                if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const texel = self.sampleTexture(
                         @truncate(@as(u32, @bitCast(u >> fp_bits))),
                         @truncate(@as(u32, @bitCast(v >> fp_bits))),
@@ -607,7 +716,6 @@ pub const Rasterizer = struct {
                         clut_y,
                         depth,
                     );
-
                     if (!texel.isZero()) {
                         self.setPixelTextured(x, y, texel, blend_color, .{
                             .semi_trans = semi_trans,
@@ -615,7 +723,6 @@ pub const Rasterizer = struct {
                         });
                     }
                 }
-
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
@@ -711,26 +818,83 @@ pub const Rasterizer = struct {
         var g_row = g0 *% fp_one +% (x_min -% v0.x) *% g_dx +% (y_min -% v0.y) *% g_dy;
         var b_row = b0 *% fp_one +% (x_min -% v0.x) *% b_dx +% (y_min -% v0.y) *% b_dy;
 
+        const zero_v: Vec4i = @splat(0);
+        const abp_step4: Vec4i = @splat(abp_dx *% 4);
+        const bcp_step4: Vec4i = @splat(bcp_dx *% 4);
+        const cap_step4: Vec4i = @splat(cap_dx *% 4);
+        const u_step4: Vec4i = @splat(u_dx *% 4);
+        const v_step4: Vec4i = @splat(v_dx *% 4);
+        const r_step4: Vec4i = @splat(r_dx *% 4);
+        const g_step4: Vec4i = @splat(g_dx *% 4);
+        const b_step4: Vec4i = @splat(b_dx *% 4);
+
         var abp_row = abp_row_start;
         var bcp_row = bcp_row_start;
         var cap_row = cap_row_start;
 
         var y = y_min;
         while (y <= y_max) : (y += 1) {
-            var abp = abp_row;
-            var bcp = bcp_row;
-            var cap = cap_row;
-            var u = u_row;
-            var v = v_row;
-            var r = r_row;
-            var g = g_row;
-            var b = b_row;
+            var abp_v = vec4Init(abp_row, abp_dx);
+            var bcp_v = vec4Init(bcp_row, bcp_dx);
+            var cap_v = vec4Init(cap_row, cap_dx);
+            var u_v = vec4Init(u_row, u_dx);
+            var v_v = vec4Init(v_row, v_dx);
+            var r_v = vec4Init(r_row, r_dx);
+            var g_v = vec4Init(g_row, g_dx);
+            var b_v = vec4Init(b_row, b_dx);
 
             var x = x_min;
-            while (x <= x_max) : (x += 1) {
-                const inside = (abp >= 0 and bcp >= 0 and cap >= 0);
+            while (x + 3 <= x_max) : (x += 4) {
+                const inside = (abp_v >= zero_v) & (bcp_v >= zero_v) & (cap_v >= zero_v);
+                if (@reduce(.Or, inside)) {
+                    for (0..4) |lane| {
+                        if (inside[lane]) {
+                            const texel = self.sampleTexture(
+                                @truncate(@as(u32, @bitCast(u_v[lane] >> fp_bits))),
+                                @truncate(@as(u32, @bitCast(v_v[lane] >> fp_bits))),
+                                texp_x,
+                                texp_y,
+                                clut_x,
+                                clut_y,
+                                depth,
+                            );
+                            if (!texel.isZero()) {
+                                const blend_color: RGB8 = .{
+                                    .r = @truncate(@as(u32, @bitCast(r_v[lane] >> fp_bits))),
+                                    .g = @truncate(@as(u32, @bitCast(g_v[lane] >> fp_bits))),
+                                    .b = @truncate(@as(u32, @bitCast(b_v[lane] >> fp_bits))),
+                                };
+                                self.setPixelTextured(x + @as(i32, @intCast(lane)), y, texel, blend_color, .{
+                                    .semi_trans = semi_trans,
+                                    .dither = true,
+                                    .blend = true,
+                                });
+                            }
+                        }
+                    }
+                }
+                abp_v +%= abp_step4;
+                bcp_v +%= bcp_step4;
+                cap_v +%= cap_step4;
+                u_v +%= u_step4;
+                v_v +%= v_step4;
+                r_v +%= r_step4;
+                g_v +%= g_step4;
+                b_v +%= b_step4;
+            }
 
-                if (inside) {
+            // Scalar remainder
+            var abp = abp_v[0];
+            var bcp = bcp_v[0];
+            var cap = cap_v[0];
+            var u = u_v[0];
+            var v = v_v[0];
+            var r = r_v[0];
+            var g = g_v[0];
+            var b = b_v[0];
+
+            while (x <= x_max) : (x += 1) {
+                if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const texel = self.sampleTexture(
                         @truncate(@as(u32, @bitCast(u >> fp_bits))),
                         @truncate(@as(u32, @bitCast(v >> fp_bits))),
@@ -740,7 +904,6 @@ pub const Rasterizer = struct {
                         clut_y,
                         depth,
                     );
-
                     if (!texel.isZero()) {
                         const blend_color: RGB8 = .{
                             .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
@@ -754,7 +917,6 @@ pub const Rasterizer = struct {
                         });
                     }
                 }
-
                 abp += abp_dx;
                 bcp += bcp_dx;
                 cap += cap_dx;
