@@ -174,3 +174,7 @@ export fn getDisplayInfoPtr() *DisplayInfo {
 export fn setButtonState(state: u16) void {
     joy.buttons[0] = @bitCast(state);
 }
+
+export fn getAudioSamples(ptr: [*]f32, max_frames: u32) u32 {
+    return bus.audio_stream.drain(ptr, max_frames);
+}

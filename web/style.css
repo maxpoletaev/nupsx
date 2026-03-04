@@ -9,6 +9,7 @@
 
   --bg: #111;
   --bg-button: #222;
+  --bg-section: #1a1a1a;
   --bg-button-hover: #2a2a2a;
   --accent: #4d8fff;
   --accent-hover: #6ba6ff;
@@ -47,6 +48,10 @@ body {
   justify-content: center;
 }
 
+.container {
+  width: var(--form-width);
+}
+
 .footer {
   font-size: 18px;
   color: var(--text-dimmer);
@@ -71,26 +76,29 @@ body {
   line-height: 1.2;
 }
 
-.setup {
-  width: var(--form-width);
+.header {
+  
 }
-.setup__title {
+.header__title {
   font-size: 48px;
   color: var(--text-bright);
   font-weight: bold;
   margin-bottom: 4px;
   line-height: 1;
 }
-.setup__title-accent {
+.header__title-accent {
   color: var(--accent);
 }
-.setup__title-wasm {
+.header__title-wasm {
   color: var(--text-dimmer);
   font-size: 0.6em;
 }
-.setup__desc {
+.header__desc {
   color: var(--text-bright);
   margin-bottom: 36px;
+}
+
+.setup {
 }
 .setup__field {
   display: grid;

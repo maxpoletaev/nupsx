@@ -88,6 +88,10 @@ class NuPSX {
         this._call(() => this.instance.exports.setButtonState(state));
     }
 
+    getAudioSamples(ptr, maxFrames) {
+        return this._call(() => this.instance.exports.getAudioSamples(ptr, maxFrames));
+    }
+
     static Button = {
         SELECT: 1 << 0,
         L3: 1 << 1,
@@ -121,9 +125,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let imageData = ctx.createImageData(320, 240);
     let emu = null;
     let buttonState = 0;
-
+    let audioNode = null;
+    let audioPtr = null;
+    let audioBuf = null;
+    
     const TARGET_FPS = 60;
     const FRAME_TIME = 1000 / TARGET_FPS;
+    const AUDIO_DRAIN_FRAMES = 2048;
 
     let lastFrameTime = performance.now();
     let lastTime = performance.now();
@@ -162,6 +170,17 @@ document.addEventListener('DOMContentLoaded', () => {
             new Uint8Array(emu.memory.buffer).set(binData, binPtr);
             emu.loadBin(binPtr, binData.length);
         }
+
+        // Set up audio (AudioContext requires user gesture but we're already inside a click handler)
+        const audioCtx = new AudioContext({ sampleRate: 44100 });
+        await audioCtx.audioWorklet.addModule('audio.js');
+        audioNode = new AudioWorkletNode(audioCtx, 'nupsx-audio', { outputChannelCount: [2] });
+        audioNode.connect(audioCtx.destination);
+        
+        // Planar f32: left channel [0..AUDIO_DRAIN_FRAMES), right [AUDIO_DRAIN_FRAMES..AUDIO_DRAIN_FRAMES*2)
+        // Must be 4-byte aligned for Float32Array; slice() copies out of WASM memory before postMessage
+        audioPtr = emu.allocAligned(AUDIO_DRAIN_FRAMES * 2 * 4, 4); // frames * channels * 4 bytes (f32)
+        audioBuf = new Float32Array(emu.memory.buffer, audioPtr, AUDIO_DRAIN_FRAMES * 2);
 
         window.addEventListener('keydown', (e) => {
             if (keyMap[e.code] !== undefined) {
@@ -233,7 +252,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loop() {
         requestAnimationFrame(loop);
-
         if (!isInFocus()) return;
 
         const now = performance.now();
@@ -241,6 +259,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (elapsed < FRAME_TIME) return;
 
         lastFrameTime = now - (elapsed % FRAME_TIME);
+
+        const filled = emu.getAudioSamples(audioPtr, AUDIO_DRAIN_FRAMES);
+        if (filled > 0) {
+            audioNode.port.postMessage({
+                l: audioBuf.slice(0, filled),
+                r: audioBuf.slice(AUDIO_DRAIN_FRAMES, AUDIO_DRAIN_FRAMES + filled),
+            });
+        }
 
         emu.setButtonState(buttonState | readGamepadInput());
         emu.runFrame();

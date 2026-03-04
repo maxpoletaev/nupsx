@@ -8,28 +8,29 @@
 </head>
 <body>
 
-  <div id="setup" class="setup">
-    <div class="setup__title">nu<span class="setup__title-accent">PSX</span><span class="setup__title-wasm">.wasm</span></div>
-    <div class="setup__desc">PlayStation 1 emulator</div>
-
-    <div class="setup__field">
-      <label class="setup__label" for="biosFile">BIOS</label>
-      <input type="file" id="biosFile" accept=".bin">
+  <div class="container">
+    <div class="header">
+      <div class="header__title">nu<span class="header__title-accent">PSX</span><span class="header__title-wasm">.wasm</span></div>
+      <div class="header__desc">PlayStation 1 emulator</div>
     </div>
 
-    <div class="exe-group">
-      <label class="exe-group__label" for="exeFile">PS-EXE</label>
-      <input type="file" id="exeFile" accept=".exe,.ps-exe">
-
-      <label class="exe-group__label" for="binFile">Game BIN</label>
-      <input type="file" id="binFile" accept=".bin">
-
-      <span class="exe-group__bracket">select<br>the executable</span>
-    </div>
-
-    <div class="setup__actions">
-      <div></div>
-      <button id="startBtn" class="setup__submit">&#9654; Start</button>
+    <div id="setup" class="setup">    
+      <div class="setup__field">
+        <label class="setup__label" for="biosFile">BIOS</label>
+        <input type="file" id="biosFile" accept=".bin">
+      </div>
+      
+      <div class="exe-group">
+        <label class="exe-group__label" for="exeFile">PS-EXE</label>
+        <input type="file" id="exeFile" accept=".exe,.ps-exe">
+        <label class="exe-group__label" for="binFile">Game BIN</label>
+        <input type="file" id="binFile" accept=".bin">
+        <span class="exe-group__bracket">select<br>the executable</span>
+      </div>
+      <div class="setup__actions">
+        <div></div> <!-- empty div for grid alignment -->
+        <button id="startBtn" class="setup__submit">&#9654; Start Emulator</button>
+      </div>
     </div>
 
     <div class="controls">

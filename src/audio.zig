@@ -52,12 +52,48 @@ const AudioStreamNative = struct {
     }
 };
 
+const AudioStreamWasm = struct {
+    const capacity = 8192;
+
+    buf: [capacity][2]i16 = undefined,
+    head: usize = 0,
+    tail: usize = 0,
+
+    pub fn push(self: *@This(), sample: [2]i16) void {
+        const next_tail = (self.tail + 1) % capacity;
+        if (next_tail == self.head) return; // drop if full
+        self.buf[self.tail] = sample;
+        self.tail = next_tail;
+    }
+
+    pub fn pop(self: *@This()) [2]i16 {
+        if (self.head == self.tail) return .{ 0, 0 };
+        const sample = self.buf[self.head];
+        self.head = (self.head + 1) % capacity;
+        return sample;
+    }
+
+    pub fn drain(self: *@This(), ptr: [*]f32, max_frames: u32) u32 {
+        var i: u32 = 0;
+        while (i < max_frames) : (i += 1) {
+            if (self.head == self.tail) break;
+            const sample = self.buf[self.head];
+            self.head = (self.head + 1) % capacity;
+            ptr[i] = @as(f32, @floatFromInt(sample[0])) / 32768.0;
+            ptr[max_frames + i] = @as(f32, @floatFromInt(sample[1])) / 32768.0;
+        }
+        return i;
+    }
+
+    pub fn signal(_: *@This()) void {}
+};
+
 fn audioStreamType() type {
     if (options.uncapped) return AudioStreamDummy;
     if (builtin.mode == .Debug) return AudioStreamDummy; // Debug is very slow and crackly
 
     return switch (builtin.target.cpu.arch) {
-        .wasm32, .wasm64 => AudioStreamDummy, // TODO: Needs separate implementation
+        .wasm32, .wasm64 => AudioStreamWasm,
         else => AudioStreamNative,
     };
 }

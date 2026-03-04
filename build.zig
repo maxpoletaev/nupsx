@@ -105,6 +105,8 @@ pub fn build(b: *std.Build) void {
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = .ReleaseSmall,
         });
+        wasm_mod.addOptions("build_options", options);
+
         var wasm_exe = b.addExecutable(.{
             .name = "nupsx",
             .root_module = wasm_mod,
