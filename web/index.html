@@ -72,7 +72,7 @@
       const $display = document.getElementById('display');
 
       function fitCanvas() {
-        const ar = ($display.width || 320) / ($display.height || 240);
+        const ar = 4 / 3;
         const vw = window.innerWidth, vh = window.innerHeight;
         if (vw / vh >= ar) {
           $display.style.height = vh + 'px';
