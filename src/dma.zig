@@ -46,6 +46,25 @@ const Channel = struct {
     maddr: u32,
     ctrl: ChanCtrl,
     block: BlockCtrl,
+
+    inline fn addrStep(self: Channel) u32 {
+        return @bitCast(switch (self.ctrl.addr_inc) {
+            .incr => @as(i32, 4),
+            .decr => @as(i32, -4),
+        });
+    }
+
+    inline fn blockSize(self: Channel) u32 {
+        return if (self.block.size == 0) 0x10000 else self.block.size;
+    }
+
+    inline fn blockCount(self: Channel) u32 {
+        return switch (self.ctrl.sync_mode) {
+            .burst => 1,
+            .slice => self.block.count,
+            .linked_list => 0,
+        };
+    }
 };
 
 const IntterruptReg = packed struct(u32) {
@@ -233,11 +252,8 @@ pub const DMA = struct {
         if (!self.bus.dev.mdec.dataInRequest()) return;
         if (!self.dpcr.getChanMasterEnable(ChanId.mdec_in)) return;
 
-        const block_size = @as(u32, chan.block.size);
-        const step = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
-            .incr => @as(i32, 4),
-            .decr => @as(i32, -4),
-        }));
+        const block_size = chan.blockSize();
+        const step = chan.addrStep();
 
         log.debug("mdecIn: block_size={x} count={x}", .{ block_size, chan.block.count });
 
@@ -260,12 +276,8 @@ pub const DMA = struct {
         if (!self.bus.dev.mdec.dataOutRequest()) return;
         if (!self.dpcr.getChanMasterEnable(ChanId.mdec_out)) return;
 
-        const block_size = @as(u32, chan.block.size);
-
-        const step = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
-            .incr => @as(i32, 4),
-            .decr => @as(i32, -4),
-        }));
+        const block_size = chan.blockSize();
+        const step = chan.addrStep();
 
         log.debug("mdecOut: block_size={x} count={x}", .{ block_size, chan.block.count });
 
@@ -296,33 +308,28 @@ pub const DMA = struct {
     fn doGpuSyncModeSlice(self: *@This()) void {
         const chan = &self.channels[ChanId.gpu];
 
-        const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
+        const addr_inc = chan.addrStep();
+        const block_size = chan.blockSize();
+        const block_count = chan.blockCount();
 
-        log.debug("gpuSlice: size={x}", .{transfer_len});
-
-        const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
-            .incr => @as(i32, 4),
-            .decr => @as(i32, -4),
-        }));
+        log.debug("gpuSlice: block_size={x} block_count={x}", .{ block_size, block_count });
 
         switch (chan.ctrl.direction) {
-            .to_device => for (0..transfer_len) |i| {
-                const v = self.bus.read(u32, chan.maddr);
-                self.bus.dev.gpu.gp0write(v);
-                chan.maddr +%= addr_inc;
-
-                if ((i + 1) % chan.block.size == 0) {
-                    self.setChannelIrq(ChanId.gpu, .block);
+            .to_device => for (0..block_count) |_| {
+                for (0..block_size) |_| {
+                    const v = self.bus.read(u32, chan.maddr);
+                    self.bus.dev.gpu.gp0write(v);
+                    chan.maddr +%= addr_inc;
                 }
+                self.setChannelIrq(ChanId.gpu, .block);
             },
-            .to_ram => for (0..transfer_len) |i| {
-                const v = self.bus.dev.gpu.readGpuread();
-                self.bus.write(u32, chan.maddr, v);
-                chan.maddr +%= addr_inc;
-
-                if ((i + 1) % chan.block.size == 0) {
-                    self.setChannelIrq(ChanId.gpu, .block);
+            .to_ram => for (0..block_count) |_| {
+                for (0..block_size) |_| {
+                    const v = self.bus.dev.gpu.readGpuread();
+                    self.bus.write(u32, chan.maddr, v);
+                    chan.maddr +%= addr_inc;
                 }
+                self.setChannelIrq(ChanId.gpu, .block);
             },
         }
 
@@ -362,43 +369,29 @@ pub const DMA = struct {
         const chan = &self.channels[ChanId.spu];
         if (!chan.ctrl.isActive()) return;
 
-        const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
-            .incr => @as(i32, 4),
-            .decr => @as(i32, -4),
-        }));
+        const addr_inc = chan.addrStep();
+        const block_size = chan.blockSize();
+        const block_count = chan.blockCount();
 
-        const block_size: u32 = switch (chan.block.size) {
-            0 => 0x10000,
-            else => chan.block.size,
-        };
-
-        const transfer_len: u32 = switch (chan.ctrl.sync_mode) {
-            .burst => block_size,
-            .slice => block_size * @as(u32, chan.block.count),
-            .linked_list => 0, // not defined for linked list mode
-        };
-
-        log.debug("spu: size={x}", .{transfer_len});
+        log.debug("spu: block_size={x} block_count={x}", .{ block_size, block_count });
 
         switch (chan.ctrl.direction) {
-            .to_device => for (0..transfer_len) |i| {
-                const v = self.bus.read(u32, chan.maddr);
-                self.bus.dev.spu.writeData(@truncate(v >> 0));
-                self.bus.dev.spu.writeData(@truncate(v >> 16));
-                chan.maddr +%= addr_inc;
-
-                if ((i + 1) % chan.block.size == 0) {
-                    self.setChannelIrq(ChanId.spu, .block);
+            .to_device => for (0..block_count) |_| {
+                for (0..block_size) |_| {
+                    const v = self.bus.read(u32, chan.maddr);
+                    self.bus.dev.spu.writeData(@truncate(v >> 0));
+                    self.bus.dev.spu.writeData(@truncate(v >> 16));
+                    chan.maddr +%= addr_inc;
                 }
+                self.setChannelIrq(ChanId.spu, .block);
             },
-            .to_ram => for (0..transfer_len) |i| {
-                const v = self.bus.dev.spu.readData();
-                self.bus.write(u32, chan.maddr, v);
-                chan.maddr +%= addr_inc;
-
-                if ((i + 1) % chan.block.size == 0) {
-                    self.setChannelIrq(ChanId.spu, .block);
+            .to_ram => for (0..block_count) |_| {
+                for (0..block_size) |_| {
+                    const v = self.bus.dev.spu.readData();
+                    self.bus.write(u32, chan.maddr, v);
+                    chan.maddr +%= addr_inc;
                 }
+                self.setChannelIrq(ChanId.spu, .block);
             },
         }
 
@@ -411,33 +404,20 @@ pub const DMA = struct {
         const chan = &self.channels[ChanId.cdrom];
         if (!chan.ctrl.isActive()) return;
 
-        const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
-            .incr => @as(i32, 4),
-            .decr => @as(i32, -4),
-        }));
+        const addr_inc = chan.addrStep();
+        const block_size = chan.blockSize();
+        const block_count = chan.blockCount();
 
-        const block_size: u32 = switch (chan.block.size) {
-            0 => 0x10000,
-            else => chan.block.size,
-        };
-
-        const transfer_len: u32 = switch (chan.ctrl.sync_mode) {
-            .burst => block_size,
-            .slice => block_size * @as(u32, chan.block.count),
-            .linked_list => 0, // not defined for linked list mode
-        };
-
-        log.debug("cdrom: size={x}", .{transfer_len});
+        log.debug("cdrom: block_size={x} block_count={x}", .{ block_size, block_count });
 
         switch (chan.ctrl.direction) {
-            .to_ram => for (0..transfer_len) |i| {
-                const v = self.bus.dev.cdrom.consumeData(u32);
-                self.bus.write(u32, chan.maddr, v);
-                chan.maddr +%= addr_inc;
-
-                if ((i + 1) % block_size == 0) {
-                    self.setChannelIrq(ChanId.cdrom, .block);
+            .to_ram => for (0..block_count) |_| {
+                for (0..block_size) |_| {
+                    const v = self.bus.dev.cdrom.consumeData(u32);
+                    self.bus.write(u32, chan.maddr, v);
+                    chan.maddr +%= addr_inc;
                 }
+                self.setChannelIrq(ChanId.cdrom, .block);
             },
             .to_device => @panic("not implemented"),
         }
@@ -451,16 +431,7 @@ pub const DMA = struct {
         const chan = &self.channels[ChanId.otc];
         if (!chan.ctrl.isActive()) return;
 
-        const block_size: u32 = switch (chan.block.size) {
-            0 => 0x10000,
-            else => chan.block.size,
-        };
-
-        const transfer_len: u32 = switch (chan.ctrl.sync_mode) {
-            .burst => block_size,
-            .slice => block_size * @as(u32, chan.block.count),
-            .linked_list => 0, // not defined for linked list mode
-        };
+        const transfer_len = chan.blockSize() * chan.blockCount();
 
         log.debug("otc: size={x}", .{transfer_len});
 
