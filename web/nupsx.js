@@ -77,10 +77,11 @@ class NuPSX {
         const mem = new Uint16Array(this.memory.buffer);
         const base = ptr / 2; // each field is u16
         return {
-            offsetX: mem[base + 0],
-            offsetY: mem[base + 1],
-            width:   mem[base + 2],
-            height:  mem[base + 3],
+            offsetX:    mem[base + 0],
+            offsetY:    mem[base + 1],
+            width:      mem[base + 2],
+            height:     mem[base + 3],
+            colorDepth: mem[base + 4], // 0 = 15-bit, 1 = 24-bit
         };
     }
 
@@ -272,7 +273,9 @@ document.addEventListener('DOMContentLoaded', () => {
         emu.runFrame();
         frameCount++;
 
-        const { offsetX, offsetY, width, height } = emu.getDisplayInfo();
+        const { offsetX, offsetY, width, height, colorDepth } = emu.getDisplayInfo();
+
+        const is24bit = colorDepth === 1;
 
         if ($display.width !== width || $display.height !== height) {
             $display.width = width;
@@ -282,16 +285,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const vram = emu.getVRAM();
         const pixels = imageData.data;
-        for (let row = 0; row < height; row++) {
-            const vramRow = (offsetY + row) * 1024;
-            const outRow = row * width;
-            for (let col = 0; col < width; col++) {
-                const rgb555 = vram[vramRow + offsetX + col];
-                const i = (outRow + col) * 4;
-                pixels[i + 0] = ((rgb555 >>  0) & 0x1f) << 3;
-                pixels[i + 1] = ((rgb555 >>  5) & 0x1f) << 3;
-                pixels[i + 2] = ((rgb555 >> 10) & 0x1f) << 3;
-                pixels[i + 3] = 255;
+        
+        if (is24bit) {
+            const vram8 = new Uint8Array(emu.memory.buffer, vram.byteOffset, vram.byteLength);
+            for (let row = 0; row < height; row++) {
+                const rowBase = (offsetY + row) * 2048 + offsetX * 2;
+                const outRow = row * width;
+                for (let col = 0; col < width; col++) {
+                    const b = rowBase + col * 3;
+                    const i = (outRow + col) * 4;
+                    pixels[i + 0] = vram8[b + 0];
+                    pixels[i + 1] = vram8[b + 1];
+                    pixels[i + 2] = vram8[b + 2];
+                    pixels[i + 3] = 255;
+                }
+            }
+        } else {
+            for (let row = 0; row < height; row++) {
+                const vramRow = (offsetY + row) * 1024;
+                const outRow = row * width;
+                for (let col = 0; col < width; col++) {
+                    const rgb555 = vram[vramRow + offsetX + col];
+                    const i = (outRow + col) * 4;
+                    pixels[i + 0] = ((rgb555 >>  0) & 0x1f) << 3;
+                    pixels[i + 1] = ((rgb555 >>  5) & 0x1f) << 3;
+                    pixels[i + 2] = ((rgb555 >> 10) & 0x1f) << 3;
+                    pixels[i + 3] = 255;
+                }
             }
         }
         ctx.putImageData(imageData, 0, 0);
@@ -311,11 +331,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $startBtn.addEventListener('click', async function() {
         const biosData = await readFile($biosFile);
-        if (!biosData) { alert('Please select a BIOS file.'); return; }
+        if (!biosData) { 
+            alert('Please select a BIOS file.'); 
+            return; 
+        }
 
         const exeData = await readFile($exeFile);
         const binData = await readFile($binFile);
-        if (!exeData && !binData) { alert('Please select a PS-EXE or BIN file.'); return; }
+        if (!exeData && !binData) {
+            alert('Please select a PS-EXE or BIN file.'); 
+            return; 
+        }
 
         $startBtn.disabled = true;
         await init(biosData, exeData, binData);

@@ -2,115 +2,233 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>nuPSX</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nuPSX - PlayStation Emulator</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="page">
+  <header>
+    <div class="header__title">nu<span class="header__title-accent">PSX</span></div>
+    <div class="header__subtitle">PlayStation Emulator</div>
+  </header>
 
-  <div class="container">
-    <div class="header">
-      <div class="header__title">nu<span class="header__title-accent">PSX</span><span class="header__title-wasm">.wasm</span></div>
-      <div class="header__desc">PlayStation 1 emulator</div>
+  <section>
+    <p>
+      nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig. A&nbsp;passion project
+      made for fun and learning, with no goal to become usable by the general public.
+      If you are looking for an emulator to play games, check out
+      <a href="https://duckstation.org/" target="_blank">DuckStation</a>.
+    </p>
+  </section>
+
+  <section id="screenshots">
+    <h2>Screenshots</h2>
+    <div class="screenshots">
+      <div>
+        <figure>
+          <a href="https://github.com/maxpoletaev/nupsx/raw/master/images/crash.webp" target="_blank">
+            <img src="https://github.com/maxpoletaev/nupsx/raw/master/images/crash.webp" alt="Crash Bandicoot" style="aspect-ratio: 1002/802;">
+          </a>
+        </figure>
+        <figcaption>Crash Bandicoot — Title Screen</figcaption>
+      </div>
+      <div>
+        <figure>
+          <a href="https://github.com/maxpoletaev/nupsx/raw/master/images/spyro.webp" target="_blank">
+            <img src="https://github.com/maxpoletaev/nupsx/raw/master/images/spyro.webp" alt="Spyro the Dragon" style="aspect-ratio: 1002/802;">
+          </a>
+        </figure>
+        <figcaption>Spyro the Dragon — Title Screen</figcaption>
+      </div>
+      <div>
+        <figure>
+          <a href="https://github.com/maxpoletaev/nupsx/raw/master/images/mgs.webp" target="_blank">
+            <img src="https://github.com/maxpoletaev/nupsx/raw/master/images/mgs.webp" alt="Metal Gear Solid" style="aspect-ratio: 1002/802;">
+          </a>
+        </figure>
+        <figcaption>Metal Gear Solid — Title Screen</figcaption>
+      </div>
+      <div>
+        <figure>
+          <a href="https://github.com/maxpoletaev/nupsx/raw/master/images/rr.webp" target="_blank">
+            <img src="https://github.com/maxpoletaev/nupsx/raw/master/images/rr.webp" alt="Ridge Racer" style="aspect-ratio: 1002/802;">
+          </a>
+        </figure>
+        <figcaption>Ridge Racer — Title Screen</figcaption>
+      </div>
+      <div style="grid-column: span 2;">
+        <figure>
+          <a href="https://github.com/maxpoletaev/nupsx/raw/master/images/debugger.png" target="_blank">
+            <img src="https://github.com/maxpoletaev/nupsx/raw/master/images/debugger.png" alt="nuPSX Debug UI" style="aspect-ratio: 3456/1996;">
+          </a>
+        </figure>
+        <figcaption>nuPSX Debugger</figcaption>
+      </div>
     </div>
+  </section>
 
-    <div id="setup" class="setup">    
-      <div class="setup__field">
-        <label class="setup__label" for="biosFile">BIOS</label>
-        <input type="file" id="biosFile" accept=".bin">
+  <section id="setup">
+    <h2>Try in Browser</h2>
+    <div class="run-form">
+      <p class="note">
+        This will run a WebAssembly build of nuPSX.
+        Requires a legally obtained PlayStation BIOS image and a game executable or disc image.
+        Files are only read locally in your browser and not uploaded anywhere. Not all games are expected to work, so check out the
+        <a href="https://github.com/maxpoletaev/nupsx#state" target="_blank">compatibility list</a>.
+      </p>
+      <div class="field">
+        <label for="biosFile">BIOS</label>
+        <div>
+          <input type="file" id="biosFile" accept=".bin">
+          <div class="hint">SCPH-1001.BIN, SCPH-7502.BIN, etc.</div>
+        </div>
       </div>
-      
-      <div class="exe-group">
-        <label class="exe-group__label" for="exeFile">PS-EXE</label>
-        <input type="file" id="exeFile" accept=".exe,.ps-exe">
-        <label class="exe-group__label" for="binFile">Game BIN</label>
-        <input type="file" id="binFile" accept=".bin">
-        <span class="exe-group__bracket">select<br>the executable</span>
+      <div class="field">
+        <label for="exeFile">PS-EXE</label>
+        <div>
+          <input type="file" id="exeFile" accept=".exe,.ps-exe">
+          <div class="hint">PlayStation executable (.exe)</div>
+        </div>
       </div>
-      <div class="setup__actions">
-        <div></div> <!-- empty div for grid alignment -->
-        <button id="startBtn" class="setup__submit">&#9654; Start Emulator</button>
+      <div class="field">
+        <label for="binFile">Game</label>
+        <div>
+          <input type="file" id="binFile" accept=".bin">
+          <div class="hint">Track 01 of the disc image (.bin)</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <div><!-- empty div for grid alignment --></div>
+        <div><button id="startBtn" class="submit-btn" type="submit">▶ Start Emulator</button></div>
+      </div>
+      <div class="controls">
+        <div class="controls__grid">
+          <div class="binding"><span class="binding__action">D-Pad</span><b class="binding__key">WASD</b></div>
+          <div class="binding"><span class="binding__action">Start</span><b class="binding__key">Enter</b></div>
+          <div class="binding"><span class="binding__action">Select</span><b class="binding__key">RShift</b></div>
+          <div class="binding"><span class="binding__action">✕ Cross</span><b class="binding__key">K</b></div>
+          <div class="binding"><span class="binding__action">○ Circle</span><b class="binding__key">L</b></div>
+          <div class="binding"><span class="binding__action">□ Square</span><b class="binding__key">J</b></div>
+          <div class="binding"><span class="binding__action">△ Triangle</span><b class="binding__key">I</b></div>
+          <div class="binding"><span class="binding__action">L2 / L1</span><b class="binding__key">Q / E</b></div>
+          <div class="binding"><span class="binding__action">R2 / R1</span><b class="binding__key">O / U</b></div>
+        </div>
+        <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
       </div>
     </div>
+  </section>
 
-    <div class="controls">
-      <div class="controls__title">Controls</div>
-      <div class="controls__grid">
-        <div class="binding"><span class="binding__action">D-Pad</span>      <b class="binding__key">WASD</b></div>
-        <div class="binding"><span class="binding__action">Start</span>      <b class="binding__key">Enter</b></div>
-        <div class="binding"><span class="binding__action">Select</span>     <b class="binding__key">RShift</b></div>
-        <div class="binding"><span class="binding__action">✕ Cross</span>    <b class="binding__key">K</b></div>
-        <div class="binding"><span class="binding__action">○ Circle</span>   <b class="binding__key">L</b></div>
-        <div class="binding"><span class="binding__action">□ Square</span>   <b class="binding__key">J</b></div>
-        <div class="binding"><span class="binding__action">△ Triangle</span> <b class="binding__key">I</b></div>
-        <div class="binding"><span class="binding__action">L2 / L1</span>    <b class="binding__key">Q / E</b></div>
-        <div class="binding"><span class="binding__action">R2 / R1</span>    <b class="binding__key">O / U</b></div>
+  <section id="download">
+    <h2>Download</h2>
+    <div class="downloads">
+      <div class="download-row">
+        <div>
+          <span class="platform">Linux</span>
+          <span class="meta">x86_64</span>
+        </div>
+        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-linux-gnu.zip">nupsx-x86_64-linux-gnu.zip</a>
       </div>
-      <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
+      <div class="download-row">
+        <div>
+          <span class="platform">Linux</span>
+          <span class="meta">aarch64</span>
+        </div>
+        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-linux-gnu.zip">nupsx-aarch64-linux-gnu.zip</a>
+      </div>
+      <div class="download-row">
+        <div>
+          <span class="platform">macOS</span>
+          <span class="meta">Apple Silicon</span>
+        </div>
+        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-macos.zip">nupsx-aarch64-macos.zip</a>
+      </div>
+      <div class="download-row">
+        <div>
+          <span class="platform">macOS</span>
+          <span class="meta">Intel</span>
+        </div>
+        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-macos.zip">nupsx-x86_64-macos.zip</a>
+      </div>
+      <div class="download-row">
+        <div>
+          <span class="platform">Windows</span>
+          <span class="meta">x86_64</span>
+        </div>
+        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-windows.zip">nupsx-x86_64-windows.zip</a>
+      </div>
     </div>
+  </section>
 
-    <footer class="footer">
-      <a class="footer__link" href="https://github.com/maxpoletaev/nupsx" target="_blank">github.com/maxpoletaev/nupsx</a>
-      <span class="footer__sep">·</span>built with <a class="footer__link" href="https://ziglang.org" target="_blank">Zig</a> and
-      <a class="footer__link" href="https://github.com/zig-gamedev" target="_blank">zig-gamedev</a>
-      <div class="footer__legal">
-        nuPSX is a personal project made for fun and learning, based on publicly available hardware documentation.
-        BIOS and game files are not provided or distributed, you must supply your own legally obtained copies.
-        Please Sony don't sue me.
-      </div>
-    </footer>
-  </div>
+  <footer>
+    <a href="https://github.com/maxpoletaev/nupsx" target="_blank">github.com/maxpoletaev/nupsx</a>
+    <span class="footer__sep">·</span>built with <a href="https://ziglang.org" target="_blank">Zig</a> and
+    <a href="https://github.com/zig-gamedev" target="_blank">zig-gamedev</a>
+    <div class="footer__legal">Please Sony don't sue me</div>
+  </footer>
+</div>
 
-  <div id="screen" class="screen">
-    <div id="fps" class="screen__fps" style="display: none;">FPS: 0</div>
-    <canvas id="display" class="screen__canvas" width="320" height="240"></canvas>
-  </div>
+<div id="screen" class="screen">
+  <div id="fps" class="screen__fps" style="display: none;">FPS: 0</div>
+  <canvas id="display" class="screen__canvas" width="320" height="240"></canvas>
+</div>
 
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const $screen  = document.getElementById('screen');
-      const $display = document.getElementById('display');
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const $screen = document.getElementById('screen');
+    const $display = document.getElementById('display');
+    const $setup = document.getElementById('setup');
+    const $startBtn = document.getElementById('startBtn');
+    const $gamepadStatus = document.getElementById('gamepadStatus');
 
-      function fitCanvas() {
-        const ar = 4 / 3;
-        const vw = window.innerWidth, vh = window.innerHeight;
-        if (vw / vh >= ar) {
-          $display.style.height = vh + 'px';
-          $display.style.width  = (vh * ar) + 'px';
-        } else {
-          $display.style.width  = vw + 'px';
-          $display.style.height = (vw / ar) + 'px';
-        }
+    function fitCanvas() {
+      const ar = 4 / 3;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      if (vw / vh >= ar) {
+        $display.style.height = vh + 'px';
+        $display.style.width = (vh * ar) + 'px';
+      } else {
+        $display.style.width = vw + 'px';
+        $display.style.height = (vw / ar) + 'px';
       }
+    }
 
-      window.addEventListener('resize', fitCanvas);
-      new MutationObserver(fitCanvas).observe($display, {
-        attributes: true, attributeFilter: ['width', 'height']
-      });
-      new MutationObserver(() => {
-        if (document.getElementById('setup').style.display === 'none') {
-          $screen.style.display = 'flex';
-          fitCanvas();
-        }
-      }).observe(document.getElementById('setup'), {
-        attributes: true, attributeFilter: ['style']
-      });
-
-      const $gamepadStatus = document.getElementById('gamepadStatus');
-
-      function setGamepadConnected(gp) {
-        $gamepadStatus.innerHTML = gp
-          ? `<span>●</span> Gamepad connected - ${gp.id}`
-          : '<span style="visibility:hidden">●</span> Or connect an external gamepad and press any button';
-        $gamepadStatus.classList.toggle('controls__gamepad--on', !!gp);
-      }
-
-      window.addEventListener('gamepadconnected',    e => setGamepadConnected(e.gamepad));
-      window.addEventListener('gamepaddisconnected', () => setGamepadConnected(null));
-      setGamepadConnected((navigator.getGamepads() || []).find(gp => gp) || null);
+    window.addEventListener('resize', fitCanvas);
+    new MutationObserver(fitCanvas).observe($display, {
+      attributes: true, attributeFilter: ['width', 'height']
     });
-  </script>
-  <script src="nupsx.js" defer></script>
-  <img src="https://mxp.goatcounter.com/count?p=/nupsx/" alt="" width="1" height="1">
+    new MutationObserver(() => {
+      if ($setup.style.display === 'none') {
+        $screen.style.display = 'flex';
+        fitCanvas();
+      }
+    }).observe($setup, {
+      attributes: true, attributeFilter: ['style']
+    });
+
+    function setGamepadConnected(gp) {
+      $gamepadStatus.innerHTML = gp
+        ? `<span>●</span> Gamepad connected - ${gp.id}`
+        : '<span style="visibility:hidden">●</span> Or connect an external gamepad and press any button';
+      $gamepadStatus.classList.toggle('controls__gamepad--on', !!gp);
+    }
+
+    window.addEventListener('gamepadconnected', e => setGamepadConnected(e.gamepad));
+    window.addEventListener('gamepaddisconnected', () => setGamepadConnected(null));
+    setGamepadConnected((navigator.getGamepads() || []).find(gp => gp) || null);
+
+    $startBtn.addEventListener('click', () => {
+      const bios = document.getElementById('biosFile').files[0];
+      const exe = document.getElementById('exeFile').files[0];
+      const bin = document.getElementById('binFile').files[0];
+
+      if (!bios) { alert('Please select a BIOS file.'); return; }
+      if (!exe && !bin) { alert('Please select a PS-EXE or Game BIN file.'); return; }
+
+      console.log('Starting with BIOS:', bios.name, 'EXE:', exe?.name, 'BIN:', bin?.name);
+    });
+  });
+</script>
+<script src="nupsx.js" defer></script>
 </body>
 </html>

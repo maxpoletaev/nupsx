@@ -151,6 +151,7 @@ const DisplayInfo = extern struct {
     offset_y: u16,
     width: u16,
     height: u16,
+    color_depth: u16,
 };
 
 var display_info: DisplayInfo = .{
@@ -158,6 +159,7 @@ var display_info: DisplayInfo = .{
     .offset_y = 0,
     .width = 320,
     .height = 240,
+    .color_depth = 0,
 };
 
 export fn getDisplayInfoPtr() *DisplayInfo {
@@ -167,6 +169,7 @@ export fn getDisplayInfoPtr() *DisplayInfo {
         .offset_y = @intCast(gpu.gp1_display_area_start.y),
         .width = res[0],
         .height = res[1],
+        .color_depth = @intFromEnum(gpu.getColorDepth()),
     };
     return &display_info;
 }
