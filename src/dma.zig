@@ -239,7 +239,7 @@ pub const DMA = struct {
             .decr => @as(i32, -4),
         }));
 
-        log.debug("DMA MDEC IN transfer, block_size={x}, count={x}", .{ block_size, chan.block.count });
+        log.debug("mdecIn: block_size={x} count={x}", .{ block_size, chan.block.count });
 
         while (chan.block.count > 0) {
             for (0..block_size) |_| {
@@ -261,12 +261,13 @@ pub const DMA = struct {
         if (!self.dpcr.getChanMasterEnable(ChanId.mdec_out)) return;
 
         const block_size = @as(u32, chan.block.size);
+
         const step = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
             .incr => @as(i32, 4),
             .decr => @as(i32, -4),
         }));
 
-        log.debug("DMA MDEC OUT transfer, block_size={x}, count={x}", .{ block_size, chan.block.count });
+        log.debug("mdecOut: block_size={x} count={x}", .{ block_size, chan.block.count });
 
         while (chan.block.count > 0) {
             for (0..block_size) |_| {
@@ -283,7 +284,6 @@ pub const DMA = struct {
 
     fn doGpu(self: *@This()) void {
         const chan = &self.channels[ChanId.gpu];
-
         if (!chan.ctrl.isActive()) return;
 
         switch (chan.ctrl.sync_mode) {
@@ -298,7 +298,7 @@ pub const DMA = struct {
 
         const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
 
-        log.debug("DMA GPU transfer slice, size={x}", .{transfer_len});
+        log.debug("gpuSlice: size={x}", .{transfer_len});
 
         const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
             .incr => @as(i32, 4),
@@ -336,7 +336,7 @@ pub const DMA = struct {
 
         var addr = chan.maddr & 0x1ffffc;
 
-        log.debug("DMA GPU transfer linked list, start_addr={x}", .{addr});
+        log.debug("gpuLinkedList: start={x}", .{addr});
 
         while (addr != 0xffffff) {
             const hdr = self.bus.read(u32, addr);
@@ -360,7 +360,6 @@ pub const DMA = struct {
 
     fn doSpu(self: *@This()) void {
         const chan = &self.channels[ChanId.spu];
-
         if (!chan.ctrl.isActive()) return;
 
         const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
@@ -368,9 +367,18 @@ pub const DMA = struct {
             .decr => @as(i32, -4),
         }));
 
-        const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
+        const block_size: u32 = switch (chan.block.size) {
+            0 => 0x10000,
+            else => chan.block.size,
+        };
 
-        log.debug("DMA SPU transfer, size={x}", .{transfer_len});
+        const transfer_len: u32 = switch (chan.ctrl.sync_mode) {
+            .burst => block_size,
+            .slice => block_size * @as(u32, chan.block.count),
+            .linked_list => 0, // not defined for linked list mode
+        };
+
+        log.debug("spu: size={x}", .{transfer_len});
 
         switch (chan.ctrl.direction) {
             .to_device => for (0..transfer_len) |i| {
@@ -401,7 +409,6 @@ pub const DMA = struct {
 
     fn doCdrom(self: *@This()) void {
         const chan = &self.channels[ChanId.cdrom];
-
         if (!chan.ctrl.isActive()) return;
 
         const addr_inc = @as(u32, @bitCast(switch (chan.ctrl.addr_inc) {
@@ -409,9 +416,18 @@ pub const DMA = struct {
             .decr => @as(i32, -4),
         }));
 
-        const transfer_len = @as(u32, chan.block.size) * @as(u32, chan.block.count);
+        const block_size: u32 = switch (chan.block.size) {
+            0 => 0x10000,
+            else => chan.block.size,
+        };
 
-        log.debug("DMA CDROM transfer, size={x}", .{transfer_len});
+        const transfer_len: u32 = switch (chan.ctrl.sync_mode) {
+            .burst => block_size,
+            .slice => block_size * @as(u32, chan.block.count),
+            .linked_list => 0, // not defined for linked list mode
+        };
+
+        log.debug("cdrom: size={x}", .{transfer_len});
 
         switch (chan.ctrl.direction) {
             .to_ram => for (0..transfer_len) |i| {
@@ -419,7 +435,7 @@ pub const DMA = struct {
                 self.bus.write(u32, chan.maddr, v);
                 chan.maddr +%= addr_inc;
 
-                if ((i + 1) % chan.block.size == 0) {
+                if ((i + 1) % block_size == 0) {
                     self.setChannelIrq(ChanId.cdrom, .block);
                 }
             },
@@ -433,12 +449,20 @@ pub const DMA = struct {
 
     fn doOtc(self: *@This()) void {
         const chan = &self.channels[ChanId.otc];
-
         if (!chan.ctrl.isActive()) return;
 
-        const transfer_len = chan.block.size;
+        const block_size: u32 = switch (chan.block.size) {
+            0 => 0x10000,
+            else => chan.block.size,
+        };
 
-        log.debug("DMA OTC transfer, size={x}", .{transfer_len});
+        const transfer_len: u32 = switch (chan.ctrl.sync_mode) {
+            .burst => block_size,
+            .slice => block_size * @as(u32, chan.block.count),
+            .linked_list => 0, // not defined for linked list mode
+        };
+
+        log.debug("otc: size={x}", .{transfer_len});
 
         var addr = chan.maddr;
 
