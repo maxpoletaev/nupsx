@@ -19,5 +19,5 @@ for target in "${TARGETS[@]}"; do
     fi
     echo "Building for $target..."
     zig build -Dtarget="$target" --prefix "zig-out/$target" --release=safe --prefix-exe-dir .
-    (cd "zig-out/$target/bin" && zip -r "$DIST_DIR/nupsx-$target.zip" .)
+    (cd "zig-out/$target" && zip -r "$DIST_DIR/nupsx-$target.zip" .)
 done
