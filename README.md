@@ -14,32 +14,51 @@ nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig, bui
 
 Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and homebrew demos. Lots of things are still missing or incomplete. Tested 2D games are mostly fine, 3D games have minor graphical glitches. Sound system is not complete but functional enough to play music and most of sound effects in tested games.
 
-|Game|Status|Note|
+|Game|Status|Issues|
 |-|-|-|
-|Battle Arena Toshinden|🟢 Playable||
-|Colin McRae Rally 2.0|🔴 Crashes||
-|Crash Bandicoot|🟢 Playable||
-|Crash Bandicoot 2|🟢 Playable||
-|Crash Bash|🔴 Freezes||
-|Crash Team Racing|🟢 Playable|Sound issues (no voice)|
-|Earthworm Jim 2|🟢 Playable||
-|Gran Turismo|🟢 Playable||
-|Metal Gear Solid|🟢 Playable|Cutscene glitches|
-|Mortal Kombat 2|🟢 Playable||
-|Rayman|🔴 Freezes||
-|Rayman 2|🟠 In game|Graphics and sound issues|
-|Resident Evil 2|🟢 Playable||
-|Ridge Racer|🟢 Playable||
-|Spyro the Dragon|🟠 In game|Sound issues|
-|Spyro Year of the Dragon|🔴 Title screen||
-|Tekken 3|🟠 In game|Wrong screen resolution|
-|Tomb Raider III|🔴 Title screen||
-|Tomb Raider|🔴 Crashes||
-|Wipeout|🔴 Freezes||
+|Battle Arena Toshinden|🟩 Playable||
+|Colin McRae Rally|🟨 InGame||
+|Colin McRae Rally 2.0|🟥 Nothing||
+|Crash Bandicoot 2|🟨 InGame||
+|Crash Bandicoot|🟩 Playable||
+|Crash Bash|🟥 Nothing||
+|Crash Team Racing|🟩 Playable|Sound (no voice)|
+|Driver|🟩 Playable||
+|Earthworm Jim 2|🟩 Playable||
+|Final Fantasy VII|🟨 InGame||
+|Gran Turismo|🟩 Playable||
+|Grand Theft Auto|🟥 Nothing||
+|Metal Gear Solid|🟩 Playable|Cutscene glitches|
+|Mortal Kombat 2|🟩 Playable||
+|Mortal Kombat 4|🟨 InGame|Screen resolution|
+|Rayman|🟧 Intro||
+|Rayman 2|🟨 InGame||
+|Resident Evil 2|🟩 Playable||
+|Ridge Racer|🟩 Playable||
+|Silent Hill|🟨 InGame|Major sound issues|
+|Spyro the Dragon|🟨 InGame|Major sound issues|
+|Spyro Year of the Dragon|🟧 Intro||
+|Star Ocean - The Second Story|🟨 InGame||
+|Tekken 3|🟨 InGame|Screen resolution|
+|Tom and Jerry in House Trap|🟩 Playable||
+|Tomb Raider|🟧 Intro||
+|Tomb Raider III|🟧 Intro||
+|Wipeout|🟥 Nothing||
+
+🟥 Nothing - Doesn't boot or crashes the emulator <br>
+🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>
+🟨 InGame - Boots into the game but has major issues<br>
+🟩 Playable - Boots into the game with minor or no issues
 
 ## Download
 
-Prebuilt binaries are available in the [Releases](https://github.com/maxpoletaev/nupsx/releases)
+Below are links to the latest prebuilt binaries. I don't have enough computers so not all of them are tested.
+
+* [nupsx-aarch64-linux-gnu.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-linux-gnu.zip)
+* [nupsx-x86_64-linux-gnu.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-linux-gnu.zip)
+* [nupsx-aarch64-macos.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-macos.zip)
+* [nupsx-x86_64-macos.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-macos.zip)
+* [nupsx-x86_64-windows.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-windows.zip)
 
 ## Build & Run
 
