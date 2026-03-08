@@ -820,7 +820,7 @@ const commands = opaque {
     fn getId(self: *CDROM) void {
         switch (self.cmd_state) {
             .recv_cmd => {
-                log.debug("CDROM GETID", .{});
+                log.debug("getid", .{});
                 self.cmd_delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp1;
             },
@@ -850,7 +850,7 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("CDROM PAUSE", .{});
+                log.debug("pause", .{});
                 self.pushResultByte(self.readStat());
                 self.cmd_delay = switch (self.mode.speed) {
                     .normal => cdrom_pause_delay_cycles,
@@ -878,7 +878,9 @@ const commands = opaque {
                 const stat = self.stat;
                 self.stat.shellopen = false; // reading stat resets shellopen bit
                 self.pushResultByte(@bitCast(stat));
-                log.debug("CDROM GETSTAT: {any}", .{stat});
+
+                log.debug("getStat: stat={any}", .{stat});
+
                 self.setInterrupt(3);
                 self.finishCommand();
             },
@@ -898,7 +900,8 @@ const commands = opaque {
                 const s = fromBCD(self.params.pop().?);
                 const f = fromBCD(self.params.pop().?);
 
-                log.debug("CDROM SETLOC to {d}:{d}:{d}", .{ m, s, f });
+                log.debug("setLoc: m={d} s={d} f={d}", .{ m, s, f });
+
                 self.seekloc = Position.init(m, s, f).toSectors();
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
@@ -918,9 +921,10 @@ const commands = opaque {
                 std.debug.assert(self.params.len == 1);
                 const mode_byte = self.params.pop().?;
 
+                log.debug("setMode: mode={x}", .{mode_byte});
+
                 self.mode = @bitCast(mode_byte);
                 self.pushResultByte(self.readStat());
-                log.debug("CDROM SETMODE: {x}", .{mode_byte});
 
                 if (self.mode.auto_pause) log.warn("auto-pause not implemented", .{});
                 if (self.mode.play_report) log.warn("play-report not implemented", .{});
@@ -945,7 +949,9 @@ const commands = opaque {
                     std.debug.panic("CDROM SEEKL: no seek location set", .{});
                 }
                 const loc = self.seekloc.?;
-                log.debug("CDROM SEEKL to {d}", .{loc});
+
+                log.debug("seekL: loc={d}", .{loc});
+
                 self.pushResultByte(self.readStat());
                 self.cmd_delay = cdrom_seekl_delay_cycles;
                 self.setInterrupt(3);
@@ -970,7 +976,7 @@ const commands = opaque {
                 self.stat.motor_on = true;
             },
             .resp1 => {
-                log.debug("CDROM READN", .{});
+                log.debug("readN", .{});
                 self.beginReading();
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
@@ -994,7 +1000,7 @@ const commands = opaque {
                         std.debug.panic("cdrom - play: invalid track id {d}", .{id});
                     };
                     self.seekloc = track.start_sector;
-                    log.debug("seek to track {d}", .{id});
+                    log.debug("seekTrack: id={d}", .{id});
                 }
 
                 self.beginPlaying();
@@ -1013,7 +1019,8 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("CDROM INIT", .{});
+                log.debug("init", .{});
+
                 self.pushResultByte(self.readStat());
                 self.cmd_delay = cdrom_avg_delay_cycles;
                 self.cmd_state = .resp2;
@@ -1039,10 +1046,14 @@ const commands = opaque {
             .resp1 => {
                 std.debug.assert(self.params.len == 1);
                 const sub_cmd = self.params.pop() orelse unreachable;
+
+                log.debug("test: cmd={x}", .{sub_cmd});
+
                 switch (sub_cmd) {
                     0x20 => self.pushResultSlice(&cdrom_date_version),
-                    else => log.warn("unhandled CDROM TEST sub-command: {x}", .{sub_cmd}),
+                    else => log.warn("unhandled test sub-command: {x}", .{sub_cmd}),
                 }
+
                 self.setInterrupt(3);
                 self.finishCommand();
             },
@@ -1057,8 +1068,10 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("CDROM DEMUTE (stubbed)", .{});
                 self.mute = false;
+
+                log.debug("deMute", .{});
+
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
                 self.finishCommand();
@@ -1074,7 +1087,8 @@ const commands = opaque {
         self.pushResultByte(toBCD(1)); // first track number
         self.pushResultByte(toBCD(self.disc.?.track_count)); // last track number
 
-        log.debug("GetTN -> INT3(stat,{d},{d})", .{ 1, self.disc.?.track_count });
+        log.debug("getTN: first={d} last={d}", .{ 1, self.disc.?.track_count });
+
         self.setInterrupt(3);
         self.finishCommand();
     }
@@ -1101,13 +1115,13 @@ const commands = opaque {
                     self.pushResultByte(self.readStat());
                     self.pushResultByte(toBCD(end_pos.minute));
                     self.pushResultByte(toBCD(end_pos.second));
-                    log.debug("GetTD({d}) -> INT3(stat, {d}, {d})", .{ track_num, end_pos.minute, end_pos.second });
+                    log.debug("getTD: track={d} m={d} s={d}", .{ track_num, end_pos.minute, end_pos.second });
                 } else {
                     const start_pos = Position.fromSectors(track.start_sector);
                     self.pushResultByte(self.readStat());
                     self.pushResultByte(toBCD(start_pos.minute));
                     self.pushResultByte(toBCD(start_pos.second));
-                    log.debug("GetTD({d}) -> INT3(stat, {d}, {d})", .{ track_num, start_pos.minute, start_pos.second });
+                    log.debug("getTD: track={d} m={d} s={d}", .{ track_num, start_pos.minute, start_pos.second });
                 }
 
                 self.setInterrupt(3);
@@ -1124,7 +1138,7 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("CDROM GETLOCP (stubbed)", .{});
+                log.debug("getLocP", .{});
                 self.pushResultByte(self.readStat());
 
                 self.pushResultByte(toBCD(1)); // track number
@@ -1157,7 +1171,8 @@ const commands = opaque {
                 const file = self.params.pop() orelse unreachable;
                 const channel = self.params.pop() orelse unreachable;
 
-                log.debug("CDROM SETFILTER (stubbed), file={x}, channel={x}", .{ file, channel });
+                log.debug("setFilter: file={x} channel={x}", .{ file, channel });
+
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
                 self.finishCommand();
@@ -1173,7 +1188,7 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("CDROM STOP", .{});
+                log.debug("stop", .{});
                 self.pushResultByte(self.readStat());
                 self.stat.read = false;
                 self.stat.play = false;
@@ -1205,7 +1220,7 @@ const commands = opaque {
                     self.finishCommand();
                     return;
                 }
-                log.debug("CDROM GETLOCL", .{});
+                log.debug("getLocL", .{});
                 const b = self.data_buffer.?;
                 self.pushResultSlice(b[0..8]);
                 self.setInterrupt(3);

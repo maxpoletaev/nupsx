@@ -130,6 +130,7 @@ const Timer = struct {
     }
 
     inline fn setMode(self: *@This(), v: u16, in_hblank: bool, in_vblank: bool) void {
+        log.debug("setMode: timer={d} mode={x}", .{ self.timer_idx, v });
         const prev = self.mode;
         self.mode = @bitCast(v);
 
@@ -250,13 +251,19 @@ pub const Timers = struct {
         switch (timer.getClockSource()) {
             .system_clock => {
                 const fired = timer.increment(cyc);
-                if (fired) self.bus.setInterrupt(Interrupt.tmr0);
+                if (fired) {
+                    log.debug("irqFired: timer=0", .{});
+                    self.bus.setInterrupt(Interrupt.tmr0);
+                }
             },
             .dotclock => {
                 // Dotclock ticks depend on the current gpu mode.
                 // For now just increment on every system clock tick.
                 const fired = timer.increment(cyc);
-                if (fired) self.bus.setInterrupt(Interrupt.tmr0);
+                if (fired) {
+                    log.debug("irqFired: timer=0", .{});
+                    self.bus.setInterrupt(Interrupt.tmr0);
+                }
             },
             else => {},
         }
@@ -268,7 +275,10 @@ pub const Timers = struct {
 
         if (timer.getClockSource() == .system_clock) {
             const fired = timer.increment(cyc);
-            if (fired) self.bus.setInterrupt(Interrupt.tmr1);
+            if (fired) {
+                log.debug("irqFired: timer=1", .{});
+                self.bus.setInterrupt(Interrupt.tmr1);
+            }
         }
     }
 
@@ -279,13 +289,19 @@ pub const Timers = struct {
         switch (timer.getClockSource()) {
             .system_clock => {
                 const fired = timer.increment(cyc);
-                if (fired) self.bus.setInterrupt(Interrupt.tmr2);
+                if (fired) {
+                    log.debug("irqFired: timer=2", .{});
+                    self.bus.setInterrupt(Interrupt.tmr2);
+                }
             },
             .system_clock_div8 => {
                 self.div8_counter += cyc;
                 if (self.div8_counter >= 8) {
                     const fired = timer.increment(self.div8_counter / 8);
-                    if (fired) self.bus.setInterrupt(Interrupt.tmr2);
+                    if (fired) {
+                        log.debug("irqFired: timer=2", .{});
+                        self.bus.setInterrupt(Interrupt.tmr2);
+                    }
                     self.div8_counter %= 8;
                 }
             },
@@ -316,7 +332,10 @@ pub const Timers = struct {
         // Timer 1 in hblank clock mode increments on hblank
         if (t1.getClockSource() == .hblank and !t1.paused) {
             const fired = t1.increment(1);
-            if (fired) self.bus.setInterrupt(Interrupt.tmr1);
+            if (fired) {
+                log.debug("irqFired: timer=1", .{});
+                self.bus.setInterrupt(Interrupt.tmr1);
+            }
         }
     }
 

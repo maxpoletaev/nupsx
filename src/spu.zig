@@ -508,6 +508,8 @@ pub const SPU = struct {
     }
 
     fn setVoiceKeyOn(self: *@This(), addr: u32, v: u16) void {
+        log.debug("keyOn: voices={x}", .{v});
+
         self.forEachVoiceInMask(addr, v, struct {
             fn callback(spu: *SPU, voice: *Voice, voice_idx: u8, _: u1) void {
                 voice.keyOn();
@@ -517,6 +519,8 @@ pub const SPU = struct {
     }
 
     fn setVoiceKeyOff(self: *@This(), addr: u32, v: u16) void {
+        log.debug("keyOff: voices={x}", .{v});
+
         self.forEachVoiceInMask(addr, v, struct {
             fn callback(_: *SPU, voice: *Voice, _: u8, _: u1) void {
                 voice.keyOff();
@@ -525,6 +529,8 @@ pub const SPU = struct {
     }
 
     fn setVoiceNoiseMode(self: *@This(), addr: u32, v: u16) void {
+        log.debug("setNoiseMode: voices={x}", .{v});
+
         // Unlike Key On/Off, noise mode is a state register - must set ALL voices
         const shift: u5 = if ((addr & 0x2) == 0) 0 else 16;
         for (0..16) |i| {
@@ -568,16 +574,21 @@ pub const SPU = struct {
             0x1f801d8c, 0x1f801d8e => self.setVoiceKeyOff(addr, v),
             0x1f801d94, 0x1f801d96 => self.setVoiceNoiseMode(addr, v),
             0x1f801da4 => {
+                log.debug("setIrqAddr: addr={x}", .{v});
                 self.irq_addr = v;
                 self.capture_pos = 0;
                 self.capture_irq_pos = (@as(u32, v) * 4) % 512;
             },
             0x1f801da6 => {
+                log.debug("setDataAddr: addr={x}", .{v});
                 self.data_addr = v;
                 self.data_addr_internal = @as(u32, v) * 8;
             },
             0x1f801da8 => self.writeData(v),
-            0x1f801daa => self.spucnt = @bitCast(v),
+            0x1f801daa => {
+                log.debug("setControl: ctrl={x}", .{v});
+                self.spucnt = @bitCast(v);
+            },
             0x1f801dac => self.data_ctrl = v,
 
             else => {
@@ -590,7 +601,7 @@ pub const SPU = struct {
 
     pub fn writeData(self: *@This(), v: u16) void {
         if (self.data_addr_internal > self.ram.len - 1) {
-            log.warn("SPU data write out of bounds at addr {x}", .{self.data_addr_internal});
+            log.warn("data write out of bounds at addr {x}", .{self.data_addr_internal});
             return;
         }
 
@@ -606,7 +617,7 @@ pub const SPU = struct {
 
     pub fn readData(self: *@This()) u32 {
         if (self.data_addr_internal > self.ram.len - 1) {
-            log.warn("SPU data read out of bounds at addr {x}", .{self.data_addr_internal});
+            log.warn("data read out of bounds at addr {x}", .{self.data_addr_internal});
             return 0;
         }
 

@@ -31,7 +31,29 @@ const Disc = cdrom_mod.Disc;
 const SPU = spu_mod.SPU;
 const Joypad = joy_mod.Joypad;
 
+pub fn logFn(
+    comptime message_level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const level_str = switch (message_level) {
+        .err => "ERROR",
+        .warn => "WARN",
+        .info => "INFO",
+        .debug => "DEBUG",
+    };
+
+    var buf: [4096]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buf);
+    defer std.debug.unlockStderrWriter();
+
+    const prefix = std.fmt.comptimePrint("{s}({s}): ", .{ level_str, @tagName(scope) });
+    stderr.print(prefix ++ format ++ "\n", args) catch {};
+}
+
 pub const std_options = std.Options{
+    .logFn = logFn,
     .log_level = .info,
     .log_scope_levels = &[_]std.log.ScopeLevel{
         // .{ .scope = .spu, .level = .debug },

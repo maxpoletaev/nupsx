@@ -294,7 +294,7 @@ pub const GPU = struct {
         }
 
         switch (self.gp0_state) {
-            .recv_command => log.debug("gp0 - cmd: {x}", .{self.gp0_cmd}),
+            .recv_command => log.debug("gp0: cmd={x}", .{self.gp0_cmd}),
             // .recv_args => log.debug("gp0 - arg: {x}", .{v}),
             else => {},
         }
@@ -416,7 +416,7 @@ pub const GPU = struct {
         self.gp0_draw_mode = @bitCast(v);
         self.rasterizer.setDithering(self.gp0_draw_mode.dithering);
         self.rasterizer.setTransparencyMode(transparencyModeFromInt(self.gp0_draw_mode.semi_transparency));
-        log.debug("setDrawMode: {any}", .{self.gp0_draw_mode});
+        log.debug("setDrawMode: mode={any}", .{self.gp0_draw_mode});
     }
 
     fn setDrawModeFromArg(self: *@This(), v: u32) void {
@@ -431,25 +431,25 @@ pub const GPU = struct {
     fn setDrawAreaStart(self: *@This(), v: u32) void {
         self.gp0_draw_area_start = @bitCast(v);
         self.rasterizer.setDrawAreaStart(self.gp0_draw_area_start.x, self.gp0_draw_area_start.y);
-        log.debug("setDrawAreaStart: ({}, {})", .{ self.gp0_draw_area_start.x, self.gp0_draw_area_start.y });
+        log.debug("setDrawAreaStart: x={} y={}", .{ self.gp0_draw_area_start.x, self.gp0_draw_area_start.y });
     }
 
     fn setDrawAreaEnd(self: *@This(), v: u32) void {
         self.gp0_draw_area_end = @bitCast(v);
         self.rasterizer.setDrawAreaEnd(self.gp0_draw_area_end.x, self.gp0_draw_area_end.y);
-        log.debug("setDrawAreaEnd: ({}, {})", .{ self.gp0_draw_area_end.x, self.gp0_draw_area_end.y });
+        log.debug("setDrawAreaEnd: x={} y={}", .{ self.gp0_draw_area_end.x, self.gp0_draw_area_end.y });
     }
 
     fn setDrawOffset(self: *@This(), v: u32) void {
         self.gp0_draw_offset = @bitCast(v);
         self.rasterizer.setDrawOffset(self.gp0_draw_offset.x, self.gp0_draw_offset.y);
-        log.debug("setDrawOffset: ({}, {})", .{ self.gp0_draw_offset.x, self.gp0_draw_offset.y });
+        log.debug("setDrawOffset: x={} y={}", .{ self.gp0_draw_offset.x, self.gp0_draw_offset.y });
     }
 
     fn setMaskBitSetting(self: *@This(), v: u32) void {
         self.gp0_mask_bit = @bitCast(v);
         self.rasterizer.setMaskBitSetting(self.gp0_mask_bit.force_mask_bit, self.gp0_mask_bit.check_mask_bit);
-        log.debug("setMaskBitSetting: {any}", .{self.gp0_mask_bit});
+        log.debug("setMaskBitSetting: setting={any}", .{self.gp0_mask_bit});
     }
 
     fn getTexpage(self: *@This()) Textpage {
@@ -492,8 +492,14 @@ pub const GPU = struct {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertexU(self.gp0_fifo.buf[1]);
                     const size = argVertexU(self.gp0_fifo.buf[2]);
+
                     self.rasterizer.fillRectUnmasked(pos.x, pos.y, size.x, size.y, color);
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "fillVram: color={x} pos=({},{}) size=({},{})",
+                        .{ @as(u24, @bitCast(color)), pos.x, pos.y, size.x, size.y },
+                    );
                 }
             },
             else => unreachable,
@@ -517,9 +523,9 @@ pub const GPU = struct {
                     const height: u16 = if (size.y == 0) 512 else size.y;
 
                     self.rasterizer.copyRect(src.x, src.y, dest.x, dest.y, width, height);
-
                     self.gp0_state = .recv_command;
-                    log.debug("vramToVram: src=({}, {}), dest=({}, {}), size=({}, {})", .{ src.x, src.y, dest.x, dest.y, width, height });
+
+                    log.debug("vramToVram: src=({},{}) dest=({},{}) size=({},{})", .{ src.x, src.y, dest.x, dest.y, width, height });
                 }
             },
             else => unreachable,
@@ -538,11 +544,6 @@ pub const GPU = struct {
                     self.gp0_state = .recv_data;
                     self.gp0_blit_y = 0;
                     self.gp0_blit_x = 0;
-
-                    const pos = argVertexU(self.gp0_fifo.buf[1]);
-                    const size = argVertexU(self.gp0_fifo.buf[2]);
-
-                    log.debug("cpuToVram: pos=({}, {}), size=({}, {})", .{ pos.x, pos.y, size.x, size.y });
                 }
             },
             .recv_data => {
@@ -571,6 +572,7 @@ pub const GPU = struct {
 
                         if (self.gp0_blit_y == size_y) {
                             self.gp0_state = .recv_command;
+                            log.debug("cpuToVram: pos=({},{}) size=({},{})", .{ pos.x, pos.y, size_x, size_y });
                             break;
                         }
                     }
@@ -592,10 +594,6 @@ pub const GPU = struct {
                     self.gp0_state = .send_data;
                     self.gp0_blit_y = 0;
                     self.gp0_blit_x = 0;
-
-                    const pos = argVertexU(self.gp0_fifo.buf[1]);
-                    const size = argVertexU(self.gp0_fifo.buf[2]);
-                    log.debug("vramToCpu: pos=({}, {}), size=({}, {})", .{ pos.x, pos.y, size.x, size.y });
                 }
             },
             .send_data => {
@@ -615,7 +613,6 @@ pub const GPU = struct {
                     const hw = self.readVram(x, y);
 
                     self.gpuread |= @as(u32, hw) << shift;
-
                     self.gp0_blit_x += 1;
 
                     if (self.gp0_blit_x == size_x) {
@@ -624,6 +621,7 @@ pub const GPU = struct {
 
                         if (self.gp0_blit_y == size_y) {
                             self.gp0_state = .recv_command;
+                            log.debug("vramToCpu: pos=({},{}) size=({},{})", .{ pos.x, pos.y, size_x, size_y });
                             break;
                         }
                     }
@@ -653,8 +651,11 @@ pub const GPU = struct {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const pos1 = argVertex(self.gp0_fifo.buf[2]);
+
                     self.rasterizer.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color, semi_trans);
                     self.gp0_state = .recv_command;
+
+                    log.debug("lineFlat: color={x} pos0=({},{}) pos1=({},{}) semi_trans={}", .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, semi_trans });
                 }
             },
             else => unreachable,
@@ -675,14 +676,17 @@ pub const GPU = struct {
 
                 const color = argColor(self.gp0_fifo.pop().?);
                 var v0 = argVertex(self.gp0_fifo.pop().?);
+                var seg_count: u32 = 0;
 
                 while (!self.gp0_fifo.isEmpty()) {
                     const v1 = argVertex(self.gp0_fifo.pop().?);
                     self.rasterizer.drawLineFlat(v0.x, v0.y, v1.x, v1.y, color, semi_trans);
                     v0 = v1;
+                    seg_count += 1;
                 }
 
                 self.gp0_state = .recv_command;
+                log.debug("polyLineFlat: color={x} segments={} semi_trans={}", .{ @as(u24, @bitCast(color)), seg_count, semi_trans });
             },
             else => unreachable,
         }
@@ -701,8 +705,11 @@ pub const GPU = struct {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const color1 = argColor(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
+
                     self.rasterizer.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1, semi_trans);
                     self.gp0_state = .recv_command;
+
+                    log.debug("lineShaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) semi_trans={}", .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, semi_trans });
                 }
             },
             else => unreachable,
@@ -723,6 +730,7 @@ pub const GPU = struct {
 
                 var c0 = argColor(self.gp0_fifo.pop().?);
                 var v0 = argVertex(self.gp0_fifo.pop().?);
+                var seg_count: u32 = 0;
 
                 while (!self.gp0_fifo.isEmpty()) {
                     const c1 = argColor(self.gp0_fifo.pop().?);
@@ -730,9 +738,11 @@ pub const GPU = struct {
                     self.rasterizer.drawLineShaded(v0.x, v0.y, c0, v1.x, v1.y, c1, semi_trans);
                     c0 = c1;
                     v0 = v1;
+                    seg_count += 1;
                 }
 
                 self.gp0_state = .recv_command;
+                log.debug("polyLineShaded: segments={} semi_trans={}", .{ seg_count, semi_trans });
             },
             else => unreachable,
         }
@@ -752,9 +762,14 @@ pub const GPU = struct {
                     const color = argColor(self.gp0_fifo.buf[0]);
                     const pos = argVertex(self.gp0_fifo.buf[1]);
                     const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[2]);
+
                     self.rasterizer.drawRectFlat(pos.x, pos.y, size.x, size.y, color, semi_trans);
-                    log.debug("drawRectFlat: pos=({}, {}), size=({}, {}), color={x}", .{ pos.x, pos.y, size.x, size.y, @as(u24, @bitCast(color)) });
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "rectFlat: color={x} pos=({},{}) size=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color)), pos.x, pos.y, size.x, size.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -778,8 +793,14 @@ pub const GPU = struct {
                     const clut = argClut(self.gp0_fifo.buf[2]);
                     const uv = argTexcoord(self.gp0_fifo.buf[2]);
                     const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[3]);
+
                     self.rasterizer.drawRectTextured(pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "rectTextured: color={x} pos=({},{}) size=({},{}) uv=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={} blend={}",
+                        .{ @as(u24, @bitCast(color)), pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans, tex_blend },
+                    );
                 }
             },
             else => unreachable,
@@ -805,8 +826,12 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y };
 
                     self.rasterizer.drawTriangleFlat(v0, v1, v2, color, semi_trans);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly3Flat: color={x} pos0=({},{}) pos1=({},{}) pos2=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, pos2.x, pos2.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -834,8 +859,12 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
 
                     self.rasterizer.drawTriangleShaded(v0, v1, v2, semi_trans);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly3Shaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) color2={x} pos2=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -864,8 +893,12 @@ pub const GPU = struct {
 
                     self.rasterizer.drawTriangleFlat(v0, v1, v2, color, semi_trans);
                     self.rasterizer.drawTriangleFlat(v1, v3, v2, color, semi_trans);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly4Flat: color={x} pos0=({},{}) pos1=({},{}) pos2=({},{}) pos3=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, pos2.x, pos2.y, pos3.x, pos3.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -897,8 +930,12 @@ pub const GPU = struct {
 
                     self.rasterizer.drawTriangleShaded(v0, v1, v2, semi_trans);
                     self.rasterizer.drawTriangleShaded(v1, v3, v2, semi_trans);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly4Shaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) color2={x} pos2=({},{}) color3={x} pos3=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, @as(u24, @bitCast(color3)), pos3.x, pos3.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -921,7 +958,6 @@ pub const GPU = struct {
                     const uv1 = argTexcoord(self.gp0_fifo.buf[4]);
                     const pos2 = argVertex(self.gp0_fifo.buf[5]);
                     const uv2 = argTexcoord(self.gp0_fifo.buf[6]);
-
                     const clut = argClut(self.gp0_fifo.buf[2]);
                     const texp = argTextpage(self.gp0_fifo.buf[4]);
 
@@ -932,8 +968,12 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
 
                     self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly3Textured: color={x} pos0=({},{}) uv0=({},{}) pos1=({},{}) uv1=({},{}) pos2=({},{}) uv2=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={} blend={}",
+                        .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, uv0.x, uv0.y, pos1.x, pos1.y, uv1.x, uv1.y, pos2.x, pos2.y, uv2.x, uv2.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans, tex_blend },
+                    );
                 }
             },
             else => unreachable,
@@ -958,7 +998,6 @@ pub const GPU = struct {
                     const uv2 = argTexcoord(self.gp0_fifo.buf[6]);
                     const pos3 = argVertex(self.gp0_fifo.buf[7]);
                     const uv3 = argTexcoord(self.gp0_fifo.buf[8]);
-
                     const clut = argClut(self.gp0_fifo.buf[2]);
                     const texp = argTextpage(self.gp0_fifo.buf[4]);
 
@@ -971,8 +1010,12 @@ pub const GPU = struct {
 
                     self.rasterizer.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
                     self.rasterizer.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly4Textured: color={x} pos0=({},{}) uv0=({},{}) pos1=({},{}) uv1=({},{}) pos2=({},{}) uv2=({},{}) pos3=({},{}) uv3=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={} blend={}",
+                        .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, uv0.x, uv0.y, pos1.x, pos1.y, uv1.x, uv1.y, pos2.x, pos2.y, uv2.x, uv2.y, pos3.x, pos3.y, uv3.x, uv3.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans, tex_blend },
+                    );
                 }
             },
             else => unreachable,
@@ -997,7 +1040,6 @@ pub const GPU = struct {
                     const color2 = argColor(self.gp0_fifo.buf[6]);
                     const pos2 = argVertex(self.gp0_fifo.buf[7]);
                     const uv2 = argTexcoord(self.gp0_fifo.buf[8]);
-
                     const clut = argClut(self.gp0_fifo.buf[2]);
                     const texp = argTextpage(self.gp0_fifo.buf[5]);
 
@@ -1008,8 +1050,12 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y, .color = color2 };
 
                     self.rasterizer.drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly3ShadedTextured: color0={x} pos0=({},{}) uv0=({},{}) color1={x} pos1=({},{}) uv1=({},{}) color2={x} pos2=({},{}) uv2=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, uv0.x, uv0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, uv1.x, uv1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, uv2.x, uv2.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -1037,7 +1083,6 @@ pub const GPU = struct {
                     const color3 = argColor(self.gp0_fifo.buf[9]);
                     const pos3 = argVertex(self.gp0_fifo.buf[10]);
                     const uv3 = argTexcoord(self.gp0_fifo.buf[11]);
-
                     const clut = argClut(self.gp0_fifo.buf[2]);
                     const texp = argTextpage(self.gp0_fifo.buf[5]);
 
@@ -1050,8 +1095,12 @@ pub const GPU = struct {
 
                     self.rasterizer.drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans);
                     self.rasterizer.drawTriangleShadedTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans);
-
                     self.gp0_state = .recv_command;
+
+                    log.debug(
+                        "poly4ShadedTextured: color0={x} pos0=({},{}) uv0=({},{}) color1={x} pos1=({},{}) uv1=({},{}) color2={x} pos2=({},{}) uv2=({},{}) color3={x} pos3=({},{}) uv3=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, uv0.x, uv0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, uv1.x, uv1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, uv2.x, uv2.y, @as(u24, @bitCast(color3)), pos3.x, pos3.y, uv3.x, uv3.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -1064,18 +1113,45 @@ pub const GPU = struct {
 
     pub fn gp1write(self: *@This(), v: u32) void {
         const cmd = @as(u8, @truncate(v >> 24)) & 0x3f;
-        // log.debug("gp1 - command: {x}", .{cmd});
 
         switch (cmd) {
-            0x00 => self.reset(),
-            0x01 => self.resetCommand(),
-            0x02 => self.interrupt_request = false,
-            0x03 => self.gp1_display_enable = @enumFromInt(@as(u1, @truncate(v))),
-            0x04 => self.gp1_dma_direction = @enumFromInt(@as(u2, @truncate(v))),
-            0x05 => self.gp1_display_area_start = @bitCast(v),
-            0x06 => self.gp1_display_range_x = @bitCast(v),
-            0x07 => self.gp1_display_range_y = @bitCast(v),
-            0x08 => self.gp1_display_mode = @bitCast(v),
+            0x00 => {
+                self.reset();
+                log.debug("gp1 reset gpu", .{});
+            },
+            0x01 => {
+                self.resetCommand();
+                log.debug("gp1 reset fifo", .{});
+            },
+            0x02 => {
+                self.interrupt_request = false;
+                log.debug("gp1 clear irq", .{});
+            },
+            0x03 => {
+                const enable: u1 = @truncate(v);
+                self.gp1_display_enable = @enumFromInt(enable);
+                log.debug("gp1 set display enable: enable={d}", .{enable});
+            },
+            0x04 => {
+                self.gp1_dma_direction = @enumFromInt(@as(u2, @truncate(v)));
+                log.debug("gp1 set dma direction: dir={s}", .{@tagName(self.gp1_dma_direction)});
+            },
+            0x05 => {
+                self.gp1_display_area_start = @bitCast(v);
+                log.debug("gp1 set display start: x={d} y={d}", .{ self.gp1_display_area_start.x, self.gp1_display_area_start.y });
+            },
+            0x06 => {
+                self.gp1_display_range_x = @bitCast(v);
+                log.debug("gp1 set horizontal range: x1={d} x2={d}", .{ self.gp1_display_range_x.x1, self.gp1_display_range_x.x2 });
+            },
+            0x07 => {
+                self.gp1_display_range_y = @bitCast(v);
+                log.debug("gp1 set vertical range: y1={d} y2={d}", .{ self.gp1_display_range_y.y1, self.gp1_display_range_y.y2 });
+            },
+            0x08 => {
+                self.gp1_display_mode = @bitCast(v);
+                log.debug("gp1 set display mode", .{});
+            },
             0x10 => self.registerToGpuread(v),
             else => std.debug.panic("unknown gp1 command: 0x{x}", .{cmd}),
         }

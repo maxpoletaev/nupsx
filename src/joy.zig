@@ -143,6 +143,7 @@ pub const Joypad = struct {
         if (self.irq_delay > 0) {
             self.irq_delay -|= cpu_cyc;
             if (self.irq_delay == 0) {
+                log.debug("irq", .{});
                 self.stat.irq_pending = true;
                 self.bus.setInterrupt(Interrupt.joy_mc_byte);
             }

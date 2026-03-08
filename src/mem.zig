@@ -278,9 +278,6 @@ pub const Bus = struct {
     }
 
     pub fn setInterrupt(self: *@This(), v: u32) void {
-        // if (v & Interrupt.tmr2 != 0) {
-        //     log.debug("CPU interrupt set {x}", .{v});
-        // }
         self.irq_stat |= v;
         self.updateCpuIrq();
     }

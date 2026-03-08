@@ -195,7 +195,7 @@ pub const MDEC = struct {
         self.out_buf.clearRetainingCapacity();
         self.out_pos = 0;
         self.read_part = 0;
-        log.debug("decodeMacroblock: words={d}, depth={s}, signed={}", .{
+        log.debug("decodeMacroblock: words={d} depth={s} signed={}", .{
             cmd.param_words, @tagName(self.status.output_depth), self.status.output_signed,
         });
     }
@@ -261,6 +261,11 @@ pub const MDEC = struct {
             dma_in_enable: bool,
             reset: bool,
         } = @bitCast(v);
+
+        log.debug(
+            "writeControl: dma_in={} dma_out={} reset={}",
+            .{ value.dma_in_enable, value.dma_out_enable, value.reset },
+        );
 
         if (value.reset) {
             self.status = @bitCast(reset_status);
@@ -359,7 +364,7 @@ pub const MDEC = struct {
         self.out_pos = 0;
         self.read_part = 0;
         self.updateDmaRequests();
-        log.debug("decoded {} output words", .{self.out_buf.items.len});
+        log.debug("decoded: words={}", .{self.out_buf.items.len});
     }
 
     fn yuvToRgb(self: *@This(), out: *[256]u32, bx: u32, by: u32) void {
