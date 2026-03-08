@@ -8,18 +8,18 @@
 </head>
 <body>
 <div class="page">
-  <header>
+  <header class="header">
     <div class="header__title">nu<span class="header__title-accent">PSX</span></div>
     <div class="header__subtitle">PlayStation Emulator</div>
   </header>
 
-  <section>
-    <p>
+  <section class="intro">
+    <div class="intro__text">
       nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig. A&nbsp;passion project
       made for fun and learning, with no intention of becoming usable by the general public.
       If you are looking for an emulator to play games, check out
       <a href="https://duckstation.org/" target="_blank">DuckStation</a>.
-    </p>
+    </div>
   </section>
 
   <section id="screenshots">
@@ -70,13 +70,13 @@
 
   <section id="setup">
     <h2>Try in Browser</h2>
+    <p>
+      This will run a WebAssembly build of nuPSX.
+      Requires a legally obtained PlayStation BIOS image and a game executable or disc image.
+      Files are only read locally in your browser and not uploaded. Not all games are expected to work,
+      so check out the <a href="https://github.com/maxpoletaev/nupsx#state" target="_blank">compatibility list</a>.
+    </p>
     <div class="run-form">
-      <p class="note">
-        This will run a WebAssembly build of nuPSX.
-        Requires a legally obtained PlayStation BIOS image and a game executable or disc image.
-        Files are only read locally in your browser and not uploaded anywhere. Not all games are expected to work,
-        so check out the <a href="https://github.com/maxpoletaev/nupsx#state" target="_blank">compatibility list</a>.
-      </p>
       <div class="field">
         <label for="biosFile">BIOS</label>
         <div>
@@ -88,35 +88,37 @@
         <label for="exeFile">PS-EXE</label>
         <div>
           <input type="file" id="exeFile" accept=".exe,.ps-exe">
-          <div class="hint">PlayStation executable (.exe)</div>
+          <div class="hint">PlayStation executable (.exe, .ps-exe)</div>
         </div>
       </div>
       <div class="field">
-        <label for="binFile">Game</label>
+        <label for="binFile">CD-ROM</label>
         <div>
           <input type="file" id="binFile" accept=".bin">
-          <div class="hint">Track 01 of the disc image (.bin)</div>
+          <div class="hint">Track 01 of the disc image (.bin),</div>
         </div>
       </div>
       <div class="form-actions">
         <div><!-- empty div for grid alignment --></div>
-        <div><button id="startBtn" class="submit-btn" type="submit">▶ Start Emulator</button></div>
-      </div>
-      <div class="controls">
-        <div class="controls__grid">
-          <div class="binding"><span class="binding__action">D-Pad</span><b class="binding__key">WASD</b></div>
-          <div class="binding"><span class="binding__action">Start</span><b class="binding__key">Enter</b></div>
-          <div class="binding"><span class="binding__action">Select</span><b class="binding__key">RShift</b></div>
-          <div class="binding"><span class="binding__action">✕ Cross</span><b class="binding__key">K</b></div>
-          <div class="binding"><span class="binding__action">○ Circle</span><b class="binding__key">L</b></div>
-          <div class="binding"><span class="binding__action">□ Square</span><b class="binding__key">J</b></div>
-          <div class="binding"><span class="binding__action">△ Triangle</span><b class="binding__key">I</b></div>
-          <div class="binding"><span class="binding__action">L2 / L1</span><b class="binding__key">Q / E</b></div>
-          <div class="binding"><span class="binding__action">R2 / R1</span><b class="binding__key">O / U</b></div>
-        </div>
-        <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
+        <button id="startBtn" class="submit-btn" type="submit">▶ Start Emulator</button>
       </div>
     </div>
+  </section>
+
+  <section class="controls">
+    <h2>Controls</h2>
+    <div class="controls__grid">
+      <div class="binding"><span class="binding__action">D-Pad</span><b class="binding__key">WASD</b></div>
+      <div class="binding"><span class="binding__action">Start</span><b class="binding__key">Enter</b></div>
+      <div class="binding"><span class="binding__action">Select</span><b class="binding__key">RShift</b></div>
+      <div class="binding"><span class="binding__action">✕ Cross</span><b class="binding__key">K</b></div>
+      <div class="binding"><span class="binding__action">○ Circle</span><b class="binding__key">L</b></div>
+      <div class="binding"><span class="binding__action">□ Square</span><b class="binding__key">J</b></div>
+      <div class="binding"><span class="binding__action">△ Triangle</span><b class="binding__key">I</b></div>
+      <div class="binding"><span class="binding__action">L2 / L1</span><b class="binding__key">Q / E</b></div>
+      <div class="binding"><span class="binding__action">R2 / R1</span><b class="binding__key">O / U</b></div>
+    </div>
+    <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
   </section>
 
   <section id="download">

@@ -36,7 +36,7 @@
   --label-col: 120px;
   --gap: 14px;
   --row-gap: 16px;
-  --form-width: min(700px, 100% - 40px);
+  --form-width: 700px;
 }
 
 body {
@@ -49,6 +49,7 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1.3;
+  padding: 0 20px;
 }
 
 a { 
@@ -63,13 +64,14 @@ a:hover {
 
 .page {
   padding: 20px 0;
-  width: var(--form-width);
+  width: 100%;
+  max-width: var(--form-width);
 }
 
 /* Header */
-header {
+.header {
   margin-bottom: 48px;
-  line-height: 1;
+  line-height: 0.9;
 }
 
 .header__title {
@@ -97,8 +99,14 @@ h2 {
   font-weight: bold;
 }
 
-p { margin-bottom: 14px; color: var(--text); }
-p:last-child { margin-bottom: 0; }
+p {
+  margin-bottom: 24px;
+  color: var(--text);
+}
+
+p:last-child {
+  margin-bottom: 0;
+}
 
 /* Screenshots */
 .screenshots {
@@ -186,11 +194,19 @@ p:last-child { margin-bottom: 0; }
   padding-top: 2px;
 }
 
+.field > div {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .field input[type="file"] {
   font-family: var(--font);
   font-size: var(--font-size);
   color: var(--text);
   cursor: pointer;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .field input[type="file"]::file-selector-button {
@@ -285,20 +301,6 @@ footer a:hover { color: var(--text-bright); }
 }
 
 /* Controls */
-.controls {
-  font-size: 0.9em;
-  margin-top: 48px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-dim);
-}
-
-.controls__title {
-  font-size: 1.2em;
-  color: var(--text-bright);
-  margin-bottom: 20px;
-  font-weight: bold;
-}
-
 .controls__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -316,12 +318,14 @@ footer a:hover { color: var(--text-bright); }
   font-weight: bold;
   min-width: 40px;
   text-align: left;
+  white-space: nowrap;
 }
 
 .binding__action {
   color: var(--text-bright);
   min-width: 100px;
   text-align: right;
+  white-space: nowrap;
 }
 
 .controls__gamepad {
@@ -344,30 +348,34 @@ footer a:hover { color: var(--text-bright); }
   }
 
   body {
+    padding: 20px;
+  }
+
+  .download-row {
+    flex-direction: column;
     align-items: flex-start;
-    padding: 24px 16px 32px;
+    gap: 6px;
   }
 
-  .screenshots { grid-template-columns: 1fr; }
-  .download-row { flex-wrap: wrap; gap: 10px; }
-  .download-row a { margin-top: 8px; }
-
-  .field {
-    grid-template-columns: 1fr;
-  }
-  .field label { text-align: left; }
-
-  .form-actions {
-    grid-template-columns: 1fr;
-  }
-  .form-actions > div:first-child {
-    display: none;
-  }
-  .form-actions button {
+  .download-row a {
     width: 100%;
   }
 
-  .controls__grid {
-    grid-template-columns: repeat(2, 1fr);
+  .run-form {
+    padding: 16px;
+  }
+
+  .field { grid-template-columns: 1fr; }
+  .field label { text-align: left; }
+  .form-actions { grid-template-columns: 1fr;}
+
+  .binding {
+    flex-direction: column;
+    margin-bottom: 12px;
+    gap: 2px;
+  }
+
+  .binding__action {
+    text-align: left;
   }
 }
