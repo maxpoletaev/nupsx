@@ -384,7 +384,7 @@ pub const CPU = struct {
     cycles: u8,
     lo: u32,
     hi: u32,
-    tty: ?*std.io.Writer = null,
+    tty: ?*std.Io.Writer = null,
 
     pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
@@ -425,7 +425,7 @@ pub const CPU = struct {
 
     pub fn deinit(self: *@This()) void {
         self.block_allocator.deinit(self.allocator);
-        self.allocator.free(self.cached_blocks);
+        self.allocator.destroy(self.cached_blocks);
         self.allocator.destroy(self);
     }
 

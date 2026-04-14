@@ -68,13 +68,15 @@ pub const BIOS = struct {
     }
 
     pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) Error!*@This() {
-        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        const io = std.Options.debug_io;
+
+        const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open BIOS file: {}", .{err});
             return Error.FileReadError;
         };
-        defer file.close();
+        defer file.close(io);
 
-        const file_size = file.getEndPos() catch |err| {
+        const file_size = file.length(io) catch |err| {
             log.err("failed to read BIOS file size: {}", .{err});
             return Error.FileReadError;
         };
@@ -84,18 +86,13 @@ pub const BIOS = struct {
             return Error.InvalidBiosSize;
         }
 
-        const rom = allocator.alloc(u8, file_size) catch @panic("OOM");
-        errdefer allocator.free(rom);
-
-        const bytes_read = file.readAll(rom) catch |err| {
+        var read_buf: [4096]u8 = undefined;
+        var reader = file.reader(io, &read_buf);
+        const rom = reader.interface.readAlloc(allocator, @intCast(file_size)) catch |err| {
             log.err("failed to read BIOS file: {}", .{err});
             return Error.FileReadError;
         };
-
-        if (bytes_read != file_size) {
-            log.err("incomplete read of BIOS file: expected {d} bytes, got {d}", .{ file_size, bytes_read });
-            return Error.FileReadError;
-        }
+        errdefer allocator.free(rom);
 
         const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{

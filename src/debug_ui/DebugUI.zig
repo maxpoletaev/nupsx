@@ -60,7 +60,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     const monitor = glfw.getPrimaryMonitor();
     const video_mode = try glfw.getVideoMode(monitor.?);
 
-    const window = try glfw.Window.create(video_mode.width, video_mode.height, window_title, null);
+    const window = try glfw.createWindow(video_mode.width, video_mode.height, window_title, null, null);
     glfw.makeContextCurrent(window);
     glfw.swapInterval(1); // vsync
 
@@ -143,7 +143,8 @@ pub fn update(self: *@This()) void {
 
     if (self.next_frame_time > now) {
         const sleep_seconds = self.next_frame_time - now;
-        std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
+        const ns: i96 = @intFromFloat(sleep_seconds * std.time.ns_per_s);
+        std.Options.debug_io.sleep(.{ .nanoseconds = ns }, .awake) catch {};
     }
 
     self.updateInternal(now);

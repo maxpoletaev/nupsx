@@ -147,18 +147,20 @@ pub const Disc = struct {
         };
         defer cue.free(allocator, &cue_sheet);
 
+        const io = std.Options.debug_io;
         const cue_root = std.fs.path.dirname(cue_path) orelse ".";
-        const cue_dir = std.fs.cwd().openDir(cue_root, .{}) catch |err| {
+        const cue_dir = std.Io.Dir.openDir(.cwd(), io, cue_root, .{}) catch |err| {
             log.err("failed to open cue sheet directory {s}: {}", .{ cue_root, err });
             return Error.FileIoError;
         };
+        defer cue_dir.close(io);
 
         var tracks: std.ArrayList(Track) = .empty;
         var absolute_sector: u32 = cdrom_file_offset_sectors_cue;
         var total_size: usize = 0;
 
         for (cue_sheet.files) |file| {
-            const stat = cue_dir.statFile(file.filename) catch |err| {
+            const stat = cue_dir.statFile(io, file.filename, .{}) catch |err| {
                 log.err("failed to stat file {s}: {}", .{ file.filename, err });
                 return Error.FileIoError;
             };
@@ -207,25 +209,25 @@ pub const Disc = struct {
         var offset: usize = 0;
 
         for (cue_sheet.files) |file| {
-            const bin_file = cue_dir.openFile(file.filename, .{ .mode = .read_only }) catch |err| {
+            const bin_file = std.Io.Dir.openFile(cue_dir, io, file.filename, .{}) catch |err| {
                 log.err("failed to open binary file {s}: {}", .{ file.filename, err });
                 return Error.FileIoError;
             };
-            defer bin_file.close();
+            defer bin_file.close(io);
 
-            const file_size = bin_file.getEndPos() catch |err| {
+            const file_size = bin_file.length(io) catch |err| {
                 log.err("failed to stat file {s}: {}", .{ file.filename, err });
                 return Error.FileIoError;
             };
 
-            var reader = bin_file.reader(&reader_buf);
-            reader.interface.readSliceAll(disc_data[offset .. offset + file_size]) catch |err| {
+            var reader = bin_file.reader(io, &reader_buf);
+            reader.interface.readSliceAll(disc_data[offset .. offset + @as(usize, @intCast(file_size))]) catch |err| {
                 log.err("failed to read file {s}: {}", .{ file.filename, err });
                 return Error.FileIoError;
             };
 
             log.info("loaded bin file: {s} ({d} bytes)", .{ file.filename, file_size });
-            offset += file_size;
+            offset += @intCast(file_size);
         }
 
         if (tracks.items.len == 0) {
@@ -264,22 +266,24 @@ pub const Disc = struct {
     }
 
     pub fn loadBin(allocator: std.mem.Allocator, path: []const u8) Error!@This() {
-        const file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch |err| {
+        const io = std.Options.debug_io;
+
+        const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open bin file {s}: {}", .{ path, err });
             return Error.FileIoError;
         };
-        defer file.close();
+        defer file.close(io);
 
-        const file_size = file.getEndPos() catch |err| {
+        const file_size = file.length(io) catch |err| {
             log.err("failed to stat file {s}: {}", .{ path, err });
             return Error.FileIoError;
         };
 
         var reader_buf: [8192]u8 = undefined;
-        const disc_data = allocator.alignedAlloc(u8, .@"2", file_size) catch @panic("OOM");
+        const disc_data = allocator.alignedAlloc(u8, .@"2", @intCast(file_size)) catch @panic("OOM");
         errdefer allocator.free(disc_data);
 
-        var reader = file.reader(&reader_buf);
+        var reader = file.reader(io, &reader_buf);
         reader.interface.readSliceAll(disc_data) catch |err| {
             log.err("failed to read file {s}: {}", .{ path, err });
             return Error.FileIoError;

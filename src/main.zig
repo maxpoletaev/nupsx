@@ -33,7 +33,7 @@ const Joypad = joy_mod.Joypad;
 
 pub fn logFn(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -45,11 +45,11 @@ pub fn logFn(
     };
 
     var buf: [4096]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buf);
-    defer std.debug.unlockStderrWriter();
+    const stderr = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
 
     const prefix = std.fmt.comptimePrint("{s}({s}): ", .{ level_str, @tagName(scope) });
-    stderr.print(prefix ++ format ++ "\n", args) catch {};
+    stderr.file_writer.interface.print(prefix ++ format ++ "\n", args) catch {};
 }
 
 pub const std_options = std.Options{
@@ -82,7 +82,7 @@ const logo_text =
 
 fn printLogo() void {
     var buf: [1024]u8 = undefined;
-    var writer = std.fs.File.stdout().writer(&buf);
+    var writer = std.Io.File.stdout().writer(std.Options.debug_io, &buf);
     _ = writer.interface.write(logo_text) catch 0;
     writer.interface.flush() catch {};
 }
@@ -149,22 +149,17 @@ const Audio = struct {
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer if (gpa.deinit() == .leak) {
         std.log.warn("leak detected", .{});
     };
 
     const allocator = gpa.allocator();
 
-    var args = Args.parse(allocator) catch |err| {
-        switch (err) {
-            error.InvalidArgument => {
-                Args.printHelp();
-                std.process.exit(1);
-            },
-            else => return err,
-        }
+    var args = Args.parse(init.args) catch {
+        Args.printHelp();
+        std.process.exit(1);
     };
     defer args.deinit();
 
@@ -290,7 +285,7 @@ pub fn main() !void {
         }
 
         var buf: [1024]u8 = undefined;
-        var stdout = std.fs.File.stdout().writer(&buf);
+        var stdout = std.Io.File.stdout().writer(std.Options.debug_io, &buf);
 
         cpu.tty = &stdout.interface;
 

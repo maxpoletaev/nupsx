@@ -58,21 +58,23 @@ pub fn loadExeFromBuffer(buf: []const u8, cpu: *CPU, bus: *Bus) Error!void {
 }
 
 pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *Bus) Error!void {
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+    const io = std.Options.debug_io;
+
+    const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
         log.err("failed to open EXE file: {}", .{err});
         return Error.FileReadError;
     };
-    defer file.close();
+    defer file.close(io);
 
-    var reader_buf: [1024]u8 = undefined;
-    var reader = file.reader(&reader_buf);
-
-    const file_size = file.getEndPos() catch |err| {
+    const file_size = file.length(io) catch |err| {
         log.err("failed to get EXE file size: {}", .{err});
         return Error.FileReadError;
     };
 
-    const buf = reader.interface.readAlloc(allocator, file_size) catch |err| {
+    var reader_buf: [1024]u8 = undefined;
+    var reader = file.reader(io, &reader_buf);
+
+    const buf = reader.interface.readAlloc(allocator, @intCast(file_size)) catch |err| {
         log.err("failed to read exe file: {}", .{err});
         return Error.FileReadError;
     };

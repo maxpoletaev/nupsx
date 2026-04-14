@@ -16,7 +16,7 @@ const AudioStreamNative = struct {
     buf: [capacity][2]i16 = undefined,
     head: std.atomic.Value(usize) = .init(0),
     tail: std.atomic.Value(usize) = .init(0),
-    sem: std.Thread.Semaphore = .{},
+    sem: std.Io.Semaphore = .{},
 
     inline fn isFull(self: *@This()) bool {
         const tail = self.tail.load(.monotonic);
@@ -26,7 +26,7 @@ const AudioStreamNative = struct {
 
     pub fn push(self: *@This(), sample: [2]i16) void {
         while (self.isFull()) {
-            self.sem.wait();
+            self.sem.waitUncancelable(std.Options.debug_io);
         }
 
         const tail = self.tail.load(.monotonic);
@@ -48,7 +48,7 @@ const AudioStreamNative = struct {
     }
 
     pub fn signal(self: *@This()) void {
-        self.sem.post();
+        self.sem.post(std.Options.debug_io);
     }
 };
 

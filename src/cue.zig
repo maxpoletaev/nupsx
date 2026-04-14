@@ -97,14 +97,16 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8, diag: ?*Diagnost
 }
 
 pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8, diag: ?*Diagnostic) Error!CueSheet {
-    const file = std.fs.cwd().openFile(cue_path, .{}) catch |err| {
+    const io = std.Options.debug_io;
+
+    const file = std.Io.Dir.openFile(.cwd(), io, cue_path, .{}) catch |err| {
         if (diag) |d| d.setMessage("failed to open file: {}", .{err});
         return Error.FileIoError;
     };
-    defer file.close();
+    defer file.close(io);
 
     var buf: [4096]u8 = undefined;
-    var reader = file.reader(&buf);
+    var reader = file.reader(io, &buf);
     const content = reader.interface.allocRemaining(allocator, .unlimited) catch |err| {
         if (diag) |d| d.setMessage("failed to read file: {}", .{err});
         return Error.FileIoError;
@@ -143,9 +145,9 @@ const Parser = struct {
     line: usize = 1,
     diag: ?*Diagnostic,
 
-    files: std.ArrayListUnmanaged(FileNode) = .{},
-    tracks: std.ArrayListUnmanaged(TrackNode) = .{},
-    indices: std.ArrayListUnmanaged(IndexNode) = .{},
+    files: std.ArrayListUnmanaged(FileNode) = .empty,
+    tracks: std.ArrayListUnmanaged(TrackNode) = .empty,
+    indices: std.ArrayListUnmanaged(IndexNode) = .empty,
 
     tmp: struct {
         file_name: ?[]const u8 = null,
