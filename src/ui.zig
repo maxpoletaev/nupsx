@@ -12,6 +12,8 @@ const log = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
+const window_width = 320 * 3;
+const window_height = 240 * 3;
 
 const vertex_shader_source = @embedFile("shaders/vertex.glsl");
 const ntsc_encoder_source = @embedFile("shaders/ntsc_encoder.glsl");
@@ -29,7 +31,7 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     if (success == 0) {
         var info_log: [512]u8 = undefined;
         gl.getShaderInfoLog(vertex_shader, 512, null, &info_log);
-        log.err("Vertex shader compilation failed: {s}", .{info_log});
+        log.err("vertex shader compilation failed: {s}", .{info_log});
         return error.ShaderCompilationFailed;
     }
 
@@ -43,7 +45,7 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     if (success == 0) {
         var info_log: [512]u8 = undefined;
         gl.getShaderInfoLog(fragment_shader, 512, null, &info_log);
-        log.err("Fragment shader compilation failed: {s}", .{info_log});
+        log.err("fragment shader compilation failed: {s}", .{info_log});
         return error.ShaderCompilationFailed;
     }
 
@@ -56,12 +58,107 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     if (success == 0) {
         var info_log: [512]u8 = undefined;
         gl.getProgramInfoLog(shader_program, 512, null, &info_log);
-        log.err("Shader program linking failed: {s}", .{info_log});
+        log.err("shader program linking failed: {s}", .{info_log});
         return error.ShaderLinkingFailed;
     }
 
     return shader_program;
 }
+
+const NtscEncoder = struct {
+    program: gl.Uint,
+    u_display_offset: gl.Int,
+    u_display_size: gl.Int,
+    u_display_range_y: gl.Int,
+    u_vram_size: gl.Int,
+    u_resolution: gl.Int,
+    u_frame: gl.Int,
+    u_noise: gl.Int,
+
+    fn init() @This() {
+        const program = createShaderProgram(vertex_shader_source, ntsc_encoder_source) catch {
+            @panic("ntsc encoder compilation failed");
+        };
+        return .{
+            .program = program,
+            .u_display_offset = gl.getUniformLocation(program, "uDisplayOffset"),
+            .u_display_size = gl.getUniformLocation(program, "uDisplaySize"),
+            .u_display_range_y = gl.getUniformLocation(program, "uDisplayRangeY"),
+            .u_vram_size = gl.getUniformLocation(program, "uVramSize"),
+            .u_resolution = gl.getUniformLocation(program, "uResolution"),
+            .u_frame = gl.getUniformLocation(program, "uFrame"),
+            .u_noise = gl.getUniformLocation(program, "uNoise"),
+        };
+    }
+
+    fn draw(self: *@This(), fbo: gl.Uint, vram_tex: gl.Uint, fw: gl.Sizei, fh: gl.Sizei, gpu: *GPU, frame: gl.Int) void {
+        const color_depth = gpu.getColorDepth();
+        const display_res = gpu.getDisplayRes();
+        const start_x: f32 = @floatFromInt(gpu.gp1_display_area_start.x);
+        var start_y: f32 = @floatFromInt(gpu.gp1_display_area_start.y);
+        if (start_y == 2) start_y = 0; // HACK: old bioses set this to 2, resulting in cluts being displayed in the viewport
+
+        const offset_x: f32 = switch (color_depth) {
+            .bit15 => start_x,
+            .bit24 => start_x * (2.0 / 3.0),
+        };
+        const vram_size_x: f32 = switch (color_depth) {
+            .bit15 => 1024.0,
+            .bit24 => 682.0,
+        };
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.viewport(0, 0, fw, fh);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(self.program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, vram_tex);
+        gl.uniform2f(self.u_display_offset, offset_x, start_y);
+        gl.uniform2f(self.u_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
+        gl.uniform2f(self.u_display_range_y, @floatFromInt(gpu.gp1_display_range_y.y1), @floatFromInt(gpu.gp1_display_range_y.y2));
+        gl.uniform2f(self.u_vram_size, vram_size_x, 512.0);
+        gl.uniform2f(self.u_resolution, @floatFromInt(fw), @floatFromInt(fh));
+        gl.uniform1i(self.u_frame, frame);
+        gl.uniform1f(self.u_noise, 0.03);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    fn deinit(self: *@This()) void {
+        gl.deleteProgram(self.program);
+    }
+};
+
+const NtscDecoder = struct {
+    program: gl.Uint,
+    u_resolution: gl.Int,
+    u_frame: gl.Int,
+
+    fn init() @This() {
+        const program = createShaderProgram(vertex_shader_source, ntsc_decoder_source) catch {
+            @panic("ntsc decoder compilation failed");
+        };
+        return .{
+            .program = program,
+            .u_resolution = gl.getUniformLocation(program, "uResolution"),
+            .u_frame = gl.getUniformLocation(program, "uFrame"),
+        };
+    }
+
+    fn draw(self: *@This(), composite_tex: gl.Uint, fw: gl.Sizei, fh: gl.Sizei, frame: gl.Int) void {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
+        gl.viewport(0, 0, fw, fh);
+        gl.useProgram(self.program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, composite_tex);
+        gl.uniform2f(self.u_resolution, @floatFromInt(fw), @floatFromInt(fh));
+        gl.uniform1i(self.u_frame, frame);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    fn deinit(self: *@This()) void {
+        gl.deleteProgram(self.program);
+    }
+};
 
 pub const UI = struct {
     allocator: std.mem.Allocator,
@@ -71,23 +168,12 @@ pub const UI = struct {
     vram_tex: gl.Uint,
     vao: gl.Uint,
     vbo: gl.Uint,
-    // NTSC encode pass
-    encoder_program: gl.Uint,
+    encoder: NtscEncoder,
+    decoder: NtscDecoder,
     composite_fbo: gl.Uint,
     composite_tex: gl.Uint,
     composite_fbo_w: gl.Sizei,
     composite_fbo_h: gl.Sizei,
-    enc_u_display_offset: gl.Int,
-    enc_u_display_size: gl.Int,
-    enc_u_display_range_y: gl.Int,
-    enc_u_vram_size: gl.Int,
-    enc_u_resolution: gl.Int,
-    enc_u_frame: gl.Int,
-    enc_u_noise: gl.Int,
-    // NTSC decode pass
-    decoder_program: gl.Uint,
-    dec_u_resolution: gl.Int,
-    dec_u_frame: gl.Int,
     ntsc_frame: gl.Int,
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
@@ -113,16 +199,13 @@ pub const UI = struct {
         glfw.windowHint(.client_api, .opengl_api);
         glfw.windowHint(.doublebuffer, true);
 
-        const window = try glfw.createWindow(640, 480, window_title, null, null);
+        const window = try glfw.createWindow(window_width, window_height, window_title, null, null);
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);
         glfw.swapInterval(0);
 
         try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
-
-        const encoder_program = try createShaderProgram(vertex_shader_source, ntsc_encoder_source);
-        const decoder_program = try createShaderProgram(vertex_shader_source, ntsc_decoder_source);
 
         // VAO and VBO for fullscreen quad
         var vao: gl.Uint = undefined;
@@ -152,7 +235,7 @@ pub const UI = struct {
         gl.genFramebuffers(1, &composite_fbo);
         gl.genTextures(1, &composite_tex);
         gl.bindTexture(gl.TEXTURE_2D, composite_tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 640, 480, 0, gl.RED, gl.FLOAT, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, window_width, window_height, 0, gl.RED, gl.FLOAT, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -170,21 +253,12 @@ pub const UI = struct {
             .vram_tex = vram_tex,
             .vao = vao,
             .vbo = vbo,
-            .encoder_program = encoder_program,
+            .encoder = NtscEncoder.init(),
+            .decoder = NtscDecoder.init(),
             .composite_fbo = composite_fbo,
             .composite_tex = composite_tex,
-            .composite_fbo_w = 640,
-            .composite_fbo_h = 480,
-            .enc_u_display_offset = gl.getUniformLocation(encoder_program, "uDisplayOffset"),
-            .enc_u_display_size = gl.getUniformLocation(encoder_program, "uDisplaySize"),
-            .enc_u_display_range_y = gl.getUniformLocation(encoder_program, "uDisplayRangeY"),
-            .enc_u_vram_size = gl.getUniformLocation(encoder_program, "uVramSize"),
-            .enc_u_resolution = gl.getUniformLocation(encoder_program, "uResolution"),
-            .enc_u_frame = gl.getUniformLocation(encoder_program, "uFrame"),
-            .enc_u_noise = gl.getUniformLocation(encoder_program, "uNoise"),
-            .decoder_program = decoder_program,
-            .dec_u_resolution = gl.getUniformLocation(decoder_program, "uResolution"),
-            .dec_u_frame = gl.getUniformLocation(decoder_program, "uFrame"),
+            .composite_fbo_w = window_width,
+            .composite_fbo_h = window_height,
             .ntsc_frame = 0,
         };
 
@@ -198,8 +272,8 @@ pub const UI = struct {
         gl.deleteFramebuffers(1, &self.composite_fbo);
         gl.deleteBuffers(1, &self.vbo);
         gl.deleteVertexArrays(1, &self.vao);
-        gl.deleteProgram(self.encoder_program);
-        gl.deleteProgram(self.decoder_program);
+        self.encoder.deinit();
+        self.decoder.deinit();
         self.window.destroy();
         glfw.terminate();
 
@@ -283,35 +357,54 @@ pub const UI = struct {
         }
     }
 
-    fn updateInternal(self: *@This(), now: f64) void {
-        glfw.pollEvents();
-
+    fn updateTitle(self: *@This(), now: f64) void {
         self.frame_count += 1;
         const fps_elapsed = now - self.last_fps_update_time;
+        if (fps_elapsed < 1.0) return;
 
-        if (fps_elapsed >= 1.0) {
-            const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
-            var title_buf: [256]u8 = undefined;
+        const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
+        var title_buf: [256]u8 = undefined;
 
-            if (self.filename) |filename| {
-                const title = std.fmt.bufPrintZ(
-                    &title_buf,
-                    "{s} - {s} - {d:.1} FPS",
-                    .{ window_title, filename, fps },
-                ) catch unreachable;
-                self.window.setTitle(title);
-            } else {
-                const title = std.fmt.bufPrintZ(
-                    &title_buf,
-                    "{s} - NO DISK - {d:.1} FPS",
-                    .{ window_title, fps },
-                ) catch unreachable;
-                self.window.setTitle(title);
-            }
-
-            self.last_fps_update_time = now;
-            self.frame_count = 0;
+        if (self.filename) |filename| {
+            const title = std.fmt.bufPrintZ(
+                &title_buf,
+                "{s} - {s} - {d:.1} FPS",
+                .{ window_title, filename, fps },
+            ) catch unreachable;
+            self.window.setTitle(title);
+        } else {
+            const title = std.fmt.bufPrintZ(
+                &title_buf,
+                "{s} - NO DISK - {d:.1} FPS",
+                .{ window_title, fps },
+            ) catch unreachable;
+            self.window.setTitle(title);
         }
+
+        self.last_fps_update_time = now;
+        self.frame_count = 0;
+    }
+
+    fn uploadVram(self: *@This()) void {
+        gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+        switch (self.gpu.getColorDepth()) {
+            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram),
+            .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 682, 512, 0, gl.RGB, gl.UNSIGNED_BYTE, self.gpu.vram),
+        }
+    }
+
+    fn resizeCompositeFbo(self: *@This(), fw: gl.Sizei, fh: gl.Sizei) void {
+        if (fw == self.composite_fbo_w and fh == self.composite_fbo_h) return;
+        self.composite_fbo_w = fw;
+        self.composite_fbo_h = fh;
+        gl.bindTexture(gl.TEXTURE_2D, self.composite_tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, fw, fh, 0, gl.RED, gl.FLOAT, null);
+    }
+
+    fn updateInternal(self: *@This(), now: f64) void {
+        glfw.pollEvents();
+        self.updateTitle(now);
 
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -321,76 +414,18 @@ pub const UI = struct {
             return;
         }
 
-        const color_depth = self.gpu.getColorDepth();
-
-        // Upload VRAM texture
-        gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
-        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-        switch (color_depth) {
-            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram),
-            .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 682, 512, 0, gl.RGB, gl.UNSIGNED_BYTE, self.gpu.vram),
-        }
-
-        const display_res = self.gpu.getDisplayRes();
-        const start_x: f32 = @floatFromInt(self.gpu.gp1_display_area_start.x);
-        var start_y: f32 = @floatFromInt(self.gpu.gp1_display_area_start.y);
-        if (start_y == 2) start_y = 0; // HACK: old bioses set this to 2, resulting in cluts being displayed in the viewport
-
-        const display_range_y1: f32 = @floatFromInt(self.gpu.gp1_display_range_y.y1);
-        const display_range_y2: f32 = @floatFromInt(self.gpu.gp1_display_range_y.y2);
-
-        const offset_x: f32 = switch (color_depth) {
-            .bit15 => start_x,
-            .bit24 => start_x * (2.0 / 3.0),
-        };
-        const vram_size_x: f32 = switch (color_depth) {
-            .bit15 => 1024.0,
-            .bit24 => 682.0,
-        };
-
         const fb_size = self.window.getFramebufferSize();
         const fw: gl.Sizei = @intCast(fb_size[0]);
         const fh: gl.Sizei = @intCast(fb_size[1]);
 
-        if (fw != self.composite_fbo_w or fh != self.composite_fbo_h) {
-            self.composite_fbo_w = fw;
-            self.composite_fbo_h = fh;
-            gl.bindTexture(gl.TEXTURE_2D, self.composite_tex);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, fw, fh, 0, gl.RED, gl.FLOAT, null);
-        }
+        self.uploadVram();
+        self.resizeCompositeFbo(fw, fh);
 
         gl.bindVertexArray(self.vao);
-
-        // Pass 1: encode VRAM → composite signal
-        gl.bindFramebuffer(gl.FRAMEBUFFER, self.composite_fbo);
-        gl.viewport(0, 0, fw, fh);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-
-        gl.useProgram(self.encoder_program);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
-        gl.uniform2f(self.enc_u_display_offset, offset_x, start_y);
-        gl.uniform2f(self.enc_u_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
-        gl.uniform2f(self.enc_u_display_range_y, display_range_y1, display_range_y2);
-        gl.uniform2f(self.enc_u_vram_size, vram_size_x, 512.0);
-        gl.uniform2f(self.enc_u_resolution, @floatFromInt(fw), @floatFromInt(fh));
-        gl.uniform1i(self.enc_u_frame, self.ntsc_frame);
-        gl.uniform1f(self.enc_u_noise, 0.03);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-        // Pass 2: decode composite → screen
-        gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
-        gl.viewport(0, 0, fw, fh);
-
-        gl.useProgram(self.decoder_program);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, self.composite_tex);
-        gl.uniform2f(self.dec_u_resolution, @floatFromInt(fw), @floatFromInt(fh));
-        gl.uniform1i(self.dec_u_frame, self.ntsc_frame);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        self.encoder.draw(self.composite_fbo, self.vram_tex, fw, fh, self.gpu, self.ntsc_frame);
+        self.decoder.draw(self.composite_tex, fw, fh, self.ntsc_frame);
 
         self.ntsc_frame +%= 1;
-
         self.window.swapBuffers();
     }
 };
