@@ -1,32 +1,24 @@
 .{
     .name = .nupsx,
-    .version = "0.0.1",
+    .version = "0.2.0",
     .fingerprint = 0xb2fcd5f4f801ce80,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zgui = .{
-            // .url = "git+https://github.com/zig-gamedev/zgui#7d3fb3302b90bf71dbc93eb02bb208e6f37d555b",
-            // .hash = "zgui-0.6.0-dev--L6sZBHybQAZLl719GjSlogZC3MhuGRf4wI48tjbnW3z",
-            .path = "../zgui",
+            .url = "git+https://github.com/cyberegoorg/zgui#3ad1a950e95626e5272b3b2e49451fa9eba3d827",
+            .hash = "zgui-0.6.0-dev--L6sZCmBcQAQiwWne7UnKuz-ANOHQmPRMinTUOJqlrRl",
         },
         .zglfw = .{
-            // .url = "git+https://github.com/zig-gamedev/zglfw#15bf6ec59a4e1399d0c753455f69b28f09e41791",
-            // .hash = "zglfw-0.10.0-dev-zgVDNHO2IQDy_fSdwY5U4z42rHUuKgt7T9f-qmQ3FnuL",
-            .path = "../zglfw",
+            .url = "git+https://github.com/simeks/zglfw#d0ff2ed426f57dbafc1bdcb0d08ada00c5332e3e",
+            .hash = "zglfw-0.10.0-dev-zgVDNIy4IQDJNRy4jrP1As-SZxfJpuWhU1iJ-wBab_VD",
         },
         .zopengl = .{
-            // .url = "git+https://github.com/zig-gamedev/zopengl#db9d615c742086b39954eef064f957e92dafc7e2",
-            // .hash = "zopengl-0.6.0-dev-5-tnz36mDgBuU9pDfag6_B-qCWOJQc5GXiXuZ6z41zQM",
-            .path = "../zopengl",
-        },
-        .zmath = .{
-            .url = "git+https://github.com/zig-gamedev/zmath#3a5955b2b72cd081563fbb084eff05bffd1e3fbb",
-            .hash = "zmath-0.11.0-dev-wjwivdMsAwD-xaLj76YHUq3t9JDH-X16xuMTmnDzqbu2",
+            .url = "git+https://github.com/fourlexboehm/zopengl#fd054f8beef13ee6a986db3f2b17dc5932e5b0f0",
+            .hash = "zopengl-0.6.0-dev-5-tnz76mDgBd5vSbvhwr7PrWteiut8CYUM3nR7ivKd4Z",
         },
         .zaudio = .{
-            // .url = "git+https://github.com/zig-gamedev/zaudio#bb93ad665b89e302d4515a36b44cb8e73eaf6766",
-            // .hash = "zaudio-0.11.0-dev-_M-91kHvPwAlW8MCRI4XiTbTeihqB8Zspgiuw-6Gqgdz",
-            .path = "../zaudio",
+            .url = "git+https://github.com/fourlexboehm/zaudio#557f8fcdf0c26e86a57f83e2a67affd09aa6498b",
+            .hash = "zaudio-0.11.0-dev-_M-91qoyQQDfje5uM1OSx8a67bMWZMza4gWUhbqKJCV2",
         },
         .system_sdk = .{
             .url = "git+https://github.com/zig-gamedev/system_sdk#777e76828f05d5d223df47a4c0de95ae4efde884",

@@ -245,7 +245,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (args.debug) {
-        const debug_ui = try DebugUI.init(allocator, cpu, bus);
+        const debug_ui = try DebugUI.init(allocator, io, cpu, bus);
         defer debug_ui.deinit();
 
         while (debug_ui.is_running) {
