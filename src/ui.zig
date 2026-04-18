@@ -12,10 +12,13 @@ const log = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
-const window_width = 320 * 3;
-const window_height = 240 * 3;
+const window_width = 320;
+const window_height = 240;
+const ntsc_width = 960;
+const ntsc_height = 720;
 
 const vertex_shader_source = @embedFile("shaders/vertex.glsl");
+const fragment_shader_source = @embedFile("shaders/fragment.glsl");
 const ntsc_encoder_source = @embedFile("shaders/ntsc_encoder.glsl");
 const ntsc_decoder_source = @embedFile("shaders/ntsc_decoder.glsl");
 
@@ -65,19 +68,16 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     return shader_program;
 }
 
-const NtscEncoder = struct {
+const DisplayPass = struct {
     program: gl.Uint,
     u_display_offset: gl.Int,
     u_display_size: gl.Int,
     u_display_range_y: gl.Int,
     u_vram_size: gl.Int,
-    u_resolution: gl.Int,
-    u_frame: gl.Int,
-    u_noise: gl.Int,
 
     fn init() @This() {
-        const program = createShaderProgram(vertex_shader_source, ntsc_encoder_source) catch {
-            @panic("ntsc encoder compilation failed");
+        const program = createShaderProgram(vertex_shader_source, fragment_shader_source) catch {
+            @panic("display shader compilation failed");
         };
         return .{
             .program = program,
@@ -85,13 +85,10 @@ const NtscEncoder = struct {
             .u_display_size = gl.getUniformLocation(program, "uDisplaySize"),
             .u_display_range_y = gl.getUniformLocation(program, "uDisplayRangeY"),
             .u_vram_size = gl.getUniformLocation(program, "uVramSize"),
-            .u_resolution = gl.getUniformLocation(program, "uResolution"),
-            .u_frame = gl.getUniformLocation(program, "uFrame"),
-            .u_noise = gl.getUniformLocation(program, "uNoise"),
         };
     }
 
-    fn draw(self: *@This(), fbo: gl.Uint, vram_tex: gl.Uint, fw: gl.Sizei, fh: gl.Sizei, gpu: *GPU, frame: gl.Int) void {
+    fn draw(self: *@This(), fbo: gl.Uint, vram_tex: gl.Uint, fw: gl.Sizei, fh: gl.Sizei, gpu: *GPU) void {
         const color_depth = gpu.getColorDepth();
         const display_res = gpu.getDisplayRes();
         const start_x: f32 = @floatFromInt(gpu.gp1_display_area_start.x);
@@ -117,6 +114,39 @@ const NtscEncoder = struct {
         gl.uniform2f(self.u_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
         gl.uniform2f(self.u_display_range_y, @floatFromInt(gpu.gp1_display_range_y.y1), @floatFromInt(gpu.gp1_display_range_y.y2));
         gl.uniform2f(self.u_vram_size, vram_size_x, 512.0);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    fn deinit(self: *@This()) void {
+        gl.deleteProgram(self.program);
+    }
+};
+
+const NtscEncoder = struct {
+    program: gl.Uint,
+    u_resolution: gl.Int,
+    u_frame: gl.Int,
+    u_noise: gl.Int,
+
+    fn init() @This() {
+        const program = createShaderProgram(vertex_shader_source, ntsc_encoder_source) catch {
+            @panic("ntsc encoder compilation failed");
+        };
+        return .{
+            .program = program,
+            .u_resolution = gl.getUniformLocation(program, "uResolution"),
+            .u_frame = gl.getUniformLocation(program, "uFrame"),
+            .u_noise = gl.getUniformLocation(program, "uNoise"),
+        };
+    }
+
+    fn draw(self: *@This(), fbo: gl.Uint, rgb_tex: gl.Uint, fw: gl.Sizei, fh: gl.Sizei, frame: gl.Int) void {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.viewport(0, 0, fw, fh);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(self.program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, rgb_tex);
         gl.uniform2f(self.u_resolution, @floatFromInt(fw), @floatFromInt(fh));
         gl.uniform1i(self.u_frame, frame);
         gl.uniform1f(self.u_noise, 0.03);
@@ -144,13 +174,13 @@ const NtscDecoder = struct {
         };
     }
 
-    fn draw(self: *@This(), composite_tex: gl.Uint, fw: gl.Sizei, fh: gl.Sizei, frame: gl.Int) void {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
-        gl.viewport(0, 0, fw, fh);
+    fn draw(self: *@This(), output_fbo: gl.Uint, composite_tex: gl.Uint, w: gl.Sizei, h: gl.Sizei, frame: gl.Int) void {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, output_fbo);
+        gl.viewport(0, 0, w, h);
         gl.useProgram(self.program);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, composite_tex);
-        gl.uniform2f(self.u_resolution, @floatFromInt(fw), @floatFromInt(fh));
+        gl.uniform2f(self.u_resolution, @floatFromInt(w), @floatFromInt(h));
         gl.uniform1i(self.u_frame, frame);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
@@ -168,13 +198,18 @@ pub const UI = struct {
     vram_tex: gl.Uint,
     vao: gl.Uint,
     vbo: gl.Uint,
+    display: DisplayPass,
     encoder: NtscEncoder,
     decoder: NtscDecoder,
+    rgb_fbo: gl.Uint,
+    rgb_tex: gl.Uint,
     composite_fbo: gl.Uint,
     composite_tex: gl.Uint,
-    composite_fbo_w: gl.Sizei,
-    composite_fbo_h: gl.Sizei,
+    output_fbo: gl.Uint,
+    output_tex: gl.Uint,
     ntsc_frame: gl.Int,
+    ntsc_enabled: bool = true,
+    ntsc_key_prev: bool = false,
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
     is_running: bool = true,
@@ -229,19 +264,47 @@ pub const UI = struct {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+        // RGB FBO (display pass output, input to NTSC encoder)
+        var rgb_fbo: gl.Uint = undefined;
+        var rgb_tex: gl.Uint = undefined;
+        gl.genFramebuffers(1, &rgb_fbo);
+        gl.genTextures(1, &rgb_tex);
+        gl.bindTexture(gl.TEXTURE_2D, rgb_tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 320, 240, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, rgb_fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rgb_tex, 0);
+
         // Composite signal FBO (R16F to preserve full dynamic range)
         var composite_fbo: gl.Uint = undefined;
         var composite_tex: gl.Uint = undefined;
         gl.genFramebuffers(1, &composite_fbo);
         gl.genTextures(1, &composite_tex);
         gl.bindTexture(gl.TEXTURE_2D, composite_tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, window_width, window_height, 0, gl.RED, gl.FLOAT, null);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, ntsc_width, ntsc_height, 0, gl.RED, gl.FLOAT, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.bindFramebuffer(gl.FRAMEBUFFER, composite_fbo);
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, composite_tex, 0);
+
+        // Output FBO: decoder renders here at fixed ntsc resolution, then blitted to window
+        var output_fbo: gl.Uint = undefined;
+        var output_tex: gl.Uint = undefined;
+        gl.genFramebuffers(1, &output_fbo);
+        gl.genTextures(1, &output_tex);
+        gl.bindTexture(gl.TEXTURE_2D, output_tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, ntsc_width, ntsc_height, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, output_fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, output_tex, 0);
         gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
 
         const self = try allocator.create(@This());
@@ -253,12 +316,15 @@ pub const UI = struct {
             .vram_tex = vram_tex,
             .vao = vao,
             .vbo = vbo,
+            .display = DisplayPass.init(),
             .encoder = NtscEncoder.init(),
             .decoder = NtscDecoder.init(),
+            .rgb_fbo = rgb_fbo,
+            .rgb_tex = rgb_tex,
             .composite_fbo = composite_fbo,
             .composite_tex = composite_tex,
-            .composite_fbo_w = window_width,
-            .composite_fbo_h = window_height,
+            .output_fbo = output_fbo,
+            .output_tex = output_tex,
             .ntsc_frame = 0,
         };
 
@@ -268,10 +334,15 @@ pub const UI = struct {
     pub fn deinit(self: *@This()) void {
         if (self.filename) |f| self.allocator.free(f);
         gl.deleteTextures(1, &self.vram_tex);
+        gl.deleteTextures(1, &self.rgb_tex);
+        gl.deleteFramebuffers(1, &self.rgb_fbo);
         gl.deleteTextures(1, &self.composite_tex);
         gl.deleteFramebuffers(1, &self.composite_fbo);
+        gl.deleteTextures(1, &self.output_tex);
+        gl.deleteFramebuffers(1, &self.output_fbo);
         gl.deleteBuffers(1, &self.vbo);
         gl.deleteVertexArrays(1, &self.vao);
+        self.display.deinit();
         self.encoder.deinit();
         self.decoder.deinit();
         self.window.destroy();
@@ -332,6 +403,10 @@ pub const UI = struct {
         if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
             glfw.setWindowShouldClose(self.window, true);
         }
+
+        const ntsc_key = glfw.getKey(self.window, glfw.Key.n) == .press;
+        if (ntsc_key and !self.ntsc_key_prev) self.ntsc_enabled = !self.ntsc_enabled;
+        self.ntsc_key_prev = ntsc_key;
 
         if (self.window.shouldClose()) {
             self.is_running = false;
@@ -394,14 +469,6 @@ pub const UI = struct {
         }
     }
 
-    fn resizeCompositeFbo(self: *@This(), fw: gl.Sizei, fh: gl.Sizei) void {
-        if (fw == self.composite_fbo_w and fh == self.composite_fbo_h) return;
-        self.composite_fbo_w = fw;
-        self.composite_fbo_h = fh;
-        gl.bindTexture(gl.TEXTURE_2D, self.composite_tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, fw, fh, 0, gl.RED, gl.FLOAT, null);
-    }
-
     fn updateInternal(self: *@This(), now: f64) void {
         glfw.pollEvents();
         self.updateTitle(now);
@@ -415,17 +482,25 @@ pub const UI = struct {
         }
 
         const fb_size = self.window.getFramebufferSize();
-        const fw: gl.Sizei = @intCast(fb_size[0]);
-        const fh: gl.Sizei = @intCast(fb_size[1]);
+        const win_w: gl.Sizei = @intCast(fb_size[0]);
+        const win_h: gl.Sizei = @intCast(fb_size[1]);
 
         self.uploadVram();
-        self.resizeCompositeFbo(fw, fh);
-
         gl.bindVertexArray(self.vao);
-        self.encoder.draw(self.composite_fbo, self.vram_tex, fw, fh, self.gpu, self.ntsc_frame);
-        self.decoder.draw(self.composite_tex, fw, fh, self.ntsc_frame);
 
-        self.ntsc_frame +%= 1;
+        if (self.ntsc_enabled) {
+            self.display.draw(self.rgb_fbo, self.vram_tex, window_width, window_height, self.gpu);
+            self.encoder.draw(self.composite_fbo, self.rgb_tex, ntsc_width, ntsc_height, self.ntsc_frame);
+            self.decoder.draw(self.output_fbo, self.composite_tex, ntsc_width, ntsc_height, self.ntsc_frame);
+            self.ntsc_frame +%= 1;
+            // Blit output FBO to window, stretching to fit
+            gl.bindFramebuffer(gl.READ_FRAMEBUFFER, self.output_fbo);
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, 0);
+            gl.blitFramebuffer(0, 0, ntsc_width, ntsc_height, 0, 0, win_w, win_h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+        } else {
+            self.display.draw(0, self.vram_tex, win_w, win_h, self.gpu);
+        }
+
         self.window.swapBuffers();
     }
 };

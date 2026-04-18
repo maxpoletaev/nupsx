@@ -5,11 +5,7 @@
 in vec2 TexCoord;
 out vec4 FragColor;
 
-uniform sampler2D uVramTex;
-uniform vec2 uDisplayOffset;
-uniform vec2 uDisplaySize;
-uniform vec2 uDisplayRangeY;
-uniform vec2 uVramSize;
+uniform sampler2D uTex;
 uniform vec2 uResolution;
 uniform int uFrame;
 uniform float uNoise;
@@ -29,28 +25,7 @@ const mat3 rgb_to_yiq = mat3(
 );
 
 void main() {
-    float displayY = TexCoord.y * uDisplaySize.y;
-
-    float y1 = uDisplayRangeY.x;
-    float y2 = uDisplayRangeY.y;
-    float scanlines = (y2 > y1) ? (y2 - y1) : uDisplaySize.y;
-    float scale = uDisplaySize.y / 240.0;
-    float visibleHeight = scanlines * scale;
-
-    float topMargin = (uDisplaySize.y - visibleHeight) / 2.0;
-    float bottomMargin = topMargin + visibleHeight;
-
-    vec3 rgb;
-    if (y2 > y1 && (displayY < topMargin || displayY >= bottomMargin)) {
-        rgb = vec3(0.0);
-    } else {
-        float vramLine = displayY - topMargin;
-        vec2 displayUV = vec2(
-            uDisplayOffset.x + TexCoord.x * uDisplaySize.x,
-            uDisplayOffset.y + vramLine
-        );
-        rgb = texture(uVramTex, displayUV / uVramSize).rgb;
-    }
+    vec3 rgb = texture(uTex, vec2(TexCoord.x, 1.0 - TexCoord.y)).rgb;
 
     vec2 uv = TexCoord * uResolution;
     float fc = 128.0;
