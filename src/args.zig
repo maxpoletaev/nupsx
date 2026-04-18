@@ -23,28 +23,39 @@ pub const Error = error{
 };
 
 pub const Args = struct {
-    iter: std.process.Args.Iterator,
+    allocator: std.mem.Allocator,
 
     bios_path: []const u8,
-    exe_path: ?[]const u8,
-    cd_image_path: ?[]const u8,
+    exe_path: []const u8,
+    cd_image_path: []const u8,
 
     debug: bool = false,
     disasm: bool = false,
     breakpoint: u32 = 0,
     uncapped: bool = false,
 
-    pub fn printHelp() void {
-        std.Io.File.stdout().writeStreamingAll(std.Options.debug_io, help_text) catch {};
+    pub fn printHelp(io: std.Io) void {
+        std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
     }
 
-    pub fn parse(process_args: std.process.Args) Error!@This() {
-        const iter = std.process.Args.Iterator.init(process_args);
-        var args = std.mem.zeroInit(Args, .{ .iter = iter });
+    pub fn parse(allocator: std.mem.Allocator, io: std.Io, proc_args: std.process.Args) Error!@This() {
+        var args_iter = proc_args.iterateAllocator(allocator) catch @panic("OOM");
+        defer args_iter.deinit();
 
-        while (args.iter.next()) |arg| {
+        var args: Args = .{
+            .allocator = allocator,
+            .bios_path = &.{},
+            .exe_path = &.{},
+            .cd_image_path = &.{},
+            .debug = false,
+            .disasm = false,
+            .breakpoint = 0,
+            .uncapped = false,
+        };
+
+        while (args_iter.next()) |arg| {
             if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-                printHelp();
+                printHelp(io);
                 std.process.exit(0);
             }
 
@@ -57,7 +68,7 @@ pub const Args = struct {
             }
 
             if (std.mem.eql(u8, arg, "--breakpoint")) {
-                const addr_str = args.iter.next() orelse {
+                const addr_str = args_iter.next() orelse {
                     log.err("missing address after --breakpoint", .{});
                     return Error.InvalidArgument;
                 };
@@ -68,24 +79,27 @@ pub const Args = struct {
             }
 
             if (std.mem.eql(u8, arg, "--bios")) {
-                args.bios_path = args.iter.next() orelse {
+                const bios_path = args_iter.next() orelse {
                     log.err("missing path after --bios", .{});
-                    return error.InvalidArgument;
+                    return Error.InvalidArgument;
                 };
+                args.bios_path = allocator.dupe(u8, bios_path) catch @panic("OOM");
             }
 
             if (std.mem.eql(u8, arg, "--exe")) {
-                args.exe_path = args.iter.next() orelse {
+                const exe_path = args_iter.next() orelse {
                     log.err("missing path after --exe", .{});
-                    return error.InvalidArgument;
+                    return Error.InvalidArgument;
                 };
+                args.exe_path = allocator.dupe(u8, exe_path) catch @panic("OOM");
             }
 
             if (std.mem.eql(u8, arg, "--cdrom")) {
-                args.cd_image_path = args.iter.next() orelse {
+                const cd_image_path = args_iter.next() orelse {
                     log.err("missing path after --cdrom", .{});
-                    return error.InvalidArgument;
+                    return Error.InvalidArgument;
                 };
+                args.cd_image_path = allocator.dupe(u8, cd_image_path) catch @panic("OOM");
             }
 
             if (std.mem.eql(u8, arg, "--uncapped")) {
@@ -97,14 +111,16 @@ pub const Args = struct {
         return args;
     }
 
-    pub fn deinit(self: *Args) void {
-        self.iter.deinit();
+    pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.bios_path);
+        self.allocator.free(self.exe_path);
+        self.allocator.free(self.cd_image_path);
     }
 
     fn validate(self: *Args) !void {
         if (self.bios_path.len == 0) {
             log.err("--bios path is required", .{});
-            return error.InvalidArgument;
+            return Error.InvalidArgument;
         }
     }
 };

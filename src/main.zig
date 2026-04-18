@@ -69,7 +69,7 @@ pub const std_options = std.Options{
     },
 };
 
-const logo_text =
+const banner_text =
     \\
     \\              ____  ______  __
     \\  _ __  _   _|  _ \/ ___\ \/ /
@@ -80,19 +80,20 @@ const logo_text =
     \\
 ;
 
-fn printLogo() void {
+fn printBanner(io: std.Io) void {
     var buf: [1024]u8 = undefined;
-    var writer = std.Io.File.stdout().writer(std.Options.debug_io, &buf);
-    _ = writer.interface.write(logo_text) catch 0;
+    var writer = std.Io.File.stdout().writer(io, &buf);
+    _ = writer.interface.write(banner_text) catch 0;
     writer.interface.flush() catch {};
 }
 
 const Audio = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     device: *zaudio.Device,
     bus: *Bus,
 
-    pub fn init(allocator: std.mem.Allocator, bus: *Bus) *@This() {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, bus: *Bus) *@This() {
         zaudio.init(allocator);
 
         const self = allocator.create(Audio) catch unreachable;
@@ -114,6 +115,7 @@ const Audio = struct {
 
         self.* = .{
             .allocator = allocator,
+            .io = io,
             .device = device,
             .bus = bus,
         };
@@ -145,37 +147,33 @@ const Audio = struct {
             buf[i * 2 + 1] = sample[1];
         }
 
-        self.bus.audio_stream.signal();
+        self.bus.audio_stream.signal(self.io);
     }
 };
 
-pub fn main(init: std.process.Init.Minimal) !void {
-    var gpa = std.heap.DebugAllocator(.{}){};
-    defer if (gpa.deinit() == .leak) {
-        std.log.warn("leak detected", .{});
-    };
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    const allocator = gpa.allocator();
-
-    var args = Args.parse(init.args) catch {
-        Args.printHelp();
+    var args = Args.parse(allocator, io, init.minimal.args) catch {
+        Args.printHelp(io);
         std.process.exit(1);
     };
     defer args.deinit();
 
-    printLogo();
+    printBanner(io);
 
-    const bios = try BIOS.loadFromFile(allocator, args.bios_path);
+    const bios = try BIOS.loadFromFile(allocator, io, args.bios_path);
     defer bios.deinit();
 
     const bus = Bus.init(allocator);
     defer bus.deinit();
 
     const ram = RAM.init(allocator);
-    defer ram.deinit(allocator);
+    defer ram.deinit();
 
     const scratchpad = Scratchpad.init(allocator);
-    defer scratchpad.deinit(allocator);
+    defer scratchpad.deinit();
 
     const gpu = GPU.init(allocator, bus);
     defer gpu.deinit();
@@ -204,11 +202,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const cdrom = CDROM.init(allocator, bus);
     defer cdrom.deinit();
 
-    if (args.cd_image_path) |path| {
+    if (args.cd_image_path.len != 0) {
+        const path = args.cd_image_path;
         if (std.mem.endsWith(u8, path, ".cue")) {
-            disc = try Disc.loadCue(allocator, path);
+            disc = try Disc.loadCue(allocator, io, path);
         } else if (std.mem.endsWith(u8, path, ".bin")) {
-            disc = try Disc.loadBin(allocator, path);
+            disc = try Disc.loadBin(allocator, io, path);
         } else {
             std.log.err("unsupported cd image format: {s}", .{path});
             std.process.exit(1);
@@ -230,18 +229,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .scratchpad = scratchpad,
     });
 
-    const audio = Audio.init(allocator, bus);
+    const audio = Audio.init(allocator, io, bus);
     defer audio.deinit();
 
     // const stdin = std.fs.File.stdin();
     // var stdin_buf: [1]u8 = undefined;
 
-    if (args.exe_path) |path| {
+    if (args.exe_path.len != 0) {
+        const path = args.exe_path;
         while (cpu.pc != 0x80030000) {
             cpu.tickOnce();
         }
         std.log.info("loading exe file: {s}", .{path});
-        try exe.loadExe(allocator, path, cpu, bus);
+        try exe.loadExe(allocator, io, path, cpu, bus);
     }
 
     if (args.debug) {
@@ -270,7 +270,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 // }
 
                 if (gpu.consumeFrameReady()) {
-                    debug_ui.update();
+                    debug_ui.update(io);
                 }
             }
         }
@@ -278,14 +278,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const ui = try UI.init(allocator, gpu, joy);
         defer ui.deinit();
 
-        if (args.cd_image_path) |path| {
-            try ui.setFilename(path);
-        } else if (args.exe_path) |path| {
-            try ui.setFilename(path);
+        if (args.cd_image_path.len != 0) {
+            try ui.setFilename(args.cd_image_path);
+        } else if (args.exe_path.len != 0) {
+            try ui.setFilename(args.exe_path);
         }
 
         var buf: [1024]u8 = undefined;
-        var stdout = std.Io.File.stdout().writer(std.Options.debug_io, &buf);
+        var stdout = std.Io.File.stdout().writer(io, &buf);
 
         cpu.tty = &stdout.interface;
 

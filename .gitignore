@@ -1,5 +1,6 @@
 /.zig-cache
 /zig-out
+/zig-pkg
 /imgui.ini
 /cpu.log
 /tests

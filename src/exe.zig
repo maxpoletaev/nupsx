@@ -57,9 +57,7 @@ pub fn loadExeFromBuffer(buf: []const u8, cpu: *CPU, bus: *Bus) Error!void {
     log.info("exe loaded: pc=0x{x:0>8}", .{header.initial_pc});
 }
 
-pub fn loadExe(allocator: std.mem.Allocator, path: []const u8, cpu: *CPU, bus: *Bus) Error!void {
-    const io = std.Options.debug_io;
-
+pub fn loadExe(allocator: std.mem.Allocator, io: std.Io, path: []const u8, cpu: *CPU, bus: *Bus) Error!void {
     const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
         log.err("failed to open EXE file: {}", .{err});
         return Error.FileReadError;

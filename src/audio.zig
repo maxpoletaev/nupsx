@@ -7,7 +7,7 @@ const AudioStreamDummy = struct {
     pub fn pop(_: *@This()) [2]i16 {
         return .{ 0, 0 };
     }
-    pub fn signal(_: *@This()) void {}
+    pub fn signal(_: *@This(), _: std.Io) void {}
 };
 
 const AudioStreamNative = struct {
@@ -47,8 +47,8 @@ const AudioStreamNative = struct {
         return sample;
     }
 
-    pub fn signal(self: *@This()) void {
-        self.sem.post(std.Options.debug_io);
+    pub fn signal(self: *@This(), io: std.Io) void {
+        self.sem.post(io);
     }
 };
 
@@ -85,7 +85,7 @@ const AudioStreamWasm = struct {
         return i;
     }
 
-    pub fn signal(_: *@This()) void {}
+    pub fn signal(_: *@This(), _: std.Io) void {}
 };
 
 fn audioStreamType() type {

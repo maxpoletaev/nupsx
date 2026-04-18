@@ -136,9 +136,9 @@ pub const Disc = struct {
     track_count: u8,
     pos: u32 = 0,
 
-    pub fn loadCue(allocator: std.mem.Allocator, cue_path: []const u8) Error!@This() {
+    pub fn loadCue(allocator: std.mem.Allocator, io: std.Io, cue_path: []const u8) Error!@This() {
         var diag: cue.Diagnostic = .{};
-        var cue_sheet = cue.parseFile(allocator, cue_path, &diag) catch |err| {
+        var cue_sheet = cue.parseFile(allocator, io, cue_path, &diag) catch |err| {
             log.err("failed to parse cue sheet {s}: {s}", .{ cue_path, diag.msg() });
             return switch (err) {
                 cue.Error.FileIoError => Error.FileIoError,
@@ -147,7 +147,6 @@ pub const Disc = struct {
         };
         defer cue.free(allocator, &cue_sheet);
 
-        const io = std.Options.debug_io;
         const cue_root = std.fs.path.dirname(cue_path) orelse ".";
         const cue_dir = std.Io.Dir.openDir(.cwd(), io, cue_root, .{}) catch |err| {
             log.err("failed to open cue sheet directory {s}: {}", .{ cue_root, err });
@@ -265,9 +264,7 @@ pub const Disc = struct {
         };
     }
 
-    pub fn loadBin(allocator: std.mem.Allocator, path: []const u8) Error!@This() {
-        const io = std.Options.debug_io;
-
+    pub fn loadBin(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!@This() {
         const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open bin file {s}: {}", .{ path, err });
             return Error.FileIoError;

@@ -96,9 +96,7 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8, diag: ?*Diagnost
     return parser.finish();
 }
 
-pub fn parseFile(allocator: std.mem.Allocator, cue_path: []const u8, diag: ?*Diagnostic) Error!CueSheet {
-    const io = std.Options.debug_io;
-
+pub fn parseFile(allocator: std.mem.Allocator, io: std.Io, cue_path: []const u8, diag: ?*Diagnostic) Error!CueSheet {
     const file = std.Io.Dir.openFile(.cwd(), io, cue_path, .{}) catch |err| {
         if (diag) |d| d.setMessage("failed to open file: {}", .{err});
         return Error.FileIoError;

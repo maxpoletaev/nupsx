@@ -138,13 +138,13 @@ pub fn updatePaused(self: *@This()) void {
     self.handleInput();
 }
 
-pub fn update(self: *@This()) void {
+pub fn update(self: *@This(), io: std.Io) void {
     const now = glfw.getTime();
 
     if (self.next_frame_time > now) {
         const sleep_seconds = self.next_frame_time - now;
         const ns: i96 = @intFromFloat(sleep_seconds * std.time.ns_per_s);
-        std.Options.debug_io.sleep(.{ .nanoseconds = ns }, .awake) catch {};
+        io.sleep(.{ .nanoseconds = ns }, .awake) catch {};
     }
 
     self.updateInternal(now);

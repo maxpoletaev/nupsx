@@ -67,9 +67,7 @@ pub const BIOS = struct {
         return self;
     }
 
-    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) Error!*@This() {
-        const io = std.Options.debug_io;
-
+    pub fn loadFromFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!*@This() {
         const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open BIOS file: {}", .{err});
             return Error.FileReadError;
@@ -123,17 +121,21 @@ pub const RAM = struct {
     pub const addr_start: u32 = 0x00000000;
     pub const addr_end: u32 = 0x001fffff;
 
+    allocator: std.mem.Allocator,
     data: [0x200000]u8,
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
-        self.* = .{ .data = undefined };
+        self.* = .{
+            .allocator = allocator,
+            .data = undefined,
+        };
         @memset(&self.data, 0);
         return self;
     }
 
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
     }
 
     pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -150,17 +152,21 @@ pub const Scratchpad = struct {
     pub const addr_start: u32 = 0x1f800000;
     pub const addr_end: u32 = 0x1f8003ff;
 
+    allocator: std.mem.Allocator,
     data: [0x400]u8,
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
-        self.* = .{ .data = undefined };
+        self.* = .{
+            .allocator = allocator,
+            .data = undefined,
+        };
         @memset(&self.data, 0);
         return self;
     }
 
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
     }
 
     pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {
