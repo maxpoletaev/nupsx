@@ -46,7 +46,7 @@ last_frame_time: f64 = 0,
 next_frame_time: f64 = 0,
 is_running: bool = true,
 
-pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
+pub fn init(allocator: std.mem.Allocator, io: std.Io, cpu: *CPU, bus: *Bus) !*@This() {
     try glfw.init();
     glfw.windowHint(.context_version_major, gl_version[0]);
     glfw.windowHint(.context_version_minor, gl_version[1]);
@@ -60,13 +60,13 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     const monitor = glfw.getPrimaryMonitor();
     const video_mode = try glfw.getVideoMode(monitor.?);
 
-    const window = try glfw.Window.create(video_mode.width, video_mode.height, window_title, null);
+    const window = try glfw.createWindow(video_mode.width, video_mode.height, window_title, null, null);
     glfw.makeContextCurrent(window);
     glfw.swapInterval(1); // vsync
 
     try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
 
-    zgui.init(allocator);
+    zgui.init(io, allocator);
     zgui.backend.init(window);
 
     const style = zgui.getStyle();
@@ -138,12 +138,13 @@ pub fn updatePaused(self: *@This()) void {
     self.handleInput();
 }
 
-pub fn update(self: *@This()) void {
+pub fn update(self: *@This(), io: std.Io) void {
     const now = glfw.getTime();
 
     if (self.next_frame_time > now) {
         const sleep_seconds = self.next_frame_time - now;
-        std.Thread.sleep(@intFromFloat(sleep_seconds * std.time.ns_per_s));
+        const ns: i96 = @intFromFloat(sleep_seconds * std.time.ns_per_s);
+        io.sleep(.{ .nanoseconds = ns }, .awake) catch {};
     }
 
     self.updateInternal(now);

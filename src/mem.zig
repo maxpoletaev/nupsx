@@ -67,14 +67,14 @@ pub const BIOS = struct {
         return self;
     }
 
-    pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) Error!*@This() {
-        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+    pub fn loadFromFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!*@This() {
+        const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open BIOS file: {}", .{err});
             return Error.FileReadError;
         };
-        defer file.close();
+        defer file.close(io);
 
-        const file_size = file.getEndPos() catch |err| {
+        const file_size = file.length(io) catch |err| {
             log.err("failed to read BIOS file size: {}", .{err});
             return Error.FileReadError;
         };
@@ -84,18 +84,13 @@ pub const BIOS = struct {
             return Error.InvalidBiosSize;
         }
 
-        const rom = allocator.alloc(u8, file_size) catch @panic("OOM");
-        errdefer allocator.free(rom);
-
-        const bytes_read = file.readAll(rom) catch |err| {
+        var read_buf: [4096]u8 = undefined;
+        var reader = file.reader(io, &read_buf);
+        const rom = reader.interface.readAlloc(allocator, @intCast(file_size)) catch |err| {
             log.err("failed to read BIOS file: {}", .{err});
             return Error.FileReadError;
         };
-
-        if (bytes_read != file_size) {
-            log.err("incomplete read of BIOS file: expected {d} bytes, got {d}", .{ file_size, bytes_read });
-            return Error.FileReadError;
-        }
+        errdefer allocator.free(rom);
 
         const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
@@ -126,17 +121,21 @@ pub const RAM = struct {
     pub const addr_start: u32 = 0x00000000;
     pub const addr_end: u32 = 0x001fffff;
 
+    allocator: std.mem.Allocator,
     data: [0x200000]u8,
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
-        self.* = .{ .data = undefined };
+        self.* = .{
+            .allocator = allocator,
+            .data = undefined,
+        };
         @memset(&self.data, 0);
         return self;
     }
 
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
     }
 
     pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -153,17 +152,21 @@ pub const Scratchpad = struct {
     pub const addr_start: u32 = 0x1f800000;
     pub const addr_end: u32 = 0x1f8003ff;
 
+    allocator: std.mem.Allocator,
     data: [0x400]u8,
 
     pub fn init(allocator: std.mem.Allocator) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
-        self.* = .{ .data = undefined };
+        self.* = .{
+            .allocator = allocator,
+            .data = undefined,
+        };
         @memset(&self.data, 0);
         return self;
     }
 
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
     }
 
     pub inline fn read(self: *@This(), comptime T: type, addr: u32) T {

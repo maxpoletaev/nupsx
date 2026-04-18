@@ -99,7 +99,7 @@ pub const UI = struct {
         glfw.windowHint(.client_api, .opengl_api);
         glfw.windowHint(.doublebuffer, true);
 
-        const window = try glfw.Window.create(640, 480, window_title, null);
+        const window = try glfw.createWindow(640, 480, window_title, null, null);
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);

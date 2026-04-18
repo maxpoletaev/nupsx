@@ -206,7 +206,8 @@ pub const GPU = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        self.allocator.free(self.vram);
+        const vram_slice: []align(16) u16 = self.vram;
+        self.allocator.free(vram_slice);
         self.allocator.destroy(self);
     }
 
