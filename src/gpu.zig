@@ -34,7 +34,8 @@ const DisplayMode = packed struct(u32) {
     video_mode: VideoMode, // 3
     color_depth: ColorDepth, // 4
     interlace: bool, // 5
-    _pad0: u26, // 6-31
+    hres2: Hres2, // 6
+    _pad0: u25, // 7-31
 };
 
 const DrawMode = packed struct(u32) {
@@ -256,7 +257,6 @@ pub const GPU = struct {
         gpustat.dma_direction = self.gp1_dma_direction;
         gpustat.hres1 = self.gp1_display_mode.hres;
         gpustat.vres = .@"240"; // TODO: self.gp1_display_mode.vres does not work, why?
-        gpustat.video_mode = .ntsc;
         gpustat.color_depth = self.gp1_display_mode.color_depth;
         gpustat.ready_send_vram_to_cpu = true;
         gpustat.ready_receive_dma_block = true;
@@ -266,11 +266,14 @@ pub const GPU = struct {
     }
 
     pub inline fn getDisplayRes(self: *@This()) [2]u16 {
-        const w: u16 = switch (self.gp1_display_mode.hres) {
-            .@"256" => 256,
-            .@"320" => 320,
-            .@"512" => 512,
-            .@"640" => 640,
+        const w: u16 = switch (self.gp1_display_mode.hres2) {
+            .@"256/320/512/640" => switch (self.gp1_display_mode.hres) {
+                .@"256" => 256,
+                .@"320" => 320,
+                .@"512" => 512,
+                .@"640" => 640,
+            },
+            .@"368" => 368,
         };
         const h: u16 = switch (self.gp1_display_mode.vres) {
             .@"240" => 240,

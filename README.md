@@ -30,7 +30,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Grand Theft Auto|🟥 Nothing||
 |Metal Gear Solid|🟩 Playable|Cutscene glitches|
 |Mortal Kombat 2|🟩 Playable||
-|Mortal Kombat 4|🟨 InGame|Screen resolution|
+|Mortal Kombat 4|🟨 InGame|Sound issues|
 |Rayman|🟧 Intro||
 |Rayman 2|🟨 InGame||
 |Resident Evil 2|🟩 Playable||
@@ -39,7 +39,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Spyro the Dragon|🟨 InGame|Major sound issues|
 |Spyro Year of the Dragon|🟧 Intro||
 |Star Ocean - The Second Story|🟨 InGame||
-|Tekken 3|🟨 InGame|Screen resolution|
+|Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
 |Tomb Raider|🟧 Intro||
 |Tomb Raider III|🟧 Intro||
