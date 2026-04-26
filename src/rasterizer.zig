@@ -242,10 +242,8 @@ pub const Rasterizer = struct {
         clut_y: u16,
         depth: ColorDepth,
     ) RGB5 {
-        // const u: u8 = @truncate((u_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
-        // const v: u8 = @truncate((v_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
-        const u = u_orig;
-        const v = v_orig;
+        const u: u8 = @truncate((u_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
+        const v: u8 = @truncate((v_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
 
         switch (depth) {
             .bit4 => {
@@ -347,7 +345,7 @@ pub const Rasterizer = struct {
     inline fn isTopLeft(v0: Vertex, v1: Vertex) bool {
         const dx = v1.x - v0.x;
         const dy = v1.y - v0.y;
-        return (dy < 0) or (dy == 0 and dx < 0);
+        return (dy < 0) or (dy == 0 and dx > 0);
     }
 
     pub fn drawTriangleFlat(

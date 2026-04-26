@@ -17,12 +17,13 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Game|Status|Issues|
 |-|-|-|
 |Battle Arena Toshinden|🟩 Playable||
-|Colin McRae Rally|🟨 InGame||
+|Colin McRae Rally|🟩 Playable||
 |Colin McRae Rally 2.0|🟥 Nothing||
-|Crash Bandicoot 2|🟨 InGame||
 |Crash Bandicoot|🟩 Playable||
+|Crash Bandicoot 2|🟩 Playable||
 |Crash Bash|🟥 Nothing||
 |Crash Team Racing|🟩 Playable||
+|Doom|🟧 Intro||
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
 |Final Fantasy VII|🟨 InGame||
@@ -44,6 +45,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Tomb Raider|🟧 Intro||
 |Tomb Raider III|🟧 Intro||
 |Wipeout|🟥 Nothing||
+|Quake II|🟩 Playable||
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
 🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>
