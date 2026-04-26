@@ -44,7 +44,6 @@ void main() {
         uDisplayOffset.y + vramLine
     );
 
-    // Normalize to [0..1] UV range for the full VRAM texture and sample.
-    vec2 vramUV = displayUV / uVramSize;
-    FragColor = texture(texture1, vramUV);
+    ivec2 texel = ivec2(displayUV);
+    FragColor = texelFetch(texture1, texel, 0);
 }
