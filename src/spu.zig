@@ -609,8 +609,9 @@ pub const SPU = struct {
     pub fn writeData(self: *@This(), v: u16) void {
         const ram_mask: u32 = self.ram.len - 1;
         const addr = self.data_addr_internal & ram_mask;
+        const irq_addr = @as(u32, self.irq_addr) * 8;
 
-        if (self.spucnt.irq9_enable and addr == self.irq_addr * 8) {
+        if (self.spucnt.irq9_enable and addr == irq_addr) {
             self.spustat.irq9_flag = true;
             self.bus.setInterrupt(Interrupt.spu);
         }
@@ -624,8 +625,9 @@ pub const SPU = struct {
         const ram_mask: u32 = self.ram.len - 1;
         const addr = self.data_addr_internal & ram_mask;
         self.data_addr_internal = (addr + 4) & ram_mask;
+        const irq_addr = @as(u32, self.irq_addr) * 8;
 
-        if (self.spucnt.irq9_enable and addr == self.irq_addr * 8) {
+        if (self.spucnt.irq9_enable and addr == irq_addr) {
             self.spustat.irq9_flag = true;
             self.bus.setInterrupt(Interrupt.spu);
         }
