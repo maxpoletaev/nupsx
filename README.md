@@ -22,7 +22,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Crash Bandicoot 2|🟨 InGame||
 |Crash Bandicoot|🟩 Playable||
 |Crash Bash|🟥 Nothing||
-|Crash Team Racing|🟩 Playable|Sound (no voice)|
+|Crash Team Racing|🟩 Playable||
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
 |Final Fantasy VII|🟨 InGame||
@@ -30,13 +30,13 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Grand Theft Auto|🟥 Nothing||
 |Metal Gear Solid|🟩 Playable|Cutscene glitches|
 |Mortal Kombat 2|🟩 Playable||
-|Mortal Kombat 4|🟨 InGame|Sound issues|
+|Mortal Kombat 4|🟩 Playable||
 |Rayman|🟧 Intro||
-|Rayman 2|🟨 InGame|Major sound issues|
+|Rayman 2|🟩 Playable||
 |Resident Evil 2|🟩 Playable||
 |Ridge Racer|🟩 Playable||
-|Silent Hill|🟨 InGame|Major sound issues|
-|Spyro the Dragon|🟨 InGame|Major sound issues|
+|Silent Hill|🟩 Playable||
+|Spyro the Dragon|🟨 InGame||
 |Spyro Year of the Dragon|🟧 Intro||
 |Star Ocean - The Second Story|🟨 InGame||
 |Tekken 3|🟨 InGame|Freezes after first round|

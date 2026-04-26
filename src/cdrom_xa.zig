@@ -215,19 +215,19 @@ pub const XaState = struct {
                 const left_header = group[4 + blk * 2 + 0];
                 const right_header = group[4 + blk * 2 + 1];
 
-                inline for (0..28) |sample_i| {
+                for (0..28) |sample_i| {
                     block_data[sample_i] = group[16 + blk + sample_i * 4];
                 }
 
-                adpcm.decodeXaBlock(left_header, &block_data, 0, &self.prev_left, &left_block);
-
                 if (stereo) {
+                    adpcm.decodeXaBlock(left_header, &block_data, 0, &self.prev_left, &left_block);
                     adpcm.decodeXaBlock(right_header, &block_data, 4, &self.prev_right, &right_block);
                     @memcpy(self.left_buf[left_pos .. left_pos + 28], left_block[0..]);
                     @memcpy(self.right_buf[right_pos .. right_pos + 28], right_block[0..]);
                     left_pos += 28;
                     right_pos += 28;
                 } else {
+                    adpcm.decodeXaBlock(left_header, &block_data, 0, &self.prev_left, &left_block);
                     @memcpy(self.mono_buf[mono_pos .. mono_pos + 28], left_block[0..]);
                     mono_pos += 28;
                     adpcm.decodeXaBlock(right_header, &block_data, 4, &self.prev_left, &left_block);

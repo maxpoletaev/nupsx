@@ -156,7 +156,6 @@ const Voice = struct {
         self.key_off = false;
         self.reached_end = false;
         self.curr_addr = self.start_addr;
-        self.repeat_addr = self.start_addr;
         self.pitch_counter = 0;
         self.current_sample = 0;
         self.decoder_prev = .{ 0, 0 };
@@ -237,9 +236,10 @@ const Voice = struct {
         }
 
         const sample_i = self.pitch_counter >> fp_bits;
+        const gauss_i: u8 = @truncate((self.pitch_counter >> 4) & 0xff);
         std.debug.assert(sample_i < 28);
 
-        self.current_sample = interpolate(&self.samples, &self.interpolation_prev, sample_i);
+        self.current_sample = interpolate(&self.samples, &self.interpolation_prev, sample_i, gauss_i);
         self.pitch_counter += clamp(self.sample_rate, 0, 0x4000);
     }
 };
@@ -326,7 +326,14 @@ pub const SPU = struct {
         if (flags.loop_end) {
             voice.reached_end = true;
             voice.curr_addr = voice.repeat_addr;
-            if (!flags.loop_repeat) voice.key_on = false;
+
+            if (!flags.loop_repeat) {
+                voice.key_off = true;
+                voice.adsr_phase = .release;
+                voice.adsr_volume = 0;
+                voice.adsr_cycles = 0;
+                voice.initEnvelope();
+            }
         }
     }
 
@@ -600,49 +607,50 @@ pub const SPU = struct {
     }
 
     pub fn writeData(self: *@This(), v: u16) void {
-        if (self.data_addr_internal > self.ram.len - 1) {
-            log.warn("data write out of bounds at addr {x}", .{self.data_addr_internal});
-            return;
-        }
+        const ram_mask: u32 = self.ram.len - 1;
+        const addr = self.data_addr_internal & ram_mask;
 
-        if (self.spucnt.irq9_enable and self.data_addr_internal == self.irq_addr * 8) {
+        if (self.spucnt.irq9_enable and addr == self.irq_addr * 8) {
             self.spustat.irq9_flag = true;
             self.bus.setInterrupt(Interrupt.spu);
         }
 
-        self.ram[self.data_addr_internal + 0] = @truncate((v >> 0) & 0xff);
-        self.ram[self.data_addr_internal + 1] = @truncate((v >> 8) & 0xff);
-        self.data_addr_internal += 2;
+        self.ram[addr] = @truncate((v >> 0) & 0xff);
+        self.ram[(addr + 1) & ram_mask] = @truncate((v >> 8) & 0xff);
+        self.data_addr_internal = (addr + 2) & ram_mask;
     }
 
     pub fn readData(self: *@This()) u32 {
-        if (self.data_addr_internal > self.ram.len - 1) {
-            log.warn("data read out of bounds at addr {x}", .{self.data_addr_internal});
-            return 0;
-        }
+        const ram_mask: u32 = self.ram.len - 1;
+        const addr = self.data_addr_internal & ram_mask;
+        self.data_addr_internal = (addr + 4) & ram_mask;
 
-        if (self.spucnt.irq9_enable and self.data_addr_internal == self.irq_addr * 8) {
+        if (self.spucnt.irq9_enable and addr == self.irq_addr * 8) {
             self.spustat.irq9_flag = true;
             self.bus.setInterrupt(Interrupt.spu);
         }
 
-        const v = mem.readBuf(u32, &self.ram, self.data_addr_internal);
-        self.data_addr_internal += 4;
+        const v = @as(u32, self.ram[addr]) |
+            (@as(u32, self.ram[(addr + 1) & ram_mask]) << 8) |
+            (@as(u32, self.ram[(addr + 2) & ram_mask]) << 16) |
+            (@as(u32, self.ram[(addr + 3) & ram_mask]) << 24);
+
         return v;
     }
 };
 
-fn interpolate(samples: *[28]i16, prev_samples: *[4]i16, sample_i: u32) i16 {
+fn interpolate(samples: *[28]i16, prev_samples: *[4]i16, sample_i: u32, gauss_i: u8) i16 {
     const oldest: i32 = if (sample_i >= 3) samples[sample_i - 3] else prev_samples[1 + sample_i];
     const older: i32 = if (sample_i >= 2) samples[sample_i - 2] else prev_samples[2 + sample_i];
     const old: i32 = if (sample_i >= 1) samples[sample_i - 1] else prev_samples[3 + sample_i];
     const new_: i32 = samples[sample_i];
+    const phase = @as(u32, gauss_i);
 
     var out: i32 = 0;
-    out += (@as(i32, spu_gauss_table[0x0ff - sample_i]) * oldest) >> 15;
-    out += (@as(i32, spu_gauss_table[0x1ff - sample_i]) * older) >> 15;
-    out += (@as(i32, spu_gauss_table[0x100 + sample_i]) * old) >> 15;
-    out += (@as(i32, spu_gauss_table[0x000 + sample_i]) * new_) >> 15;
+    out += (@as(i32, spu_gauss_table[0x0ff - phase]) * oldest) >> 15;
+    out += (@as(i32, spu_gauss_table[0x1ff - phase]) * older) >> 15;
+    out += (@as(i32, spu_gauss_table[0x100 + phase]) * old) >> 15;
+    out += (@as(i32, spu_gauss_table[0x000 + phase]) * new_) >> 15;
 
     return @intCast(out);
 }
