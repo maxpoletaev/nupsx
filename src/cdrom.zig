@@ -3,6 +3,7 @@ const bits = @import("bits.zig");
 const mem = @import("mem.zig");
 const cue = @import("cue.zig");
 const fifo = @import("fifo.zig");
+const xa_mod = @import("cdrom_xa.zig");
 
 const Interrupt = mem.Interrupt;
 
@@ -58,12 +59,12 @@ const SectorSize = enum(u1) {
     whole_sector = 1,
 };
 
-const ModeReg = packed struct(u8) {
+pub const ModeReg = packed struct(u8) {
     cdda: bool = false, // 0
     auto_pause: bool = false,
     play_report: bool = false, // 2
-    ignore_bit: bool = false, // 3
-    xa_filter: bool = false, // 4
+    xa_filter: bool = false, // 3
+    ignore_bit: bool = false, // 4
     sector_size: SectorSize = .data_only,
     xa_adpcm: bool = false, // 6
     speed: enum(u1) { normal = 0, double = 1 } = .normal, // 7
@@ -341,6 +342,18 @@ pub const Disc = struct {
         const pos = self.pos + cdrom_file_offset_bytes_cue;
         return pos < self.data.len;
     }
+
+    pub fn currentSector(self: *@This()) u32 {
+        return @intCast((self.pos + cdrom_file_offset_bytes_cue) / cdrom_sector_size_cue);
+    }
+
+    pub fn readSectorRawAt(self: *@This(), sector: u32) ?[]align(2) const u8 {
+        const pos = sector * cdrom_sector_size_cue -| cdrom_file_offset_bytes_cue;
+        if (pos + cdrom_sector_size_cue > self.data.len) {
+            return null;
+        }
+        return @alignCast(self.data[pos .. pos + cdrom_sector_size_cue]);
+    }
 };
 
 const CmdState = enum {
@@ -355,7 +368,7 @@ const ReadState = enum {
     playing,
 };
 
-const AudioBuffer = fifo.StaticFifo([2]i16, cdrom_sector_size_cue * 10 / 4);
+const AudioBuffer = fifo.StaticFifo([2]i16, 16384);
 
 pub const CDROM = struct {
     pub const addr_start: u32 = 0x1f801800;
@@ -383,8 +396,10 @@ pub const CDROM = struct {
     audio_buffer: *AudioBuffer,
     data_buffer: ?[]const u8,
     data_pos: u32,
+    last_sector_header: [8]u8,
     read_state: ReadState,
     read_delay: u32,
+    xa: xa_mod.XaState,
 
     irq_mask: packed struct(u8) { int_enable: u3 = 0, _pad: u5 = 0 },
     irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
@@ -404,6 +419,8 @@ pub const CDROM = struct {
             .audio_buffer = audio_buffer,
             .data_buffer = null,
             .data_pos = 0,
+            .last_sector_header = std.mem.zeroes([8]u8),
+            .xa = .{},
             .read_state = .idle,
             .read_delay = 0,
             .cmd = null,
@@ -442,8 +459,15 @@ pub const CDROM = struct {
                 samples[offset + 0],
                 samples[offset + 1],
             };
-            self.audio_buffer.push(sample);
+            self.pushAudioSample(sample);
         }
+    }
+
+    inline fn pushAudioSample(self: *@This(), sample: [2]i16) void {
+        if (self.audio_buffer.isFull()) {
+            _ = self.audio_buffer.pop();
+        }
+        self.audio_buffer.push(sample);
     }
 
     inline fn setDataBuffer(self: *@This(), data: []const u8) void {
@@ -452,15 +476,21 @@ pub const CDROM = struct {
     }
 
     pub fn consumeAudioSample(self: *@This()) [2]i16 {
-        const is_playing = !self.mute and
-            self.read_state == .playing and
-            self.mode.cdda;
-        if (is_playing) {
-            return self.audio_buffer.pop() orelse blk: {
+        if (self.read_state == .playing and self.mode.cdda) {
+            const sample = self.audio_buffer.pop() orelse blk: {
                 log.warn("audio buffer underrun", .{});
                 break :blk [2]i16{ 0, 0 };
             };
+            if (self.mute) return .{ 0, 0 };
+            return sample;
         }
+
+        if (self.read_state == .reading and self.mode.xa_adpcm) {
+            const sample = self.xa.consumeSample(&self.disc.?);
+            if (self.mute) return .{ 0, 0 };
+            return sample;
+        }
+
         return [2]i16{ 0, 0 };
     }
 
@@ -549,6 +579,9 @@ pub const CDROM = struct {
 
     fn beginReading(self: *@This()) void {
         self.read_state = .reading;
+        if (self.mode.xa_adpcm) {
+            self.xa.beginAt(self.seekloc orelse self.disc.?.currentSector());
+        }
         if (self.seekloc != null) {
             self.stat.seek = true;
             self.read_delay = cdrom_seekl_delay_cycles;
@@ -582,14 +615,25 @@ pub const CDROM = struct {
             self.stat.read = true;
             self.results.clear();
 
-            const sector = self.disc.?.readSector(self.mode.sector_size);
+            const sector = self.disc.?.readSectorRaw();
+            @memcpy(self.last_sector_header[0..], sector[12..20]);
+
             self.read_delay = switch (self.mode.speed) {
                 .normal => cdrom_read_delay_cycles,
                 .double => cdrom_read_2x_delay_cycles,
             };
 
+            if (self.xa.isXaAudioSector(sector)) {
+                return;
+            }
+
+            const payload = switch (self.mode.sector_size) {
+                .data_only => sector[24 .. 24 + 2048],
+                .whole_sector => sector[12..sector.len],
+            };
+
             self.pushResultByte(self.readStat());
-            self.setDataBuffer(sector);
+            self.setDataBuffer(payload);
             self.setInterrupt(1);
         }
     }
@@ -600,6 +644,7 @@ pub const CDROM = struct {
         self.audio_buffer.clear();
         self.data_buffer = null;
         self.data_pos = 0;
+        self.last_sector_header = std.mem.zeroes([8]u8);
         self.stat.seek = false;
         self.stat.read = false;
         self.stat.play = false;
@@ -756,7 +801,8 @@ pub const CDROM = struct {
 
     fn writeCommand(self: *@This(), opcode: u8) void {
         if (self.cmd != null and opcode != 0x09) {
-            log.warn("new command ({x}) while another command in progress ({x})", .{ opcode, self.cmd.? });
+            const active_cmd = self.cmd orelse 0;
+            log.warn("new command ({x}) while another command in progress ({x})", .{ opcode, active_cmd });
         } else if (!self.results.isEmpty()) {
             log.warn("new command ({x}) while having unread results", .{opcode});
         }
@@ -926,6 +972,7 @@ const commands = opaque {
 
                 self.mode = @bitCast(mode_byte);
                 self.pushResultByte(self.readStat());
+                self.xa.setMode(self.mode.xa_adpcm, self.mode.xa_filter);
 
                 if (self.mode.auto_pause) log.warn("auto-pause not implemented", .{});
                 if (self.mode.play_report) log.warn("play-report not implemented", .{});
@@ -1084,11 +1131,18 @@ const commands = opaque {
     fn getTn(self: *CDROM) void {
         // std.debug.assert(self.params.len == 0);
 
+        const disc = self.disc orelse {
+            self.pushError(.cannot_respond);
+            self.setInterrupt(5);
+            self.finishCommand();
+            return;
+        };
+
         self.pushResultByte(self.readStat());
         self.pushResultByte(toBCD(1)); // first track number
-        self.pushResultByte(toBCD(self.disc.?.track_count)); // last track number
+        self.pushResultByte(toBCD(disc.track_count)); // last track number
 
-        log.debug("getTN: first={d} last={d}", .{ 1, self.disc.?.track_count });
+        log.debug("getTN: first={d} last={d}", .{ 1, disc.track_count });
 
         self.setInterrupt(3);
         self.finishCommand();
@@ -1173,6 +1227,7 @@ const commands = opaque {
                 const channel = self.params.pop() orelse unreachable;
 
                 log.debug("setFilter: file={x} channel={x}", .{ file, channel });
+                self.xa.setFilter(file, channel);
 
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
@@ -1222,8 +1277,7 @@ const commands = opaque {
                     return;
                 }
                 log.debug("getLocL", .{});
-                const b = self.data_buffer.?;
-                self.pushResultSlice(b[0..8]);
+                self.pushResultSlice(&self.last_sector_header);
                 self.setInterrupt(3);
                 self.finishCommand();
             },

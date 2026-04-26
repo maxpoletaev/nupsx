@@ -90,7 +90,7 @@ const AudioStreamWasm = struct {
 
 fn audioStreamType() type {
     if (options.uncapped) return AudioStreamDummy;
-    if (builtin.mode == .Debug) return AudioStreamDummy; // Debug is very slow and crackly
+    // if (builtin.mode == .Debug) return AudioStreamDummy; // Debug is very slow and crackly
 
     return switch (builtin.target.cpu.arch) {
         .wasm32, .wasm64 => AudioStreamWasm,

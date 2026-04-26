@@ -32,7 +32,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Mortal Kombat 2|🟩 Playable||
 |Mortal Kombat 4|🟨 InGame|Sound issues|
 |Rayman|🟧 Intro||
-|Rayman 2|🟨 InGame||
+|Rayman 2|🟨 InGame|Major sound issues|
 |Resident Evil 2|🟩 Playable||
 |Ridge Racer|🟩 Playable||
 |Silent Hill|🟨 InGame|Major sound issues|
