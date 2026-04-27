@@ -318,10 +318,10 @@ pub const GPU = struct {
             0x02 => self.fillVram(v),
             0x1f => self.interrupt_request = true,
 
-            0x20 => self.drawPoly3Flat(v, Opaque),
-            0x22 => self.drawPoly3Flat(v, SemiTrans),
-            0x28 => self.drawPoly4Flat(v, Opaque),
-            0x2a => self.drawPoly4Flat(v, SemiTrans),
+            0x20, 0x21 => self.drawPoly3Flat(v, Opaque),
+            0x22, 0x23 => self.drawPoly3Flat(v, SemiTrans),
+            0x28, 0x29 => self.drawPoly4Flat(v, Opaque),
+            0x2a, 0x2b => self.drawPoly4Flat(v, SemiTrans),
 
             0x24 => self.drawPoly3Textured(v, Opaque, Blend),
             0x25 => self.drawPoly3Textured(v, Opaque, Raw),
@@ -332,45 +332,48 @@ pub const GPU = struct {
             0x2e => self.drawPoly4Textured(v, SemiTrans, Blend),
             0x2f => self.drawPoly4Textured(v, SemiTrans, Raw),
 
-            0x34 => self.drawPoly3ShadedTextured(v, Opaque),
-            0x36 => self.drawPoly3ShadedTextured(v, SemiTrans),
-            0x3c => self.drawPoly4ShadedTextured(v, Opaque),
-            0x3e => self.drawPoly4ShadedTextured(v, SemiTrans),
+            0x34, 0x35 => self.drawPoly3ShadedTextured(v, Opaque),
+            0x36, 0x37 => self.drawPoly3ShadedTextured(v, SemiTrans),
+            0x3c, 0x3d => self.drawPoly4ShadedTextured(v, Opaque),
+            0x3e, 0x3f => self.drawPoly4ShadedTextured(v, SemiTrans),
 
-            0x30 => self.drawPoly3Shaded(v, Opaque),
-            0x32 => self.drawPoly3Shaded(v, SemiTrans),
-            0x38 => self.drawPoly4Shaded(v, Opaque),
-            0x3a => self.drawPoly4Shaded(v, SemiTrans),
+            0x30, 0x31 => self.drawPoly3Shaded(v, Opaque),
+            0x32, 0x33 => self.drawPoly3Shaded(v, SemiTrans),
+            0x38, 0x39 => self.drawPoly4Shaded(v, Opaque),
+            0x3a, 0x3b => self.drawPoly4Shaded(v, SemiTrans),
 
-            0x40 => self.drawLineFlat(v, Opaque),
-            0x42 => self.drawLineFlat(v, SemiTrans),
-            0x48 => self.drawPolyLineFlat(v, Opaque),
-            0x4a => self.drawPolyLineFlat(v, SemiTrans),
-            0x50 => self.drawLineShaded(v, Opaque),
-            0x52 => self.drawLineShaded(v, SemiTrans),
-            0x58 => self.drawPolyLineShaded(v, Opaque),
-            0x5a => self.drawPolyLineShaded(v, SemiTrans),
+            0x40, 0x41, 0x44, 0x45 => self.drawLineFlat(v, Opaque),
+            0x42, 0x43, 0x46, 0x47 => self.drawLineFlat(v, SemiTrans),
+            0x48, 0x49, 0x4c, 0x4d => self.drawPolyLineFlat(v, Opaque),
+            0x4a, 0x4b, 0x4e, 0x4f => self.drawPolyLineFlat(v, SemiTrans),
+            0x50, 0x51, 0x54, 0x55 => self.drawLineShaded(v, Opaque),
+            0x52, 0x53, 0x56, 0x57 => self.drawLineShaded(v, SemiTrans),
+            0x58, 0x59, 0x5c, 0x5d => self.drawPolyLineShaded(v, Opaque),
+            0x5a, 0x5b, 0x5e, 0x5f => self.drawPolyLineShaded(v, SemiTrans),
 
-            0x60 => self.drawRectFlat(v, null, Opaque),
-            0x62 => self.drawRectFlat(v, null, SemiTrans),
+            0x60, 0x61 => self.drawRectFlat(v, null, Opaque),
+            0x62, 0x63 => self.drawRectFlat(v, null, SemiTrans),
             0x64 => self.drawRectTextured(v, null, Opaque, Blend),
             0x65 => self.drawRectTextured(v, null, Opaque, Raw),
             0x66 => self.drawRectTextured(v, null, SemiTrans, Blend),
             0x67 => self.drawRectTextured(v, null, SemiTrans, Raw),
-            0x68 => self.drawRectFlat(v, 1, Opaque),
-            0x6a => self.drawRectFlat(v, 1, SemiTrans),
+
+            0x68, 0x69 => self.drawRectFlat(v, 1, Opaque),
+            0x6a, 0x6b => self.drawRectFlat(v, 1, SemiTrans),
             0x6c => self.drawRectTextured(v, 1, Opaque, Blend),
             0x6d => self.drawRectTextured(v, 1, Opaque, Raw),
             0x6e => self.drawRectTextured(v, 1, SemiTrans, Blend),
             0x6f => self.drawRectTextured(v, 1, SemiTrans, Raw),
-            0x70 => self.drawRectFlat(v, 8, Opaque),
-            0x72 => self.drawRectFlat(v, 8, SemiTrans),
+
+            0x70, 0x71 => self.drawRectFlat(v, 8, Opaque),
+            0x72, 0x73 => self.drawRectFlat(v, 8, SemiTrans),
             0x74 => self.drawRectTextured(v, 8, Opaque, Blend),
             0x75 => self.drawRectTextured(v, 8, Opaque, Raw),
             0x76 => self.drawRectTextured(v, 8, SemiTrans, Blend),
             0x77 => self.drawRectTextured(v, 8, SemiTrans, Raw),
-            0x78 => self.drawRectFlat(v, 16, Opaque),
-            0x7a => self.drawRectFlat(v, 16, SemiTrans),
+
+            0x78, 0x79 => self.drawRectFlat(v, 16, Opaque),
+            0x7a, 0x7b => self.drawRectFlat(v, 16, SemiTrans),
             0x7c => self.drawRectTextured(v, 16, Opaque, Blend),
             0x7d => self.drawRectTextured(v, 16, Opaque, Raw),
             0x7e => self.drawRectTextured(v, 16, SemiTrans, Blend),
@@ -388,8 +391,6 @@ pub const GPU = struct {
             0xe6 => self.setMaskBitSetting(v),
 
             0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
-            0x21, 0x23, 0x29, 0x2b, 0x31, 0x33, 0x39, 0x3b => {}, // undocumented/nonsense
-            0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0, false), // 0x0 rectangles?
 
             else => {
                 log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd });
