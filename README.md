@@ -18,34 +18,36 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |-|-|-|
 |Battle Arena Toshinden|🟩 Playable||
 |Colin McRae Rally|🟩 Playable||
-|Colin McRae Rally 2.0|🟥 Nothing||
+|Colin McRae Rally 2.0|🟩 Playable||
 |Crash Bandicoot|🟩 Playable||
 |Crash Bandicoot 2|🟩 Playable||
-|Crash Bash|🟥 Nothing||
+|Crash Bash|🟩 Playable||
 |Crash Team Racing|🟩 Playable||
+|Castlevania Symphony of the Night|🟨 InGame|Incorrect shading|
 |Doom|🟧 Intro||
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
 |Final Fantasy VII|🟨 InGame||
+|Frogger|🟩 Playable||
 |Gran Turismo|🟩 Playable||
-|Grand Theft Auto|🟥 Nothing||
+|Grand Theft Auto|🟩 Playable||
 |Metal Gear Solid|🟩 Playable|Cutscene glitches|
 |Mortal Kombat 2|🟩 Playable||
 |Mortal Kombat 4|🟩 Playable||
+|Quake II|🟩 Playable||
 |Rayman|🟧 Intro||
 |Rayman 2|🟩 Playable||
 |Resident Evil 2|🟩 Playable||
 |Ridge Racer|🟩 Playable||
 |Silent Hill|🟩 Playable||
-|Spyro the Dragon|🟨 InGame||
-|Spyro Year of the Dragon|🟧 Intro||
+|Spyro the Dragon|🟨 InGame|No background music|
+|Spyro Year of the Dragon|🟩 Playable||
 |Star Ocean - The Second Story|🟨 InGame||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
 |Tomb Raider|🟧 Intro||
-|Tomb Raider III|🟧 Intro||
+|Tomb Raider III|🟨 InGame|Shading|
 |Wipeout|🟥 Nothing||
-|Quake II|🟩 Playable||
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
 🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>

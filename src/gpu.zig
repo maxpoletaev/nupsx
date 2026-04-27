@@ -390,7 +390,7 @@ pub const GPU = struct {
             0xe5 => self.setDrawOffset(v),
             0xe6 => self.setMaskBitSetting(v),
 
-            0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
+            0x03, 0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
 
             else => {
                 log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd });

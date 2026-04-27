@@ -60,9 +60,9 @@ pub const XaState = struct {
     phase: u32 = 0,
     prev_left: [2]i32 = .{ 0, 0 },
     prev_right: [2]i32 = .{ 0, 0 },
-    left_buf: [xa_stereo_samples]i16 = [_]i16{0} ** xa_stereo_samples,
-    right_buf: [xa_stereo_samples]i16 = [_]i16{0} ** xa_stereo_samples,
-    mono_buf: [xa_mono_samples]i16 = [_]i16{0} ** xa_mono_samples,
+    left_buf: [xa_stereo_samples]i16 = std.mem.zeroes([xa_stereo_samples]i16),
+    right_buf: [xa_stereo_samples]i16 = std.mem.zeroes([xa_stereo_samples]i16),
+    mono_buf: [xa_mono_samples]i16 = std.mem.zeroes([xa_mono_samples]i16),
 
     pub fn reset(self: *@This()) void {
         self.active = false;

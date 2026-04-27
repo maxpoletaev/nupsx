@@ -386,7 +386,7 @@ pub const CDROM = struct {
 
     cmd: ?u8,
     cmd_state: CmdState,
-    cmd_queue: fifo.StaticFifo(u8, 16),
+    pending_cmd: ?u8,
     cmd_delay: u32,
     params: fifo.StaticFifo(u8, 16),
     results: fifo.StaticFifo(u8, 16),
@@ -425,7 +425,7 @@ pub const CDROM = struct {
             .read_delay = 0,
             .cmd = null,
             .cmd_state = .recv_cmd,
-            .cmd_queue = .empty,
+            .pending_cmd = null,
             .cmd_delay = 0,
             .disc = null,
             .mode = .{},
@@ -656,9 +656,9 @@ pub const CDROM = struct {
         if (self.cmd == null) return;
         const cmd = self.cmd.?;
 
-        // This fixes some games but should we actually do this?
-        // self.irq_pending.ints = 0;
-        // self.results.clear();
+        // Start each command response phase from a clean result buffer rather
+        // than appending onto stale unread bytes from an older interrupt.
+        self.results.clear();
 
         switch (cmd) {
             0x01 => commands.getStat(self),
@@ -668,6 +668,7 @@ pub const CDROM = struct {
             0x08 => commands.stop(self),
             0x09 => commands.pause(self),
             0x0a => commands.initCmd(self),
+            0x0b => commands.mute(self),
             0x0c => commands.demute(self),
             0x0d => commands.setFilter(self),
             0x0e => commands.setMode(self),
@@ -680,9 +681,13 @@ pub const CDROM = struct {
             0x16 => commands.seekL(self), // seekP
             0x1a => commands.getId(self),
             0x19 => commands.testCmd(self),
+            0x1e => commands.readToc(self),
             else => {
-                // std.debug.panic("unhandled CDROM command: {x}", .{cmd});
-                log.warn("unhandled CDROM command: {x}", .{cmd});
+                // std.debug.panic("unhandled cdrom command: {x}", .{cmd});
+                log.warn("unhandled cdrom command: {x}", .{cmd});
+                self.pushError(.invalid_command);
+                self.setInterrupt(5);
+                self.finishCommand();
             },
         }
     }
@@ -803,21 +808,14 @@ pub const CDROM = struct {
         if (self.cmd != null and opcode != 0x09) {
             const active_cmd = self.cmd orelse 0;
             log.warn("new command ({x}) while another command in progress ({x})", .{ opcode, active_cmd });
-        } else if (!self.results.isEmpty()) {
-            log.warn("new command ({x}) while having unread results", .{opcode});
         }
 
-        if (opcode == 0x09) { // pause
+        if (self.cmd == null and self.irq_pending.ints == 0) {
             self.cmd = opcode;
             self.cmd_state = .recv_cmd;
             self.stepCommand();
         } else {
-            self.cmd_queue.push(opcode);
-            if (self.cmd == null) {
-                self.cmd = self.cmd_queue.pop().?;
-                self.cmd_state = .recv_cmd;
-                self.stepCommand();
-            }
+            self.pending_cmd = opcode;
         }
     }
 
@@ -850,16 +848,12 @@ pub const CDROM = struct {
 
         if (ack.param_clear) self.params.clear();
 
-        if (self.cmd == null and !self.cmd_queue.isEmpty()) {
-            self.cmd = self.cmd_queue.pop().?;
+        if (self.irq_pending.ints == 0 and self.cmd == null and self.pending_cmd != null) {
+            self.cmd = self.pending_cmd;
+            self.pending_cmd = null;
             self.results.clear();
             self.stepCommand();
         }
-
-        // psx-spx states that the results queue is drained. Seems like it does not happen in reality.
-        // pcsx-redux tests try to read the response AFTER acknowledging. Duckstation actually clears it
-        // before writing a command response, so we will do that as well.
-        // self.results.clear();
     }
 };
 
@@ -1109,6 +1103,26 @@ const commands = opaque {
         }
     }
 
+    fn readToc(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.cmd_delay = cdrom_init_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                self.pushResultByte(self.readStat());
+                self.cmd_delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp2;
+                self.setInterrupt(3);
+            },
+            .resp2 => {
+                self.pushResultByte(self.readStat());
+                self.setInterrupt(2);
+                self.finishCommand();
+            },
+        }
+    }
+
     fn demute(self: *CDROM) void {
         switch (self.cmd_state) {
             .recv_cmd => {
@@ -1120,6 +1134,23 @@ const commands = opaque {
 
                 log.debug("deMute", .{});
 
+                self.pushResultByte(self.readStat());
+                self.setInterrupt(3);
+                self.finishCommand();
+            },
+            else => unreachable,
+        }
+    }
+
+    fn mute(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.cmd_delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                self.mute = true;
+                log.debug("mute", .{});
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
                 self.finishCommand();
