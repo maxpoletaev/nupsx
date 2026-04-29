@@ -1,10 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const log = std.log.scoped(.memcard);
 
 pub const sector_size = 128;
 pub const sector_count = 1024;
 pub const image_size = sector_size * sector_count;
+
+const has_filesystem = builtin.target.os.tag != .freestanding;
 
 pub const Error = error{
     InvalidImageSize,
@@ -33,6 +36,8 @@ pub const MemoryCard = struct {
     }
 
     pub fn loadOrCreate(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !*@This() {
+        if (comptime !has_filesystem) @panic("unsupported target");
+
         const self = initBlank(allocator, io, path);
         errdefer self.deinit();
 
@@ -64,6 +69,7 @@ pub const MemoryCard = struct {
     pub fn save(self: *@This()) !void {
         if (!self.dirty) return; // nothing has changed
         const path = self.path orelse return Error.MissingPath;
+        if (comptime !has_filesystem) @panic("unsupported target");
 
         if (std.fs.path.dirname(path)) |dir| {
             try std.Io.Dir.createDirPath(.cwd(), self.io, dir);
