@@ -9,6 +9,7 @@ const gpu_mod = @import("gpu.zig");
 const cdrom_mod = @import("cdrom.zig");
 const spu_mod = @import("spu.zig");
 const joy_mod = @import("joy.zig");
+const memcard_mod = @import("memcard.zig");
 
 const CPU = @import("cpu.zig").CPU;
 const DMA = @import("dma.zig").DMA;
@@ -30,6 +31,9 @@ const CDROM = cdrom_mod.CDROM;
 const Disc = cdrom_mod.Disc;
 const SPU = spu_mod.SPU;
 const Joypad = joy_mod.Joypad;
+const MemoryCard = memcard_mod.MemoryCard;
+
+const memcard_default_path = "memcard.mcd";
 
 pub fn logFn(
     comptime message_level: std.log.Level,
@@ -193,7 +197,15 @@ pub fn main(init: std.process.Init) !void {
     const spu = SPU.init(allocator, bus);
     defer spu.deinit();
 
-    const joy = Joypad.init(allocator, bus);
+    const memcard_path = if (args.memcard_path.len != 0) args.memcard_path else memcard_default_path;
+    const memcard = MemoryCard.loadOrCreate(allocator, io, memcard_path) catch |err| {
+        std.log.err("failed to load or create memory card: {}", .{err});
+        return err;
+    };
+    std.log.info("using memory card file: {s}", .{memcard_path});
+    defer memcard.deinit();
+
+    const joy = Joypad.init(allocator, bus, memcard);
     defer joy.deinit();
 
     var disc: ?Disc = null;

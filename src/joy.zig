@@ -2,13 +2,16 @@ const std = @import("std");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
 const mem = @import("mem.zig");
+const memcard_mod = @import("memcard.zig");
 
 const Interrupt = mem.Interrupt;
+const MemoryCard = memcard_mod.MemoryCard;
 
 const log = std.log.scoped(.joy);
 
 const joy_id_digital = [2]u8{ 0x5a, 0x41 };
 const joy_irq_delay_cycles: u32 = 544;
+const joy_mc_read_delay_cycles: u32 = 31000;
 
 const ModeReg = packed struct(u16) {
     baudrate_factor: enum(u2) { mul1 = 0, mul16 = 1, mul64 = 2 } = .mul1, // 0-1
@@ -103,6 +106,66 @@ const RegId = opaque {
     const joy_baud = 0xe;
 };
 
+const ControllerState = struct {
+    port: usize,
+    phase: enum { await_command, id_hi, buttons_lo, buttons_hi },
+};
+
+const MemcardCommand = enum {
+    read,
+    write,
+    get_id,
+};
+
+const MemcardPhase = enum {
+    await_command,
+    id1,
+    id2,
+    read_addr_hi,
+    read_addr_lo,
+    read_ack1,
+    read_ack2,
+    read_addr_echo_hi,
+    read_addr_echo_lo,
+    read_data,
+    read_checksum,
+    read_end,
+    write_addr_hi,
+    write_addr_lo,
+    write_data,
+    write_checksum,
+    write_ack1,
+    write_ack2,
+    write_end,
+    get_id_ack1,
+    get_id_ack2,
+    get_id_tail,
+};
+
+const MemcardState = struct {
+    port: usize,
+    command: MemcardCommand,
+    phase: MemcardPhase,
+    addr: u16 = 0,
+    data_idx: usize = 0,
+    checksum: u8 = 0,
+    data: [memcard_mod.sector_size]u8 = undefined,
+    tail_idx: u8 = 0,
+    invalid_sector: bool = false,
+};
+
+const TransactionState = union(enum) {
+    idle,
+    memcard: MemcardState,
+    controller: ControllerState,
+};
+
+const Exchange = struct {
+    rx: u8,
+    ack: bool,
+    irq_delay: u32 = joy_irq_delay_cycles,
+};
+
 pub const Joypad = struct {
     pub const addr_start = 0x1f801040;
     pub const addr_end = 0x1f80104e;
@@ -113,23 +176,23 @@ pub const Joypad = struct {
     stat: StatusReg,
     ctrl: CotrolReg,
 
-    state: enum { idle, id_lo, id_hi, swlo, swhi } = .idle,
-    buttons: [2]ButtonState = .{ .{}, .{} },
-    tx_data: fifo.StaticFifo(u8, 16),
-    rx_data: fifo.StaticFifo(u8, 16),
+    buttons: ButtonState = .{},
+    rx_data: fifo.StaticFifo(u8, 256),
+    memcard: ?*MemoryCard = null,
 
     bus: *mem.Bus,
     irq_delay: u32 = 0,
+    state: TransactionState = .idle,
 
-    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus, memcard: ?*MemoryCard) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .mode = .{},
             .stat = .{},
             .ctrl = .{},
-            .tx_data = .empty,
             .rx_data = .empty,
+            .memcard = memcard,
             .bus = bus,
         };
         return self;
@@ -150,9 +213,9 @@ pub const Joypad = struct {
         }
     }
 
-    inline fn triggerIrqWithDelay(self: *@This()) void {
+    inline fn triggerIrqWithDelay(self: *@This(), delay_cycles: u32) void {
         self.stat.ack_line = .low; // /ACK is pulled low immediately
-        self.irq_delay = joy_irq_delay_cycles;
+        self.irq_delay = delay_cycles;
     }
 
     pub fn read(self: *@This(), comptime T: type, addr: u32) T {
@@ -238,7 +301,6 @@ pub const Joypad = struct {
             self.ctrl = .{};
             self.irq_delay = 0;
             self.state = .idle;
-            self.tx_data.clear();
             self.rx_data.clear();
         }
         if (!ctrl.joy_select_enable) {
@@ -252,50 +314,239 @@ pub const Joypad = struct {
         if (!self.ctrl.tx_enable) @panic("tx_enable=false unhandled");
         if (!self.ctrl.joy_select_enable) @panic("joy_select_enable=false unhandled");
 
-        switch (self.state) {
-            .idle => {
-                if (tx_byte != 0x01) {
-                    self.rx_data.push(0xff);
-                    self.state = .idle;
-                    return;
-                }
-                self.rx_data.push(0xff);
-                self.state = .id_lo;
-            },
-            .id_lo => {
-                if (tx_byte != 0x42) {
-                    self.rx_data.push(0xff);
-                    self.state = .idle;
-                    return;
-                }
-                self.rx_data.push(joy_id_digital[1]);
-                self.state = .id_hi;
-            },
-            .id_hi => {
-                self.rx_data.push(joy_id_digital[0]);
-                self.state = .swlo;
-            },
-            .swlo => {
-                const btns = ~@as(u16, @bitCast(self.buttons[self.ctrl.joy_select])); // 0=pressed
-                self.rx_data.push(@truncate(btns >> 0));
-                self.state = .swhi;
-            },
-            .swhi => {
-                const btns = ~@as(u16, @bitCast(self.buttons[self.ctrl.joy_select])); // 0=pressed
-                self.rx_data.push(@truncate(btns >> 8));
-                self.state = .idle;
-            },
+        const exchange = switch (self.state) {
+            .idle => self.handleIdle(tx_byte),
+            .memcard => |card| self.handleMemcard(card, tx_byte),
+            .controller => |controller| self.handleController(controller, tx_byte),
+        };
+
+        self.rx_data.push(exchange.rx);
+
+        // Interrupt is triggered only when there is more data to send.
+        // Silence means end of transmission.
+        if (self.ctrl.ack_irq_enable and exchange.ack) {
+            self.triggerIrqWithDelay(exchange.irq_delay);
+        }
+    }
+
+    fn handleIdle(self: *@This(), tx_byte: u8) Exchange {
+        const port = self.ctrl.joy_select;
+        if (port != 0) {
+            self.state = .idle;
+            return .{ .rx = 0xff, .ack = false };
         }
 
-        // NOTE: interrupt is triggered when there is MORE data to send.
-        // Silence means end of transmission.
+        return switch (tx_byte) {
+            0x01 => blk: {
+                self.state = .{ .controller = .{ .port = port, .phase = .await_command } };
+                break :blk .{ .rx = 0xff, .ack = true };
+            },
+            0x81 => blk: {
+                if (self.memcard == null) {
+                    self.state = .idle;
+                    break :blk .{ .rx = 0xff, .ack = false };
+                }
+                self.state = .{ .memcard = .{ .port = port, .command = .read, .phase = .await_command } };
+                break :blk .{ .rx = 0xff, .ack = true };
+            },
+            else => .{ .rx = 0xff, .ack = false },
+        };
+    }
 
-        if (self.ctrl.ack_irq_enable and self.state != .idle) {
-            self.triggerIrqWithDelay();
+    fn handleController(self: *@This(), controller: ControllerState, tx_byte: u8) Exchange {
+        switch (controller.phase) {
+            .await_command => {
+                if (tx_byte != 0x42) {
+                    self.state = .idle;
+                    return .{ .rx = 0xff, .ack = false };
+                }
+                self.state = .{ .controller = .{ .port = controller.port, .phase = .id_hi } };
+                return .{ .rx = joy_id_digital[1], .ack = true };
+            },
+            .id_hi => {
+                self.state = .{ .controller = .{ .port = controller.port, .phase = .buttons_lo } };
+                return .{ .rx = joy_id_digital[0], .ack = true };
+            },
+            .buttons_lo => {
+                const btns = ~@as(u16, @bitCast(self.buttons)); // 0=pressed
+                self.state = .{ .controller = .{ .port = controller.port, .phase = .buttons_hi } };
+                return .{ .rx = @truncate(btns >> 0), .ack = true };
+            },
+            .buttons_hi => {
+                const btns = ~@as(u16, @bitCast(self.buttons)); // 0=pressed
+                self.state = .idle;
+                return .{ .rx = @truncate(btns >> 8), .ack = false };
+            },
+        }
+    }
+
+    fn handleMemcard(self: *@This(), card_state: MemcardState, tx_byte: u8) Exchange {
+        var state = card_state;
+        const card = self.memcard.?;
+
+        switch (state.phase) {
+            .await_command => {
+                state.command = switch (tx_byte) {
+                    'R' => .read,
+                    'W' => .write,
+                    'S' => .get_id,
+                    else => {
+                        self.state = .idle;
+                        return .{ .rx = card.flag, .ack = false };
+                    },
+                };
+                state.phase = .id1;
+                self.state = .{ .memcard = state };
+                return .{ .rx = card.flag, .ack = true };
+            },
+            .id1 => {
+                state.phase = .id2;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5a, .ack = true };
+            },
+            .id2 => {
+                state.phase = switch (state.command) {
+                    .read => .read_addr_hi,
+                    .write => .write_addr_hi,
+                    .get_id => .get_id_ack1,
+                };
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5d, .ack = true };
+            },
+            .read_addr_hi => {
+                state.addr = @as(u16, tx_byte) << 8;
+                state.phase = .read_addr_lo;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x00, .ack = true };
+            },
+            .read_addr_lo => {
+                state.addr |= tx_byte;
+                state.invalid_sector = state.addr >= memcard_mod.sector_count;
+                state.checksum = MemoryCard.calcSectorChecksum(state.addr);
+                state.phase = .read_ack1;
+                self.state = .{ .memcard = state };
+                return .{ .rx = tx_byte, .ack = true, .irq_delay = joy_mc_read_delay_cycles };
+            },
+            .read_ack1 => {
+                state.phase = .read_ack2;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5c, .ack = true };
+            },
+            .read_ack2 => {
+                state.phase = .read_addr_echo_hi;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5d, .ack = true };
+            },
+            .read_addr_echo_hi => {
+                state.phase = .read_addr_echo_lo;
+                self.state = .{ .memcard = state };
+                return .{ .rx = if (state.invalid_sector) 0xff else @truncate(state.addr >> 8), .ack = true };
+            },
+            .read_addr_echo_lo => {
+                if (state.invalid_sector) {
+                    self.state = .idle;
+                    return .{ .rx = 0xff, .ack = false };
+                }
+                state.phase = .read_data;
+                state.data_idx = 0;
+                self.state = .{ .memcard = state };
+                return .{ .rx = @truncate(state.addr), .ack = true };
+            },
+            .read_data => {
+                const data = card.readSector(state.addr);
+                const value = data[state.data_idx];
+                state.checksum ^= value;
+                state.data_idx += 1;
+                state.phase = if (state.data_idx == memcard_mod.sector_size) .read_checksum else .read_data;
+                self.state = .{ .memcard = state };
+                return .{ .rx = value, .ack = true };
+            },
+            .read_checksum => {
+                state.phase = .read_end;
+                self.state = .{ .memcard = state };
+                return .{ .rx = state.checksum, .ack = true };
+            },
+            .read_end => {
+                self.state = .idle;
+                return .{ .rx = 0x47, .ack = false };
+            },
+            .write_addr_hi => {
+                state.addr = @as(u16, tx_byte) << 8;
+                state.phase = .write_addr_lo;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x00, .ack = true };
+            },
+            .write_addr_lo => {
+                state.addr |= tx_byte;
+                state.invalid_sector = state.addr >= memcard_mod.sector_count;
+                state.data_idx = 0;
+                state.checksum = MemoryCard.calcSectorChecksum(state.addr);
+                state.phase = .write_data;
+                self.state = .{ .memcard = state };
+                return .{ .rx = tx_byte, .ack = true };
+            },
+            .write_data => {
+                state.data[state.data_idx] = tx_byte;
+                state.checksum ^= tx_byte;
+                state.data_idx += 1;
+                state.phase = if (state.data_idx == memcard_mod.sector_size) .write_checksum else .write_data;
+                self.state = .{ .memcard = state };
+                return .{ .rx = tx_byte, .ack = true };
+            },
+            .write_checksum => {
+                const checksum_ok = state.checksum == tx_byte;
+                if (!state.invalid_sector and checksum_ok) {
+                    card.writeSector(state.addr, &state.data);
+                }
+                state.phase = .write_ack1;
+                // 0x47='G' success, 0x4e='N' checksum error, 0xff invalid sector.
+                state.checksum = if (state.invalid_sector) 0xff else if (checksum_ok) 0x47 else 0x4e;
+                self.state = .{ .memcard = state };
+                return .{ .rx = tx_byte, .ack = true };
+            },
+            .write_ack1 => {
+                state.phase = .write_ack2;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5c, .ack = true };
+            },
+            .write_ack2 => {
+                state.phase = .write_end;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5d, .ack = true };
+            },
+            .write_end => {
+                if (state.checksum == 0x47) {
+                    card.flushWrite();
+                }
+                self.state = .idle;
+                return .{ .rx = @truncate(state.checksum), .ack = false };
+            },
+            .get_id_ack1 => {
+                state.phase = .get_id_ack2;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5c, .ack = true };
+            },
+            .get_id_ack2 => {
+                state.phase = .get_id_tail;
+                state.tail_idx = 0;
+                self.state = .{ .memcard = state };
+                return .{ .rx = 0x5d, .ack = true };
+            },
+            .get_id_tail => {
+                const payload = [_]u8{ 0x04, 0x00, 0x00, 0x80 };
+                const value = payload[state.tail_idx];
+                state.tail_idx += 1;
+                if (state.tail_idx == payload.len) {
+                    self.state = .idle;
+                    return .{ .rx = value, .ack = false };
+                }
+                self.state = .{ .memcard = state };
+                return .{ .rx = value, .ack = true };
+            },
         }
     }
 
     pub inline fn setButtonState(self: *@This(), button: Button, pressed: bool) void {
-        @field(self.buttons[0], @tagName(button)) = pressed; // 1=not pressed
+        @field(self.buttons, @tagName(button)) = pressed; // 1=not pressed
     }
 };

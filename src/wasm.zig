@@ -101,7 +101,7 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     mdec = MDEC.init(allocator);
     timers = Timers.init(allocator, bus);
     spu = SPU.init(allocator, bus);
-    joy = Joypad.init(allocator, bus);
+    joy = Joypad.init(allocator, bus, null);
     cdrom = CDROM.init(allocator, bus);
 
     bus.connect(.{
@@ -175,7 +175,7 @@ export fn getDisplayInfoPtr() *DisplayInfo {
 }
 
 export fn setButtonState(state: u16) void {
-    joy.buttons[0] = @bitCast(state);
+    joy.buttons = @bitCast(state);
 }
 
 export fn getAudioSamples(ptr: [*]f32, max_frames: u32) u32 {

@@ -11,6 +11,7 @@ const help_text = (
     \\  --bios <path>        Path to BIOS file (required)
     \\  --exe <path>         Path to executable file to run
     \\  --cdrom <path>       Path to CD-ROM image file (.cue)
+    \\  --memcard <path>     Path to memory card image (default: memcard.mcd)
     \\  --debug              Enable debug user interface
     \\  --disasm             Enable disassembly output
     \\  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
@@ -28,6 +29,7 @@ pub const Args = struct {
     bios_path: []const u8,
     exe_path: []const u8,
     cd_image_path: []const u8,
+    memcard_path: []const u8,
 
     debug: bool = false,
     disasm: bool = false,
@@ -47,6 +49,7 @@ pub const Args = struct {
             .bios_path = &.{},
             .exe_path = &.{},
             .cd_image_path = &.{},
+            .memcard_path = &.{},
             .debug = false,
             .disasm = false,
             .breakpoint = 0,
@@ -102,6 +105,14 @@ pub const Args = struct {
                 args.cd_image_path = allocator.dupe(u8, cd_image_path) catch @panic("OOM");
             }
 
+            if (std.mem.eql(u8, arg, "--memcard")) {
+                const memcard_path = args_iter.next() orelse {
+                    log.err("missing path after --memcard", .{});
+                    return Error.InvalidArgument;
+                };
+                args.memcard_path = allocator.dupe(u8, memcard_path) catch @panic("OOM");
+            }
+
             if (std.mem.eql(u8, arg, "--uncapped")) {
                 args.uncapped = true;
             }
@@ -115,6 +126,7 @@ pub const Args = struct {
         self.allocator.free(self.bios_path);
         self.allocator.free(self.exe_path);
         self.allocator.free(self.cd_image_path);
+        self.allocator.free(self.memcard_path);
     }
 
     fn validate(self: *Args) !void {
