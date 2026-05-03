@@ -21,17 +21,19 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Colin McRae Rally 2.0|🟩 Playable||
 |Crash Bandicoot|🟩 Playable||
 |Crash Bandicoot 2|🟩 Playable||
+|Crash Bandicoot 3|🟩 Playable||
 |Crash Bash|🟩 Playable||
 |Crash Team Racing|🟩 Playable||
-|Castlevania Symphony of the Night|🟨 InGame|Incorrect shading|
+|Castlevania Symphony of the Night|🟨 InGame|Broken shading|
 |Doom|🟨 InGame|Broken textures|
+|Dino Crisis|🟨 InGame|Sound glitches|
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
-|Final Fantasy VII|🟨 InGame||
+|Final Fantasy VII|🟨 InGame|Broken textures in menus/overlays|
 |Frogger|🟩 Playable||
 |Gran Turismo|🟩 Playable||
 |Grand Theft Auto|🟩 Playable||
-|Metal Gear Solid|🟩 Playable|Cutscene glitches|
+|Metal Gear Solid|🟩 Playable||
 |Mortal Kombat 2|🟩 Playable||
 |Mortal Kombat 4|🟩 Playable||
 |Quake II|🟩 Playable||
@@ -40,14 +42,14 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Resident Evil 2|🟩 Playable||
 |Ridge Racer|🟩 Playable||
 |Silent Hill|🟩 Playable||
-|Spyro the Dragon|🟨 InGame|No background music|
-|Spyro Year of the Dragon|🟩 Playable||
-|Star Ocean - The Second Story|🟨 InGame||
+|Spyro the Dragon|🟩 Playable|No background music|
+|Spyro - Year of the Dragon|🟩 Playable||
+|Star Ocean - The Second Story|🟩 Playable||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
-|Tomb Raider|🟨 InGame| No background sounds|
+|Tomb Raider|🟨 InGame|No background sounds|
 |Tomb Raider III|🟨 InGame|Incorrect shading|
-|Wipeout|🟩 Playable|Severe sound crackling|
+|Wipeout|🟩 Playable||
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
 🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>
