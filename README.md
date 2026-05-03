@@ -24,7 +24,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Crash Bash|🟩 Playable||
 |Crash Team Racing|🟩 Playable||
 |Castlevania Symphony of the Night|🟨 InGame|Incorrect shading|
-|Doom|🟧 Intro||
+|Doom|🟨 InGame|Broken textures|
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
 |Final Fantasy VII|🟨 InGame||
@@ -46,7 +46,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
 |Tomb Raider|🟨 InGame| No background sounds|
-|Tomb Raider III|🟨 InGame|Shading|
+|Tomb Raider III|🟨 InGame|Incorrect shading|
 |Wipeout|🟨 InGame|Severe sound crackling|
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>

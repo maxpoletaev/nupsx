@@ -138,7 +138,7 @@ pub const Disc = struct {
     track_count: u8,
     pos: u32 = 0,
 
-    pub fn loadCue(allocator: std.mem.Allocator, io: std.Io, cue_path: []const u8) Error!@This() {
+    pub fn loadCue(allocator: std.mem.Allocator, io: std.Io, cue_path: []const u8) Error!*@This() {
         var diag: cue.Diagnostic = .{};
         var cue_sheet = cue.parseFile(allocator, io, cue_path, &diag) catch |err| {
             log.err("failed to parse cue sheet {s}: {s}", .{ cue_path, diag.msg() });
@@ -246,16 +246,18 @@ pub const Disc = struct {
         }
 
         const tracks_slice = tracks.toOwnedSlice(allocator) catch @panic("OOM");
+        const self = allocator.create(@This()) catch @panic("OOM");
 
-        return .{
+        self.* = .{
             .allocator = allocator,
             .tracks = tracks_slice,
             .track_count = @intCast(tracks_slice.len),
             .data = disc_data,
         };
+        return self;
     }
 
-    pub fn loadBinFromOwnedBuffer(allocator: std.mem.Allocator, buf: []align(2) const u8) @This() {
+    pub fn loadBinFromOwnedBuffer(allocator: std.mem.Allocator, buf: []align(2) const u8) *@This() {
         var tracks: std.ArrayList(Track) = .empty;
         const total_sectors: u32 = @intCast(buf.len / cdrom_sector_size_cue);
 
@@ -267,16 +269,18 @@ pub const Disc = struct {
         }) catch @panic("OOM");
 
         const tracks_slice = tracks.toOwnedSlice(allocator) catch @panic("OOM");
+        const self = allocator.create(@This()) catch @panic("OOM");
 
-        return .{
+        self.* = .{
             .allocator = allocator,
             .tracks = tracks_slice,
             .track_count = 1,
             .data = buf,
         };
+        return self;
     }
 
-    pub fn loadBin(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!@This() {
+    pub fn loadBin(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!*@This() {
         const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open bin file {s}: {}", .{ path, err });
             return Error.FileIoError;
@@ -305,6 +309,7 @@ pub const Disc = struct {
     pub fn deinit(self: *@This()) void {
         self.allocator.free(self.tracks);
         self.allocator.free(self.data);
+        self.allocator.destroy(self);
     }
 
     pub fn seek(self: *@This(), sector: u32) void {
@@ -412,7 +417,7 @@ pub const CDROM = struct {
     cmd_params: fifo.StaticFifo(u8, 16),
     results: fifo.StaticFifo(u8, 16),
 
-    disc: ?Disc,
+    disc: ?*Disc,
     seekloc: ?u32,
     audio_buffer: *AudioBuffer,
     data_buffer: ?[]const u8,
@@ -466,7 +471,7 @@ pub const CDROM = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn insertDisc(self: *@This(), disc: Disc) void {
+    pub fn insertDisc(self: *@This(), disc: *Disc) void {
         self.disc = disc;
     }
 
@@ -508,7 +513,7 @@ pub const CDROM = struct {
         }
 
         if (self.read_state == .reading and self.mode.xa_adpcm) {
-            const sample = self.xa.consumeSample(&self.disc.?);
+            const sample = self.xa.consumeSample(self.disc.?);
             if (self.mute) return .{ 0, 0 };
             return sample;
         }
@@ -591,11 +596,17 @@ pub const CDROM = struct {
                 self.resetReadState();
                 return;
             }
+
             self.stat.play = true;
+            const sector_id = self.disc.?.currentSector();
             const sector = self.disc.?.readSectorRaw();
             const samples = std.mem.bytesAsSlice(i16, sector);
             self.read_delay = cdrom_read_delay_cycles;
             self.fillAudioBuffer(samples);
+
+            if (self.mode.play_report) {
+                self.pushPlayReport(sector_id);
+            }
         }
     }
 
@@ -757,6 +768,40 @@ pub const CDROM = struct {
         stat.seekerr = err == .seek_failed;
         self.pushResultByte(@bitCast(stat));
         self.pushResultByte(err.code());
+    }
+
+    fn pushPlayReport(self: *@This(), sector_id: u32) void {
+        const abs_pos = Position.fromSectors(sector_id);
+        if (abs_pos.sector % 10 != 0) return;
+
+        const disc = self.disc orelse return;
+        const track = disc.getTrackBySector(sector_id) orelse return;
+
+        const in_pregap = sector_id < track.start_sector;
+        const track_index: u8 = if (in_pregap) 0 else 1;
+        const rel_sector = if (sector_id >= track.start_sector) sector_id - track.start_sector else track.start_sector - sector_id;
+        const rel_pos = Position.fromSectors(rel_sector);
+
+        self.results.clear();
+        self.pushResultByte(self.readStat());
+        self.pushResultByte(toBCD(track.number));
+        self.pushResultByte(toBCD(track_index));
+
+        if ((abs_pos.sector / 10) % 2 == 0) {
+            self.pushResultByte(toBCD(abs_pos.minute));
+            self.pushResultByte(toBCD(abs_pos.second));
+            self.pushResultByte(toBCD(abs_pos.sector));
+        } else {
+            self.pushResultByte(toBCD(rel_pos.minute));
+            self.pushResultByte(toBCD(rel_pos.second) | 0x80);
+            self.pushResultByte(toBCD(rel_pos.sector));
+        }
+
+        // TODO: peak values - are they important?
+        self.pushResultByte(0);
+        self.pushResultByte(0);
+
+        self.setInterrupt(1);
     }
 
     // =========================================================================
@@ -1007,7 +1052,6 @@ const commands = opaque {
                 self.xa.setMode(self.mode.xa_adpcm, self.mode.xa_filter);
 
                 if (self.mode.auto_pause) log.warn("auto-pause not implemented", .{});
-                if (self.mode.play_report) log.warn("play-report not implemented", .{});
 
                 self.setInterrupt(3);
                 self.finishCommand();
@@ -1026,7 +1070,7 @@ const commands = opaque {
             },
             .resp1 => {
                 if (self.seekloc == null) {
-                    std.debug.panic("CDROM SEEKL: no seek location set", .{});
+                    std.debug.panic("seekL: no seek location set", .{});
                 }
                 const loc = self.seekloc.?;
 
@@ -1075,12 +1119,14 @@ const commands = opaque {
             },
             .resp1 => {
                 const track_id = self.cmd_params.pop();
+
                 if (track_id) |id| {
-                    const track = self.disc.?.getTrackByNumber(id) orelse {
-                        std.debug.panic("cdrom - play: invalid track id {d}", .{id});
+                    const track_num = fromBCD(id);
+                    const track = self.disc.?.getTrackByNumber(track_num) orelse {
+                        std.debug.panic("play: invalid track id {d}", .{track_num});
                     };
                     self.seekloc = track.start_sector;
-                    log.debug("seekTrack: id={d}", .{id});
+                    log.debug("play: track_id={d}", .{track_num});
                 }
 
                 self.beginPlaying();

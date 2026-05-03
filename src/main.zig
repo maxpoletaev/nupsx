@@ -213,8 +213,8 @@ pub fn main(init: std.process.Init) !void {
     const sio1 = SIO1.init(allocator);
     defer sio1.deinit();
 
-    var disc: ?Disc = null;
-    defer if (disc) |*d| d.deinit();
+    var disc: ?*Disc = null;
+    defer if (disc) |d| d.deinit();
 
     const cdrom = CDROM.init(allocator, bus);
     defer cdrom.deinit();
