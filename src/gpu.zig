@@ -67,20 +67,20 @@ const GpuStat = packed struct(u32) {
     reverseflag: bool, // 14
     texture_disable: bool, // 15
     hres2: Hres2, // 16
-    hres1: Hres1, // 18
-    vres: Vres, // 20
-    video_mode: VideoMode, // 21
-    color_depth: ColorDepth, // 22
-    vertical_interlace: bool, // 23
+    hres1: Hres1, // 17-18
+    vres: Vres, // 19
+    video_mode: VideoMode, // 20
+    color_depth: ColorDepth, // 21
+    vertical_interlace: bool, // 22
 
-    display_enable: u1, // 24
-    interrupt_request: bool, // 25
-    dma_data_request: bool, // 26
-    ready_receive_cmd: bool, // 27
-    ready_send_vram_to_cpu: bool, // 28
-    ready_receive_dma_block: bool, // 29
-    dma_direction: DmaDirection, // 30-31
-    interlace_odd_line: bool, // 32
+    display_enable: u1, // 23
+    interrupt_request: bool, // 24
+    dma_data_request: bool, // 25
+    ready_receive_cmd: bool, // 26
+    ready_send_vram_to_cpu: bool, // 27
+    ready_receive_dma_block: bool, // 28
+    dma_direction: DmaDirection, // 29-30
+    interlace_odd_line: bool, // 31
 };
 
 const CmdState = enum {
@@ -276,14 +276,17 @@ pub const GPU = struct {
         gpustat.interrupt_request = self.interrupt_request;
         gpustat.dma_direction = self.gp1_dma_direction;
         gpustat.hres1 = self.gp1_display_mode.hres;
-        gpustat.vres = .@"240"; // TODO: self.gp1_display_mode.vres does not work, why?
         gpustat.video_mode = self.gp1_display_mode.video_mode;
         gpustat.color_depth = self.gp1_display_mode.color_depth;
-        gpustat.vertical_interlace = self.gp1_display_mode.interlace;
         gpustat.hres2 = self.gp1_display_mode.hres2;
         gpustat.ready_send_vram_to_cpu = true;
         gpustat.ready_receive_dma_block = true;
         gpustat.ready_receive_cmd = true;
+
+        // The following fields should be taken from self.gp1_display_mode, but setting
+        // them to anything other than the hardcoded values seems to break everything.
+        gpustat.vres = .@"240";
+        gpustat.vertical_interlace = false;
 
         return @as(u32, @bitCast(gpustat));
     }
@@ -695,7 +698,10 @@ pub const GPU = struct {
                     self.rasterizer.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color, semi_trans);
                     self.gp0_state = .recv_command;
 
-                    log.debug("lineFlat: color={x} pos0=({},{}) pos1=({},{}) semi_trans={}", .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, semi_trans });
+                    log.debug(
+                        "lineFlat: color={x} pos0=({},{}) pos1=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -749,7 +755,10 @@ pub const GPU = struct {
                     self.rasterizer.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1, semi_trans);
                     self.gp0_state = .recv_command;
 
-                    log.debug("lineShaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) semi_trans={}", .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, semi_trans });
+                    log.debug(
+                        "lineShaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
