@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const rasterizer = @import("rasterizer.zig");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
+const consts = @import("consts.zig");
 
 const Interrupt = mem.Interrupt;
 const Rasterizer = rasterizer.Rasterizer;
@@ -13,12 +14,6 @@ const Vertex = rasterizer.Vertex;
 const Color = rasterizer.RGB8;
 
 const log = std.log.scoped(.gpu);
-
-pub const gpu_cycles_hblank_start_ntsc: u32 = 2560;
-pub const gpu_cycles_hblank_end_ntsc: u32 = 3413;
-pub const gpu_scans_vblank_start_ntsc: u32 = 240;
-pub const gpu_scans_vblank_end_ntsc: u32 = 263;
-pub const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
 
 const Hres1 = enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 };
 const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
@@ -142,6 +137,30 @@ inline fn argTextpage(v: u32) Textpage {
     return .{ .x = base_x, .y = base_y, .depth = depth };
 }
 
+const Timing = struct {
+    hblank_start: u32,
+    hblank_end: u32,
+    vblank_start: u32,
+    vblank_end: u32,
+    frame_time: f64,
+};
+
+const ntsc_timing = Timing{
+    .hblank_start = consts.gpu_cycles_hblank_start_ntsc,
+    .hblank_end = consts.gpu_cycles_hblank_end_ntsc,
+    .vblank_start = consts.gpu_scans_vblank_start_ntsc,
+    .vblank_end = consts.gpu_scans_vblank_end_ntsc,
+    .frame_time = consts.gpu_target_frame_time_ntsc,
+};
+
+const pal_timing = Timing{
+    .hblank_start = consts.gpu_cycles_hblank_start_pal,
+    .hblank_end = consts.gpu_cycles_hblank_end_pal,
+    .vblank_start = consts.gpu_scans_vblank_start_pal,
+    .vblank_end = consts.gpu_scans_vblank_end_pal,
+    .frame_time = consts.gpu_target_frame_time_pal,
+};
+
 pub const GPU = struct {
     pub const vram_size = 1024 * 512;
     pub const addr_gp0: u32 = 0x1f801810;
@@ -180,6 +199,7 @@ pub const GPU = struct {
     scanline: u32 = 0,
     in_hblank: bool = false,
     in_vblank: bool = false,
+    timing: Timing = ntsc_timing,
 
     bus: *mem.Bus,
     frame_ready: bool = false,
@@ -257,7 +277,10 @@ pub const GPU = struct {
         gpustat.dma_direction = self.gp1_dma_direction;
         gpustat.hres1 = self.gp1_display_mode.hres;
         gpustat.vres = .@"240"; // TODO: self.gp1_display_mode.vres does not work, why?
+        gpustat.video_mode = self.gp1_display_mode.video_mode;
         gpustat.color_depth = self.gp1_display_mode.color_depth;
+        gpustat.vertical_interlace = self.gp1_display_mode.interlace;
+        gpustat.hres2 = self.gp1_display_mode.hres2;
         gpustat.ready_send_vram_to_cpu = true;
         gpustat.ready_receive_dma_block = true;
         gpustat.ready_receive_cmd = true;
@@ -275,15 +298,27 @@ pub const GPU = struct {
             },
             .@"368" => 368,
         };
+        const base_h: u16 = switch (self.gp1_display_mode.video_mode) {
+            .ntsc => 240,
+            .pal => 288,
+        };
         const h: u16 = switch (self.gp1_display_mode.vres) {
-            .@"240" => 240,
-            .@"480" => 480,
+            .@"240" => base_h,
+            .@"480" => base_h * 2,
         };
         return .{ w, h };
     }
 
+    pub inline fn getVideoMode(self: *@This()) u32 {
+        return @intFromEnum(self.gp1_display_mode.video_mode);
+    }
+
     pub inline fn getColorDepth(self: *@This()) ColorDepth {
         return self.gp1_display_mode.color_depth;
+    }
+
+    pub inline fn targetFrameTime(self: *@This()) f64 {
+        return self.timing.frame_time;
     }
 
     // =========================================================================
@@ -1156,6 +1191,10 @@ pub const GPU = struct {
             0x08 => {
                 self.gp1_display_mode = @bitCast(v);
                 log.debug("gp1 set display mode", .{});
+                switch (self.gp1_display_mode.video_mode) {
+                    .ntsc => self.timing = ntsc_timing,
+                    .pal => self.timing = pal_timing,
+                }
             },
             0x10 => self.registerToGpuread(v),
             else => std.debug.panic("unknown gp1 command: 0x{x}", .{cmd}),
@@ -1196,30 +1235,27 @@ pub const GPU = struct {
     }
 
     pub fn tick(self: *@This(), cyc: u32) void {
-        self.cycle_f += @as(f32, @floatFromInt(cyc)) * gpu_cycles_per_cpu_cycle;
+        const t = self.timing;
+        self.cycle_f += @as(f32, @floatFromInt(cyc)) * @as(f32, @floatCast(consts.gpu_cycles_per_cpu_cycle));
 
-        if (!self.in_hblank and self.cycle_f >= gpu_cycles_hblank_start_ntsc) {
+        if (!self.in_hblank and self.cycle_f >= @as(f32, @floatFromInt(t.hblank_start))) {
             self.in_hblank = true;
             self.bus.dev.timers.hblankStart();
-        } else if (self.in_hblank and self.cycle_f >= gpu_cycles_hblank_end_ntsc) {
+        } else if (self.in_hblank and self.cycle_f >= @as(f32, @floatFromInt(t.hblank_end))) {
             self.scanline += 1;
             self.in_hblank = false;
-            self.cycle_f -= gpu_cycles_hblank_end_ntsc;
+            self.cycle_f -= @as(f32, @floatFromInt(t.hblank_end));
             self.bus.dev.timers.hblankEnd();
 
-            switch (self.scanline) {
-                gpu_scans_vblank_start_ntsc => {
-                    self.in_vblank = true;
-                    self.frame_ready = true;
-                    self.bus.dev.timers.vblankStart();
-                    self.bus.setInterrupt(Interrupt.vblank);
-                },
-                gpu_scans_vblank_end_ntsc => {
-                    self.scanline = 0;
-                    self.in_vblank = false;
-                    self.bus.dev.timers.vblankEnd();
-                },
-                else => {},
+            if (self.scanline == t.vblank_start) {
+                self.in_vblank = true;
+                self.frame_ready = true;
+                self.bus.dev.timers.vblankStart();
+                self.bus.setInterrupt(Interrupt.vblank);
+            } else if (self.scanline == t.vblank_end) {
+                self.scanline = 0;
+                self.in_vblank = false;
+                self.bus.dev.timers.vblankEnd();
             }
         }
     }

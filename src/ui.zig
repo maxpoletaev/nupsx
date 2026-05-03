@@ -2,7 +2,6 @@ const std = @import("std");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 const options = @import("build_options");
-const consts = @import("consts.zig");
 
 const gpu_mod = @import("gpu.zig");
 const sio0_mod = @import("sio0.zig");
@@ -18,7 +17,9 @@ const window_title = "nuPSX";
 const vertex_shader_source = @embedFile("shaders/vertex.glsl");
 const fragment_shader_source = @embedFile("shaders/fragment.glsl");
 
-const target_frame_time: f64 = consts.gpu_target_frame_time_ntsc;
+const scale = 3;
+const window_width = 320 * scale;
+const window_height = 240 * scale;
 
 const Callback = struct {
     func: *const fn (*anyopaque) void,
@@ -87,6 +88,7 @@ pub const UI = struct {
     shader_program: gl.Uint,
     uniform_display_offset: gl.Int,
     uniform_display_size: gl.Int,
+    uniform_video_mode: gl.Int,
     uniform_display_range_y: gl.Int,
     uniform_vram_size: gl.Int,
     last_fps_update_time: f64 = 0,
@@ -117,7 +119,7 @@ pub const UI = struct {
         glfw.windowHint(.client_api, .opengl_api);
         glfw.windowHint(.doublebuffer, true);
 
-        const window = try glfw.createWindow(640, 480, window_title, null, null);
+        const window = try glfw.createWindow(window_width, window_height, window_title, null, null);
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);
@@ -157,6 +159,7 @@ pub const UI = struct {
         // Cache uniform locations
         const uniform_display_offset = gl.getUniformLocation(shader_program, "uDisplayOffset");
         const uniform_display_size = gl.getUniformLocation(shader_program, "uDisplaySize");
+        const uniform_video_mode = gl.getUniformLocation(shader_program, "uVideoMode");
         const uniform_display_range_y = gl.getUniformLocation(shader_program, "uDisplayRangeY");
         const uniform_vram_size = gl.getUniformLocation(shader_program, "uVramSize");
 
@@ -173,6 +176,7 @@ pub const UI = struct {
             .shader_program = shader_program,
             .uniform_display_offset = uniform_display_offset,
             .uniform_display_size = uniform_display_size,
+            .uniform_video_mode = uniform_video_mode,
             .uniform_display_range_y = uniform_display_range_y,
             .uniform_vram_size = uniform_vram_size,
             .uncapped = options.uncapped,
@@ -229,7 +233,7 @@ pub const UI = struct {
         self.updateInternal(glfw.getTime());
 
         const after = glfw.getTime();
-        self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
+        self.next_frame_time = @max(self.next_frame_time + self.gpu.targetFrameTime(), after);
     }
 
     const KeyMapping = struct { glfw.Key, sio0_mod.Button };
@@ -374,6 +378,7 @@ pub const UI = struct {
         // Set uniform values
         gl.uniform2f(self.uniform_display_offset, offset_x, start_y);
         gl.uniform2f(self.uniform_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
+        gl.uniform1i(self.uniform_video_mode, @intCast(self.gpu.getVideoMode()));
         gl.uniform2f(self.uniform_display_range_y, display_range_y1, display_range_y2);
         switch (color_depth) {
             .bit15 => gl.uniform2f(self.uniform_vram_size, 1024.0, 512.0),

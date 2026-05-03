@@ -4,7 +4,6 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
 const mem = @import("../mem.zig");
-const consts = @import("../consts.zig");
 const sio0_mod = @import("../sio0.zig");
 const cpu_mod = @import("../cpu.zig");
 const disasm = @import("../disasm.zig");
@@ -24,7 +23,6 @@ const InterruptView = @import("InterruptView.zig");
 
 const default_font = @embedFile("../assets/freepixel.ttf");
 const default_font_size = 16.0;
-const target_frame_time: f64 = consts.gpu_target_frame_time_ntsc;
 const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
@@ -129,6 +127,7 @@ pub fn deinit(self: *@This()) void {
 pub fn updatePaused(self: *@This()) void {
     const now = glfw.getTime();
     const elapsed = now - self.last_frame_time;
+    const target_frame_time = self.bus.dev.gpu.targetFrameTime();
 
     if (elapsed < target_frame_time) {
         glfw.waitEventsTimeout(target_frame_time - elapsed);
@@ -152,7 +151,7 @@ pub fn update(self: *@This(), io: std.Io) void {
     self.handleInput();
 
     const after = glfw.getTime();
-    self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
+    self.next_frame_time = @max(self.next_frame_time + self.bus.dev.gpu.targetFrameTime(), after);
 }
 
 const KeyMapping = struct { glfw.Key, sio0_mod.Button };
