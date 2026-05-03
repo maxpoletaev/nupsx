@@ -126,6 +126,7 @@ const Position = struct {
 
 const Track = struct {
     number: u8,
+    pregap_sector: u32,
     start_sector: u32,
     end_sector: u32,
 };
@@ -168,9 +169,16 @@ pub const Disc = struct {
             const file_sector_count: u32 = @intCast(@divExact(stat.size, cdrom_sector_size_cue));
 
             for (file.tracks) |track| {
-                const index_01: ?cue.IndexNode = for (track.indices) |idx| {
-                    if (idx.number == 1) break idx;
-                } else null;
+                var index_00: ?cue.IndexNode = null;
+                var index_01: ?cue.IndexNode = null;
+
+                for (track.indices) |track_index| {
+                    switch (track_index.number) {
+                        0 => index_00 = track_index,
+                        1 => index_01 = track_index,
+                        else => {},
+                    }
+                }
 
                 if (index_01 == null) {
                     log.err("cue sheet track {d} missing INDEX 01", .{track.number});
@@ -178,10 +186,12 @@ pub const Disc = struct {
                 }
 
                 const track_start = absolute_sector + index_01.?.position.toSectors();
+                const pregap_start = if (index_00) |x| absolute_sector + x.position.toSectors() else track_start;
                 const track_end = track_start + file_sector_count;
 
                 tracks.append(allocator, Track{
                     .number = track.number,
+                    .pregap_sector = pregap_start,
                     .start_sector = track_start,
                     .end_sector = track_end,
                 }) catch @panic("OOM");
@@ -251,6 +261,7 @@ pub const Disc = struct {
 
         tracks.append(allocator, Track{
             .number = 1,
+            .pregap_sector = cdrom_file_offset_sectors_cue,
             .start_sector = cdrom_file_offset_sectors_cue,
             .end_sector = cdrom_file_offset_sectors_cue + total_sectors,
         }) catch @panic("OOM");
@@ -325,29 +336,38 @@ pub const Disc = struct {
         return @alignCast(sector);
     }
 
-    pub fn getTrackByNumber(self: *@This(), number: u8) ?*const Track {
+    pub fn getTrackByNumber(self: *const @This(), number: u8) ?Track {
         if (number == 0) {
             std.debug.assert(self.tracks.len > 0);
-            return &self.tracks[self.tracks.len - 1];
+            return self.tracks[self.tracks.len - 1];
         }
         for (0.., self.tracks) |i, track| {
             if (track.number == number) {
-                return &self.tracks[i];
+                return self.tracks[i];
             }
         }
         return null;
     }
 
-    pub fn isAtValidLocation(self: *@This()) bool {
+    pub fn getTrackBySector(self: *const @This(), sector: u32) ?Track {
+        for (self.tracks) |track| {
+            if (sector >= track.pregap_sector and sector < track.end_sector) {
+                return track;
+            }
+        }
+        return null;
+    }
+
+    pub fn isAtValidLocation(self: *const @This()) bool {
         const pos = self.pos + cdrom_file_offset_bytes_cue;
         return pos < self.data.len;
     }
 
-    pub fn currentSector(self: *@This()) u32 {
+    pub fn currentSector(self: *const @This()) u32 {
         return @intCast((self.pos + cdrom_file_offset_bytes_cue) / cdrom_sector_size_cue);
     }
 
-    pub fn readSectorRawAt(self: *@This(), sector: u32) ?[]align(2) const u8 {
+    pub fn readSectorRawAt(self: *const @This(), sector: u32) ?[]align(2) const u8 {
         const pos = sector * cdrom_sector_size_cue -| cdrom_file_offset_bytes_cue;
         if (pos + cdrom_sector_size_cue > self.data.len) {
             return null;
@@ -1224,19 +1244,32 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("getLocP", .{});
-                self.pushResultByte(self.readStat());
+                const disc = self.disc orelse {
+                    self.pushError(.cannot_respond);
+                    self.setInterrupt(5);
+                    self.finishCommand();
+                    return;
+                };
 
-                self.pushResultByte(toBCD(1)); // track number
-                self.pushResultByte(toBCD(1)); // track index
+                const sector = disc.currentSector();
+                const track = disc.getTrackBySector(sector).?;
+                const in_pregap = sector < track.start_sector;
+                const track_index: u8 = if (in_pregap) 0 else 1;
+                const rel_sector = if (sector >= track.start_sector) sector - track.start_sector else track.start_sector - sector;
 
-                self.pushResultByte(toBCD(0)); // track minute
-                self.pushResultByte(toBCD(2)); // track second
-                self.pushResultByte(toBCD(0)); // track sect
+                const rel_pos = Position.fromSectors(rel_sector);
+                const abs_pos = Position.fromSectors(sector);
 
-                self.pushResultByte(toBCD(0)); // absolute minute
-                self.pushResultByte(toBCD(2)); // absolute second
-                self.pushResultByte(toBCD(0)); // absolute sect
+                log.debug("getLocP: track={d} index={d} sector={d}", .{ track.number, track_index, sector });
+
+                self.pushResultByte(toBCD(track.number));
+                self.pushResultByte(toBCD(track_index));
+                self.pushResultByte(toBCD(rel_pos.minute));
+                self.pushResultByte(toBCD(rel_pos.second));
+                self.pushResultByte(toBCD(rel_pos.sector));
+                self.pushResultByte(toBCD(abs_pos.minute));
+                self.pushResultByte(toBCD(abs_pos.second));
+                self.pushResultByte(toBCD(abs_pos.sector));
 
                 self.setInterrupt(3);
                 self.finishCommand();

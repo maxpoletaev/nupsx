@@ -45,9 +45,9 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Star Ocean - The Second Story|🟨 InGame||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
-|Tomb Raider|🟧 Intro||
+|Tomb Raider|🟨 InGame| No background sounds|
 |Tomb Raider III|🟨 InGame|Shading|
-|Wipeout|🟨 InGame|Sound crackling|
+|Wipeout|🟨 InGame|Severe sound crackling|
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
 🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>
