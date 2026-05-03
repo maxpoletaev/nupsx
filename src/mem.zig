@@ -295,10 +295,11 @@ pub const Bus = struct {
         self.dev.timers.tick(cyc);
 
         self.audio_counter += cyc;
-        if (self.audio_counter >= 768) {
+        while (self.audio_counter >= 768) {
             self.audio_counter -= 768;
             const sample = self.dev.spu.consumeAudioSample();
             const cd_sample = self.dev.cdrom.consumeAudioSample();
+
             self.audio_stream.push(.{
                 sample[0] +| cd_sample[0],
                 sample[1] +| cd_sample[1],

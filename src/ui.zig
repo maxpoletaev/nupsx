@@ -1,6 +1,8 @@
 const std = @import("std");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
+const options = @import("build_options");
+const consts = @import("consts.zig");
 
 const gpu_mod = @import("gpu.zig");
 const sio0_mod = @import("sio0.zig");
@@ -15,6 +17,17 @@ const window_title = "nuPSX";
 
 const vertex_shader_source = @embedFile("shaders/vertex.glsl");
 const fragment_shader_source = @embedFile("shaders/fragment.glsl");
+
+const target_frame_time: f64 = consts.gpu_target_frame_time_ntsc;
+
+const Callback = struct {
+    func: *const fn (*anyopaque) void,
+    user_data: *anyopaque,
+
+    fn call(self: @This()) void {
+        self.func(self.user_data);
+    }
+};
 
 fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
@@ -64,6 +77,7 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
 
 pub const UI = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     window: *glfw.Window,
     gpu: *GPU,
     joy: *SIO0,
@@ -78,7 +92,11 @@ pub const UI = struct {
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
     is_running: bool = true,
+    next_frame_time: f64 = 0,
+    uncapped: bool = false,
+    mute_key_down: bool = false,
     filename: ?[]const u8 = null,
+    mute_toggle_callback: ?Callback = null,
 
     const vertices = [_]f32{ // [x, y, u, v]
         -1.0, 1.0, 0.0, 0.0, // top left
@@ -89,7 +107,7 @@ pub const UI = struct {
         1.0, 1.0, 1.0, 0.0, // top right
     };
 
-    pub fn init(allocator: std.mem.Allocator, gpu: *GPU, joy: *SIO0) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, gpu: *GPU, joy: *SIO0) !*@This() {
         try glfw.init();
         glfw.windowHint(.context_version_major, gl_version[0]);
         glfw.windowHint(.context_version_minor, gl_version[1]);
@@ -103,7 +121,7 @@ pub const UI = struct {
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);
-        glfw.swapInterval(0); // disable vsync, we handle frame timing manually
+        glfw.swapInterval(0);
 
         try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
 
@@ -145,6 +163,7 @@ pub const UI = struct {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
+            .io = io,
             .window = window,
             .gpu = gpu,
             .joy = joy,
@@ -156,6 +175,7 @@ pub const UI = struct {
             .uniform_display_size = uniform_display_size,
             .uniform_display_range_y = uniform_display_range_y,
             .uniform_vram_size = uniform_vram_size,
+            .uncapped = options.uncapped,
         };
 
         return self;
@@ -182,9 +202,34 @@ pub const UI = struct {
         self.filename = try self.allocator.dupe(u8, basename);
     }
 
+    pub fn setUncapped(self: *@This(), uncapped: bool) void {
+        self.uncapped = uncapped;
+    }
+
+    pub fn setMuteToggleCallback(
+        self: *@This(),
+        func: *const fn (*anyopaque) void,
+        user_data: *anyopaque,
+    ) void {
+        self.mute_toggle_callback = .{
+            .func = func,
+            .user_data = user_data,
+        };
+    }
+
     pub fn update(self: *@This()) void {
+        const now = glfw.getTime();
+        if (!self.uncapped and self.next_frame_time > now) {
+            const sleep_seconds = self.next_frame_time - now;
+            const ns: i96 = @intFromFloat(sleep_seconds * std.time.ns_per_s);
+            self.io.sleep(.{ .nanoseconds = ns }, .awake) catch {};
+        }
+
         self.handleInput();
         self.updateInternal(glfw.getTime());
+
+        const after = glfw.getTime();
+        self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
     }
 
     const KeyMapping = struct { glfw.Key, sio0_mod.Button };
@@ -231,6 +276,12 @@ pub const UI = struct {
         if (self.window.shouldClose()) {
             self.is_running = false;
         }
+
+        const mute_pressed = glfw.getKey(self.window, glfw.Key.m) == .press;
+        if (mute_pressed and !self.mute_key_down) {
+            if (self.mute_toggle_callback) |callback| callback.call();
+        }
+        self.mute_key_down = mute_pressed;
 
         inline for (key_mappings) |mapping| {
             const key_state = glfw.getKey(self.window, mapping[0]);

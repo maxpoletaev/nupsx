@@ -4,6 +4,7 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
 const mem = @import("../mem.zig");
+const consts = @import("../consts.zig");
 const sio0_mod = @import("../sio0.zig");
 const cpu_mod = @import("../cpu.zig");
 const disasm = @import("../disasm.zig");
@@ -23,7 +24,7 @@ const InterruptView = @import("InterruptView.zig");
 
 const default_font = @embedFile("../assets/freepixel.ttf");
 const default_font_size = 16.0;
-const target_frame_time: f64 = 1.0 / 60.0;
+const target_frame_time: f64 = consts.gpu_target_frame_time_ntsc;
 const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;

@@ -95,11 +95,11 @@ fn printBanner(io: std.Io) void {
 
 const Audio = struct {
     allocator: std.mem.Allocator,
-    io: std.Io,
     device: *zaudio.Device,
     bus: *Bus,
+    muted: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, bus: *Bus) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *Bus) *@This() {
         zaudio.init(allocator);
 
         const self = allocator.create(Audio) catch unreachable;
@@ -121,7 +121,6 @@ const Audio = struct {
 
         self.* = .{
             .allocator = allocator,
-            .io = io,
             .device = device,
             .bus = bus,
         };
@@ -134,6 +133,23 @@ const Audio = struct {
         self.device.destroy();
         self.allocator.destroy(self);
         zaudio.deinit();
+    }
+
+    pub fn setMuted(self: *@This(), muted: bool) void {
+        self.device.setMasterVolume(if (muted) 0.0 else 1.0) catch |err| {
+            std.log.err("failed to set audio master volume: {}", .{err});
+            return;
+        };
+        self.muted = muted;
+    }
+
+    pub fn toggleMuted(self: *@This()) void {
+        self.setMuted(!self.muted);
+    }
+
+    pub fn muteToggleCallback(user_data: *anyopaque) void {
+        const self: *@This() = @ptrCast(@alignCast(user_data));
+        self.toggleMuted();
     }
 
     fn callback(
@@ -152,8 +168,6 @@ const Audio = struct {
             buf[i * 2 + 0] = sample[0];
             buf[i * 2 + 1] = sample[1];
         }
-
-        self.bus.audio_stream.signal(self.io);
     }
 };
 
@@ -247,7 +261,7 @@ pub fn main(init: std.process.Init) !void {
         .scratchpad = scratchpad,
     });
 
-    const audio = Audio.init(allocator, io, bus);
+    const audio = Audio.init(allocator, bus);
     defer audio.deinit();
 
     // const stdin = std.fs.File.stdin();
@@ -293,8 +307,13 @@ pub fn main(init: std.process.Init) !void {
             }
         }
     } else {
-        const ui = try UI.init(allocator, gpu, sio0);
+        const ui = try UI.init(allocator, io, gpu, sio0);
         defer ui.deinit();
+        ui.setMuteToggleCallback(Audio.muteToggleCallback, audio);
+
+        if (args.uncapped) {
+            ui.setUncapped(true);
+        }
 
         if (args.cd_image_path.len != 0) {
             try ui.setFilename(args.cd_image_path);

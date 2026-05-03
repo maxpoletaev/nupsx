@@ -47,7 +47,7 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Tom and Jerry in House Trap|🟩 Playable||
 |Tomb Raider|🟨 InGame| No background sounds|
 |Tomb Raider III|🟨 InGame|Incorrect shading|
-|Wipeout|🟨 InGame|Severe sound crackling|
+|Wipeout|🟩 Playable|Severe sound crackling|
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
 🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>

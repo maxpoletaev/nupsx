@@ -426,6 +426,7 @@ pub const CDROM = struct {
     read_state: ReadState,
     read_delay: u32,
     xa: xa_mod.XaState,
+    last_sample: [2]i16,
 
     irq_mask: packed struct(u8) { int_enable: u3 = 0, _pad: u5 = 0 },
     irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
@@ -462,6 +463,7 @@ pub const CDROM = struct {
             .stat = .{},
             .addr = .{},
             .req = .{},
+            .last_sample = .{ 0, 0 },
         };
         return self;
     }
@@ -505,10 +507,11 @@ pub const CDROM = struct {
     pub fn consumeAudioSample(self: *@This()) [2]i16 {
         if (self.read_state == .playing and self.mode.cdda) {
             const sample = self.audio_buffer.pop() orelse blk: {
-                log.warn("audio buffer underrun", .{});
-                break :blk [2]i16{ 0, 0 };
+                log.debug("audio buffer underrun", .{});
+                break :blk self.last_sample;
             };
             if (self.mute) return .{ 0, 0 };
+            self.last_sample = sample;
             return sample;
         }
 
@@ -842,21 +845,21 @@ pub const CDROM = struct {
             0 => self.addr.bank_index = bits.field(val, 0, u2),
             1 => switch (bank_index) {
                 0 => self.writeCommand(val),
-                1 => log.warn("WRDATA: {x}", .{v}),
-                2 => log.warn("CI: {x}", .{v}),
-                3 => log.warn("AVT2: {x}", .{v}),
+                1 => log.warn("unimplemented WRDATA: {x}", .{v}),
+                2 => log.warn("unimplemented CI: {x}", .{v}),
+                3 => log.warn("unimplemented AVT2: {x}", .{v}),
             },
             2 => switch (bank_index) {
                 0 => self.writePram(val),
                 1 => self.irq_mask = @bitCast(val),
-                2 => log.warn("ATV0: {x}", .{v}),
-                3 => log.warn("ATV3: {x}", .{v}),
+                2 => log.warn("unimplemented ATV0: {x}", .{v}),
+                3 => log.warn("unimplemented ATV3: {x}", .{v}),
             },
             3 => switch (bank_index) {
                 0 => self.writeRequest(val),
                 1 => self.ackInterrupt(val),
-                2 => log.warn("ATV1: {x}", .{v}),
-                3 => log.warn("ADPCTL: {x}", .{v}),
+                2 => log.warn("unimplemented ATV1: {x}", .{v}),
+                3 => log.warn("unimplemented ADPCTL: {x}", .{v}),
             },
         }
     }
