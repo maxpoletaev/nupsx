@@ -4,7 +4,7 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
 const mem = @import("../mem.zig");
-const joy_mod = @import("../joy.zig");
+const sio0_mod = @import("../sio0.zig");
 const cpu_mod = @import("../cpu.zig");
 const disasm = @import("../disasm.zig");
 
@@ -154,7 +154,7 @@ pub fn update(self: *@This(), io: std.Io) void {
     self.next_frame_time = @max(self.next_frame_time + target_frame_time, after);
 }
 
-const KeyMapping = struct { glfw.Key, joy_mod.Button };
+const KeyMapping = struct { glfw.Key, sio0_mod.Button };
 const key_mappings = [_]KeyMapping{
     .{ glfw.Key.w, .up },
     .{ glfw.Key.a, .left },
@@ -185,7 +185,7 @@ inline fn handleInput(self: *@This()) void {
     inline for (key_mappings) |mapping| {
         const key_state = glfw.getKey(self.window, mapping[0]);
         const pressed = key_state == .press or key_state == .repeat;
-        self.bus.dev.joy.setButtonState(mapping[1], pressed);
+        self.bus.dev.sio0.setButtonState(mapping[1], pressed);
     }
 }
 

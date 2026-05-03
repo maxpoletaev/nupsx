@@ -166,7 +166,7 @@ const Exchange = struct {
     irq_delay: u32 = joy_irq_delay_cycles,
 };
 
-pub const Joypad = struct {
+pub const SIO0 = struct {
     pub const addr_start = 0x1f801040;
     pub const addr_end = 0x1f80104e;
 

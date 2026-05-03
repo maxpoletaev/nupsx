@@ -8,7 +8,8 @@ const disasm_mod = @import("disasm.zig");
 const gpu_mod = @import("gpu.zig");
 const cdrom_mod = @import("cdrom.zig");
 const spu_mod = @import("spu.zig");
-const joy_mod = @import("joy.zig");
+const sio0_mod = @import("sio0.zig");
+const sio1_mod = @import("sio1.zig");
 const memcard_mod = @import("memcard.zig");
 
 const CPU = @import("cpu.zig").CPU;
@@ -30,7 +31,8 @@ const Timers = timer_mod.Timers;
 const CDROM = cdrom_mod.CDROM;
 const Disc = cdrom_mod.Disc;
 const SPU = spu_mod.SPU;
-const Joypad = joy_mod.Joypad;
+const SIO0 = sio0_mod.SIO0;
+const SIO1 = sio1_mod.SIO1;
 const MemoryCard = memcard_mod.MemoryCard;
 
 const memcard_default_path = "memcard.mcd";
@@ -205,8 +207,11 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("using memory card file: {s}", .{memcard_path});
     defer memcard.deinit();
 
-    const joy = Joypad.init(allocator, bus, memcard);
-    defer joy.deinit();
+    const sio0 = SIO0.init(allocator, bus, memcard);
+    defer sio0.deinit();
+
+    const sio1 = SIO1.init(allocator);
+    defer sio1.deinit();
 
     var disc: ?Disc = null;
     defer if (disc) |*d| d.deinit();
@@ -235,7 +240,8 @@ pub fn main(init: std.process.Init) !void {
         .dma = dma,
         .mdec = mdec,
         .spu = spu,
-        .joy = joy,
+        .sio0 = sio0,
+        .sio1 = sio1,
         .cdrom = cdrom,
         .timers = timers,
         .scratchpad = scratchpad,
@@ -287,7 +293,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
     } else {
-        const ui = try UI.init(allocator, gpu, joy);
+        const ui = try UI.init(allocator, gpu, sio0);
         defer ui.deinit();
 
         if (args.cd_image_path.len != 0) {

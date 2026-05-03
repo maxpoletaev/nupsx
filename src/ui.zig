@@ -3,9 +3,9 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
 const gpu_mod = @import("gpu.zig");
-const joy_mod = @import("joy.zig");
+const sio0_mod = @import("sio0.zig");
 const GPU = gpu_mod.GPU;
-const Joypad = joy_mod.Joypad;
+const SIO0 = sio0_mod.SIO0;
 
 const gl = zopengl.bindings;
 const log = std.log.scoped(.ui);
@@ -66,7 +66,7 @@ pub const UI = struct {
     allocator: std.mem.Allocator,
     window: *glfw.Window,
     gpu: *GPU,
-    joy: *Joypad,
+    joy: *SIO0,
     texture_id: gl.Uint,
     vao: gl.Uint,
     vbo: gl.Uint,
@@ -89,7 +89,7 @@ pub const UI = struct {
         1.0, 1.0, 1.0, 0.0, // top right
     };
 
-    pub fn init(allocator: std.mem.Allocator, gpu: *GPU, joy: *Joypad) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, gpu: *GPU, joy: *SIO0) !*@This() {
         try glfw.init();
         glfw.windowHint(.context_version_major, gl_version[0]);
         glfw.windowHint(.context_version_minor, gl_version[1]);
@@ -187,7 +187,7 @@ pub const UI = struct {
         self.updateInternal(glfw.getTime());
     }
 
-    const KeyMapping = struct { glfw.Key, joy_mod.Button };
+    const KeyMapping = struct { glfw.Key, sio0_mod.Button };
     const key_mappings = [_]KeyMapping{
         .{ glfw.Key.w, .up },
         .{ glfw.Key.a, .left },
@@ -205,7 +205,7 @@ pub const UI = struct {
         .{ glfw.Key.right_shift, .select },
     };
 
-    const GamepadMapping = struct { u8, joy_mod.Button };
+    const GamepadMapping = struct { u8, sio0_mod.Button };
     const gamepad_mappings = [_]GamepadMapping{
         .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
         .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },
