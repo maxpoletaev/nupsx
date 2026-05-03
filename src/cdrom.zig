@@ -408,7 +408,8 @@ pub const CDROM = struct {
     cmd_state: CmdState,
     pending_cmd: ?u8,
     cmd_delay: u32,
-    params: fifo.StaticFifo(u8, 16),
+    pending_params: fifo.StaticFifo(u8, 16),
+    cmd_params: fifo.StaticFifo(u8, 16),
     results: fifo.StaticFifo(u8, 16),
 
     disc: ?Disc,
@@ -432,7 +433,8 @@ pub const CDROM = struct {
 
         self.* = .{
             .allocator = allocator,
-            .params = .empty,
+            .pending_params = .empty,
+            .cmd_params = .empty,
             .results = .empty,
             .irq_mask = std.mem.zeroes(@TypeOf(self.irq_mask)),
             .irq_pending = std.mem.zeroes(@TypeOf(self.irq_pending)),
@@ -712,11 +714,29 @@ pub const CDROM = struct {
         }
     }
 
+    fn beginCommand(self: *@This(), opcode: u8) void {
+        self.cmd = opcode;
+        self.cmd_state = .recv_cmd;
+        self.cmd_params = self.pending_params.clone();
+        self.pending_params.clear();
+        self.stepCommand();
+    }
+
     fn finishCommand(self: *@This()) void {
-        // self.params.clear();
+        self.cmd_params.clear();
         self.cmd_state = .recv_cmd;
         self.stat.err = false;
         self.cmd = null;
+    }
+
+    fn assertParamCount(self: *@This(), cmd_name: []const u8, expected: usize) bool {
+        if (self.cmd_params.len == expected) return true;
+        // std.debug.panic("wrong parameter count for {s}: expected {d}, got {d}", .{ cmd_name, expected, self.cmd_params.len });
+        log.warn("{s}: wrong parameter count: expected {d}, got {d}", .{ cmd_name, expected, self.cmd_params.len });
+        self.pushError(.wrong_parameter_count);
+        self.setInterrupt(5);
+        self.finishCommand();
+        return false;
     }
 
     fn pushResultByte(self: *@This(), byte: u8) void {
@@ -798,8 +818,8 @@ pub const CDROM = struct {
 
     fn readAddr(self: *@This()) u8 {
         var addr = self.addr;
-        addr.param_empty = self.params.isEmpty();
-        addr.param_not_full = !self.params.isFull();
+        addr.param_empty = self.pending_params.isEmpty();
+        addr.param_not_full = !self.pending_params.isFull();
         addr.result_ready = !self.results.isEmpty();
         addr.data_ready = self.req.want_data and self.data_buffer != null;
         addr.busy_status = self.cmd_state != .recv_cmd;
@@ -821,7 +841,7 @@ pub const CDROM = struct {
     }
 
     fn writePram(self: *@This(), v: u8) void {
-        self.params.push(v);
+        self.pending_params.push(v);
     }
 
     fn writeCommand(self: *@This(), opcode: u8) void {
@@ -831,9 +851,7 @@ pub const CDROM = struct {
         }
 
         if (self.cmd == null and self.irq_pending.ints == 0) {
-            self.cmd = opcode;
-            self.cmd_state = .recv_cmd;
-            self.stepCommand();
+            self.beginCommand(opcode);
         } else {
             self.pending_cmd = opcode;
         }
@@ -866,13 +884,13 @@ pub const CDROM = struct {
 
         self.irq_pending.ints &= ~ack.int_clear;
 
-        if (ack.param_clear) self.params.clear();
+        if (ack.param_clear) self.pending_params.clear();
 
         if (self.irq_pending.ints == 0 and self.cmd == null and self.pending_cmd != null) {
-            self.cmd = self.pending_cmd;
+            const pending_cmd = self.pending_cmd.?;
             self.pending_cmd = null;
             self.results.clear();
-            self.stepCommand();
+            self.beginCommand(pending_cmd);
         }
     }
 };
@@ -956,10 +974,10 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 3);
-                const m = fromBCD(self.params.pop().?);
-                const s = fromBCD(self.params.pop().?);
-                const f = fromBCD(self.params.pop().?);
+                if (!self.assertParamCount("setLoc", 3)) return;
+                const m = fromBCD(self.cmd_params.pop().?);
+                const s = fromBCD(self.cmd_params.pop().?);
+                const f = fromBCD(self.cmd_params.pop().?);
 
                 log.debug("setLoc: m={d} s={d} f={d}", .{ m, s, f });
 
@@ -979,8 +997,8 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 1);
-                const mode_byte = self.params.pop().?;
+                if (!self.assertParamCount("setMode", 1)) return;
+                const mode_byte = self.cmd_params.pop().?;
 
                 log.debug("setMode: mode={x}", .{mode_byte});
 
@@ -1056,7 +1074,7 @@ const commands = opaque {
                 self.stat.motor_on = true;
             },
             .resp1 => {
-                const track_id = self.params.pop();
+                const track_id = self.cmd_params.pop();
                 if (track_id) |id| {
                     const track = self.disc.?.getTrackByNumber(id) orelse {
                         std.debug.panic("cdrom - play: invalid track id {d}", .{id});
@@ -1106,8 +1124,8 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 1);
-                const sub_cmd = self.params.pop() orelse unreachable;
+                if (!self.assertParamCount("test", 1)) return;
+                const sub_cmd = self.cmd_params.pop() orelse unreachable;
 
                 log.debug("test: cmd={x}", .{sub_cmd});
 
@@ -1208,7 +1226,7 @@ const commands = opaque {
             .resp1 => {
                 // std.debug.assert(self.params.len == 1);
 
-                const track_num = fromBCD(self.params.pop() orelse 0);
+                const track_num = fromBCD(self.cmd_params.pop() orelse 0);
                 const track = self.disc.?.getTrackByNumber(track_num) orelse {
                     self.pushError(.invalid_parameter);
                     self.setInterrupt(3);
@@ -1285,10 +1303,10 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 2);
+                if (!self.assertParamCount("setFilter", 2)) return;
 
-                const file = self.params.pop() orelse unreachable;
-                const channel = self.params.pop() orelse unreachable;
+                const file = self.cmd_params.pop() orelse unreachable;
+                const channel = self.cmd_params.pop() orelse unreachable;
 
                 log.debug("setFilter: file={x} channel={x}", .{ file, channel });
                 self.xa.setFilter(file, channel);

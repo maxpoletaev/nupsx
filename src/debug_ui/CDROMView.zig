@@ -80,12 +80,12 @@ pub fn update(self: *@This()) void {
 
         // FIFOs
         if (zgui.collapsingHeader("FIFOs", .{})) {
-            zgui.text("Params FIFO: {d}/16", .{self.cdrom.params.len});
-            if (self.cdrom.params.len > 0) {
+            zgui.text("Params FIFO: {d}/16", .{self.cdrom.pending_params.len});
+            if (self.cdrom.pending_params.len > 0) {
                 zgui.indent(.{});
                 var i: usize = 0;
-                while (i < self.cdrom.params.len) : (i += 1) {
-                    zgui.text("[{d}] 0x{x:0>2}", .{ i, self.cdrom.params.buf[i] });
+                while (i < self.cdrom.pending_params.len) : (i += 1) {
+                    zgui.text("[{d}] 0x{x:0>2}", .{ i, self.cdrom.pending_params.buf[i] });
                 }
                 zgui.unindent(.{});
             }
