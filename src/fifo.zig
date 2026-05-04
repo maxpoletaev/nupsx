@@ -60,6 +60,15 @@ pub fn StaticFifo(comptime T: type, comptime capacity: usize) type {
             self.tail = 0;
             self.len = 0;
         }
+
+        pub fn clone(self: *@This()) Self {
+            return .{
+                .buf = self.buf,
+                .head = self.head,
+                .tail = self.tail,
+                .len = self.len,
+            };
+        }
     };
 }
 

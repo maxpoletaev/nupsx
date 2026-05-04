@@ -1,19 +1,23 @@
 const std = @import("std");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
+const options = @import("build_options");
 
 const gpu_mod = @import("gpu.zig");
-const joy_mod = @import("joy.zig");
+const sio0_mod = @import("sio0.zig");
 const GPU = gpu_mod.GPU;
-const Joypad = joy_mod.Joypad;
+const SIO0 = sio0_mod.SIO0;
 
 const gl = zopengl.bindings;
 const log = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
-const window_width = 320;
-const window_height = 240;
+const display_width = 320;
+const display_height = 240;
+const scale = 3;
+const window_width = display_width * scale;
+const window_height = display_height * scale;
 const ntsc_width = 960;
 const ntsc_height = 720;
 
@@ -21,6 +25,15 @@ const vertex_shader_source = @embedFile("shaders/vertex.glsl");
 const fragment_shader_source = @embedFile("shaders/fragment.glsl");
 const ntsc_encoder_source = @embedFile("shaders/ntsc_encoder.glsl");
 const ntsc_decoder_source = @embedFile("shaders/ntsc_decoder.glsl");
+
+const Callback = struct {
+    func: *const fn (*anyopaque) void,
+    user_data: *anyopaque,
+
+    fn call(self: @This()) void {
+        self.func(self.user_data);
+    }
+};
 
 fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
@@ -72,6 +85,7 @@ const DisplayPass = struct {
     program: gl.Uint,
     u_display_offset: gl.Int,
     u_display_size: gl.Int,
+    u_video_mode: gl.Int,
     u_display_range_y: gl.Int,
     u_vram_size: gl.Int,
 
@@ -83,6 +97,7 @@ const DisplayPass = struct {
             .program = program,
             .u_display_offset = gl.getUniformLocation(program, "uDisplayOffset"),
             .u_display_size = gl.getUniformLocation(program, "uDisplaySize"),
+            .u_video_mode = gl.getUniformLocation(program, "uVideoMode"),
             .u_display_range_y = gl.getUniformLocation(program, "uDisplayRangeY"),
             .u_vram_size = gl.getUniformLocation(program, "uVramSize"),
         };
@@ -112,6 +127,7 @@ const DisplayPass = struct {
         gl.bindTexture(gl.TEXTURE_2D, vram_tex);
         gl.uniform2f(self.u_display_offset, offset_x, start_y);
         gl.uniform2f(self.u_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
+        gl.uniform1i(self.u_video_mode, @intCast(gpu.getVideoMode()));
         gl.uniform2f(self.u_display_range_y, @floatFromInt(gpu.gp1_display_range_y.y1), @floatFromInt(gpu.gp1_display_range_y.y2));
         gl.uniform2f(self.u_vram_size, vram_size_x, 512.0);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -192,9 +208,10 @@ const NtscDecoder = struct {
 
 pub const UI = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     window: *glfw.Window,
     gpu: *GPU,
-    joy: *Joypad,
+    joy: *SIO0,
     vram_tex: gl.Uint,
     vao: gl.Uint,
     vbo: gl.Uint,
@@ -213,7 +230,11 @@ pub const UI = struct {
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
     is_running: bool = true,
+    next_frame_time: f64 = 0,
+    uncapped: bool = false,
+    mute_key_down: bool = false,
     filename: ?[]const u8 = null,
+    mute_toggle_callback: ?Callback = null,
 
     const vertices = [_]f32{ // [x, y, u, v]
         -1.0, 1.0, 0.0, 0.0, // top left
@@ -224,7 +245,7 @@ pub const UI = struct {
         1.0, 1.0, 1.0, 0.0, // top right
     };
 
-    pub fn init(allocator: std.mem.Allocator, gpu: *GPU, joy: *Joypad) !*@This() {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, gpu: *GPU, joy: *SIO0) !*@This() {
         try glfw.init();
         glfw.windowHint(.context_version_major, gl_version[0]);
         glfw.windowHint(.context_version_minor, gl_version[1]);
@@ -270,7 +291,7 @@ pub const UI = struct {
         gl.genFramebuffers(1, &rgb_fbo);
         gl.genTextures(1, &rgb_tex);
         gl.bindTexture(gl.TEXTURE_2D, rgb_tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 320, 240, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, display_width, display_height, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -310,6 +331,7 @@ pub const UI = struct {
         const self = try allocator.create(@This());
         self.* = .{
             .allocator = allocator,
+            .io = io,
             .window = window,
             .gpu = gpu,
             .joy = joy,
@@ -326,6 +348,7 @@ pub const UI = struct {
             .output_fbo = output_fbo,
             .output_tex = output_tex,
             .ntsc_frame = 0,
+            .uncapped = options.uncapped,
         };
 
         return self;
@@ -358,12 +381,37 @@ pub const UI = struct {
         self.filename = try self.allocator.dupe(u8, basename);
     }
 
-    pub fn update(self: *@This()) void {
-        self.handleInput();
-        self.updateInternal(glfw.getTime());
+    pub fn setUncapped(self: *@This(), uncapped: bool) void {
+        self.uncapped = uncapped;
     }
 
-    const KeyMapping = struct { glfw.Key, joy_mod.Button };
+    pub fn setMuteToggleCallback(
+        self: *@This(),
+        func: *const fn (*anyopaque) void,
+        user_data: *anyopaque,
+    ) void {
+        self.mute_toggle_callback = .{
+            .func = func,
+            .user_data = user_data,
+        };
+    }
+
+    pub fn update(self: *@This()) void {
+        const now = glfw.getTime();
+        if (!self.uncapped and self.next_frame_time > now) {
+            const sleep_seconds = self.next_frame_time - now;
+            const ns: i96 = @intFromFloat(sleep_seconds * std.time.ns_per_s);
+            self.io.sleep(.{ .nanoseconds = ns }, .awake) catch {};
+        }
+
+        self.handleInput();
+        self.updateInternal(glfw.getTime());
+
+        const after = glfw.getTime();
+        self.next_frame_time = @max(self.next_frame_time + self.gpu.targetFrameTime(), after);
+    }
+
+    const KeyMapping = struct { glfw.Key, sio0_mod.Button };
     const key_mappings = [_]KeyMapping{
         .{ glfw.Key.w, .up },
         .{ glfw.Key.a, .left },
@@ -381,7 +429,7 @@ pub const UI = struct {
         .{ glfw.Key.right_shift, .select },
     };
 
-    const GamepadMapping = struct { u8, joy_mod.Button };
+    const GamepadMapping = struct { u8, sio0_mod.Button };
     const gamepad_mappings = [_]GamepadMapping{
         .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
         .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },
@@ -411,6 +459,12 @@ pub const UI = struct {
         if (self.window.shouldClose()) {
             self.is_running = false;
         }
+
+        const mute_pressed = glfw.getKey(self.window, glfw.Key.m) == .press;
+        if (mute_pressed and !self.mute_key_down) {
+            if (self.mute_toggle_callback) |callback| callback.call();
+        }
+        self.mute_key_down = mute_pressed;
 
         inline for (key_mappings) |mapping| {
             const key_state = glfw.getKey(self.window, mapping[0]);
@@ -489,7 +543,7 @@ pub const UI = struct {
         gl.bindVertexArray(self.vao);
 
         if (self.ntsc_enabled) {
-            self.display.draw(self.rgb_fbo, self.vram_tex, window_width, window_height, self.gpu);
+            self.display.draw(self.rgb_fbo, self.vram_tex, display_width, display_height, self.gpu);
             self.encoder.draw(self.composite_fbo, self.rgb_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.decoder.draw(self.output_fbo, self.composite_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.ntsc_frame +%= 1;

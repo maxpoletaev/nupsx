@@ -11,7 +11,8 @@ const SPU = @import("spu.zig").SPU;
 const CDROM = @import("cdrom.zig").CDROM;
 const MDEC = @import("mdec.zig").MDEC;
 const Timers = @import("timer.zig").Timers;
-const Joypad = @import("joy.zig").Joypad;
+const SIO0 = @import("sio0.zig").SIO0;
+const SIO1 = @import("sio1.zig").SIO1;
 const AudioStream = @import("audio.zig").AudioStream;
 
 const expectEqual = std.testing.expectEqual;
@@ -187,7 +188,8 @@ pub const Devices = struct {
     dma: *DMA,
     mdec: *MDEC,
     spu: *SPU,
-    joy: *Joypad,
+    sio0: *SIO0,
+    sio1: *SIO1,
     cdrom: *CDROM,
     timers: *Timers,
     scratchpad: *Scratchpad,
@@ -289,14 +291,15 @@ pub const Bus = struct {
         const cyc = self.dev.cpu.tick();
         self.dev.gpu.tick(cyc);
         self.dev.cdrom.tick(cyc);
-        self.dev.joy.tick(cyc);
+        self.dev.sio0.tick(cyc);
         self.dev.timers.tick(cyc);
 
         self.audio_counter += cyc;
-        if (self.audio_counter >= 768) {
+        while (self.audio_counter >= 768) {
             self.audio_counter -= 768;
             const sample = self.dev.spu.consumeAudioSample();
             const cd_sample = self.dev.cdrom.consumeAudioSample();
+
             self.audio_stream.push(.{
                 sample[0] +| cd_sample[0],
                 sample[1] +| cd_sample[1],
@@ -341,15 +344,14 @@ pub const Bus = struct {
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.read(T, masked_addr),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.read(T, masked_addr),
             SPU.addr_start...SPU.addr_end => self.dev.spu.read(T, masked_addr),
-            Joypad.addr_start...Joypad.addr_end => self.dev.joy.read(T, masked_addr),
+            SIO0.addr_start...SIO0.addr_end => self.dev.sio0.read(T, masked_addr),
+            SIO1.addr_start...SIO1.addr_end => self.dev.sio1.read(T, masked_addr),
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
             0xfffe0130...0xfffe0133 => 0, // cachectl
             0x1f000000...0x1f0000ff => 0, // expansion 1
             0x1f802000...0x1f802041 => 0, // expansion 2
-
-            0x1f801054 => 0x05, // sio1 status (padtest.exe stalls without this)
 
             else => blk: {
                 // std.debug.panic("unhandled read ({s}) at {x}", .{ @typeName(T), masked_addr });
@@ -389,10 +391,10 @@ pub const Bus = struct {
             CDROM.addr_start...CDROM.addr_end => self.dev.cdrom.write(T, masked_addr, v),
             Scratchpad.addr_start...Scratchpad.addr_end => self.dev.scratchpad.write(T, masked_addr, v),
             SPU.addr_start...SPU.addr_end => self.dev.spu.write(T, masked_addr, v),
-            Joypad.addr_start...Joypad.addr_end => self.dev.joy.write(T, masked_addr, v),
+            SIO0.addr_start...SIO0.addr_end => self.dev.sio0.write(T, masked_addr, v),
+            SIO1.addr_start...SIO1.addr_end => self.dev.sio1.write(T, masked_addr, v),
 
             0x1f801000...0x1f801023 => {}, // memctl
-            0x1f801050...0x1f80105f => {}, // sio1
             0x1f801060...0x1f801063 => {}, // ramsize
             0xfffe0130...0xfffe0133 => {}, // cachectl
             0x1f000000...0x1f0000ff => {}, // expansion 1

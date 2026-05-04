@@ -242,10 +242,8 @@ pub const Rasterizer = struct {
         clut_y: u16,
         depth: ColorDepth,
     ) RGB5 {
-        // const u: u8 = @truncate((u_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
-        // const v: u8 = @truncate((v_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
-        const u = u_orig;
-        const v = v_orig;
+        const u: u8 = @truncate((u_orig & ~self.texwin_mask[0]) | (self.texwin_offset[0] & self.texwin_mask[0]));
+        const v: u8 = @truncate((v_orig & ~self.texwin_mask[1]) | (self.texwin_offset[1] & self.texwin_mask[1]));
 
         switch (depth) {
             .bit4 => {
@@ -347,7 +345,7 @@ pub const Rasterizer = struct {
     inline fn isTopLeft(v0: Vertex, v1: Vertex) bool {
         const dx = v1.x - v0.x;
         const dy = v1.y - v0.y;
-        return (dy < 0) or (dy == 0 and dx < 0);
+        return (dy < 0) or (dy == 0 and dx > 0);
     }
 
     pub fn drawTriangleFlat(
@@ -1084,8 +1082,21 @@ pub const Rasterizer = struct {
         const x1 = x1_orig + self.draw_offset[0];
         const y1 = y1_orig + self.draw_offset[1];
 
-        if (@max(x0, x1) < self.draw_area_start[0] or @min(x0, x1) > self.draw_area_end[0]) return;
-        if (@max(y0, y1) < self.draw_area_start[1] or @min(y0, y1) > self.draw_area_end[1]) return;
+        const x_min = @max(self.draw_area_start[0], 0);
+        const y_min = @max(self.draw_area_start[1], 0);
+        const x_max = @min(self.draw_area_end[0], vram_res_x - 1);
+        const y_max = @min(self.draw_area_end[1], vram_res_y - 1);
+
+        if (x_min > x_max or y_min > y_max) return;
+
+        if (@max(x0, x1) < x_min or @min(x0, x1) > x_max) return;
+        if (@max(y0, y1) < y_min or @min(y0, y1) > y_max) return;
+
+        const line_inside =
+            x0 >= x_min and x0 <= x_max and
+            y0 >= y_min and y0 <= y_max and
+            x1 >= x_min and x1 <= x_max and
+            y1 >= y_min and y1 <= y_max;
 
         const dx = x1 - x0;
         const dy = y1 - y0;
@@ -1100,14 +1111,28 @@ pub const Rasterizer = struct {
         var y_fp = y0 * fp_one;
 
         var i: i32 = 0;
-        while (i <= steps) : (i += 1) {
-            const x = x_fp >> fp_bits;
-            const y = y_fp >> fp_bits;
+        if (line_inside) { // fast path
+            while (i <= steps) : (i += 1) {
+                const x = x_fp >> fp_bits;
+                const y = y_fp >> fp_bits;
 
-            self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true });
+                self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true });
 
-            x_fp += x_dx;
-            y_fp += y_dx;
+                x_fp += x_dx;
+                y_fp += y_dx;
+            }
+        } else {
+            while (i <= steps) : (i += 1) {
+                const x = x_fp >> fp_bits;
+                const y = y_fp >> fp_bits;
+
+                if (x >= x_min and x <= x_max and y >= y_min and y <= y_max) {
+                    self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true });
+                }
+
+                x_fp += x_dx;
+                y_fp += y_dx;
+            }
         }
     }
 
@@ -1126,8 +1151,21 @@ pub const Rasterizer = struct {
         const x1 = x1_orig + self.draw_offset[0];
         const y1 = y1_orig + self.draw_offset[1];
 
-        if (@max(x0, x1) < self.draw_area_start[0] or @min(x0, x1) > self.draw_area_end[0]) return;
-        if (@max(y0, y1) < self.draw_area_start[1] or @min(y0, y1) > self.draw_area_end[1]) return;
+        const x_min = @max(self.draw_area_start[0], 0);
+        const y_min = @max(self.draw_area_start[1], 0);
+        const x_max = @min(self.draw_area_end[0], vram_res_x - 1);
+        const y_max = @min(self.draw_area_end[1], vram_res_y - 1);
+
+        if (x_min > x_max or y_min > y_max) return;
+
+        if (@max(x0, x1) < x_min or @min(x0, x1) > x_max) return;
+        if (@max(y0, y1) < y_min or @min(y0, y1) > y_max) return;
+
+        const line_inside =
+            x0 >= x_min and x0 <= x_max and
+            y0 >= y_min and y0 <= y_max and
+            x1 >= x_min and x1 <= x_max and
+            y1 >= y_min and y1 <= y_max;
 
         const dx = x1 - x0;
         const dy = y1 - y0;
@@ -1156,26 +1194,52 @@ pub const Rasterizer = struct {
         var b_fp = b0 * fp_one;
 
         var i: i32 = 0;
-        while (i <= steps) : (i += 1) {
-            const x = x_fp >> fp_bits;
-            const y = y_fp >> fp_bits;
+        if (line_inside) {
+            while (i <= steps) : (i += 1) {
+                const x = x_fp >> fp_bits;
+                const y = y_fp >> fp_bits;
 
-            const color: RGB8 = .{
-                .r = @truncate(@as(u32, @bitCast(r_fp >> fp_bits))),
-                .g = @truncate(@as(u32, @bitCast(g_fp >> fp_bits))),
-                .b = @truncate(@as(u32, @bitCast(b_fp >> fp_bits))),
-            };
+                const color: RGB8 = .{
+                    .r = @truncate(@as(u32, @bitCast(r_fp >> fp_bits))),
+                    .g = @truncate(@as(u32, @bitCast(g_fp >> fp_bits))),
+                    .b = @truncate(@as(u32, @bitCast(b_fp >> fp_bits))),
+                };
 
-            self.setPixelFlat(x, y, color, .{
-                .semi_trans = semi_trans,
-                .dither = true,
-            });
+                self.setPixelFlat(x, y, color, .{
+                    .semi_trans = semi_trans,
+                    .dither = true,
+                });
 
-            x_fp += x_dx;
-            y_fp += y_dx;
-            r_fp += r_dx;
-            g_fp += g_dx;
-            b_fp += b_dx;
+                x_fp += x_dx;
+                y_fp += y_dx;
+                r_fp += r_dx;
+                g_fp += g_dx;
+                b_fp += b_dx;
+            }
+        } else {
+            while (i <= steps) : (i += 1) {
+                const x = x_fp >> fp_bits;
+                const y = y_fp >> fp_bits;
+
+                if (x >= x_min and x <= x_max and y >= y_min and y <= y_max) {
+                    const color: RGB8 = .{
+                        .r = @truncate(@as(u32, @bitCast(r_fp >> fp_bits))),
+                        .g = @truncate(@as(u32, @bitCast(g_fp >> fp_bits))),
+                        .b = @truncate(@as(u32, @bitCast(b_fp >> fp_bits))),
+                    };
+
+                    self.setPixelFlat(x, y, color, .{
+                        .semi_trans = semi_trans,
+                        .dither = true,
+                    });
+                }
+
+                x_fp += x_dx;
+                y_fp += y_dx;
+                r_fp += r_dx;
+                g_fp += g_dx;
+                b_fp += b_dx;
+            }
         }
     }
 };

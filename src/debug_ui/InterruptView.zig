@@ -87,56 +87,79 @@ fn drawStatusHeader(self: *@This()) void {
 }
 
 fn drawInterruptRows(self: *@This()) void {
-    // Header row
-    zgui.text("IRQ:        ", .{});
-    for (interrupts) |irq| {
-        zgui.sameLine(.{});
-        zgui.text("{s: <6}", .{irq.short});
-    }
+    if (zgui.beginTable("##interrupt_rows", .{
+        .column = @intCast(interrupts.len + 1),
+        .flags = .{
+            .sizing = .fixed_fit,
+            .borders = .inner,
+            .no_host_extend_x = true,
+        },
+    })) {
+        defer zgui.endTable();
 
-    // Mask row with checkboxes
-    zgui.text("Mask:       ", .{});
-    for (interrupts, 0..) |irq, i| {
-        zgui.sameLine(.{});
-        var mask_enabled = (self.bus.irq_mask & irq.bit) != 0;
-        zgui.pushIntId(@intCast(i));
-        if (zgui.checkbox("##m", .{ .v = &mask_enabled })) {
-            if (mask_enabled) {
-                self.bus.irq_mask |= irq.bit;
-            } else {
-                self.bus.irq_mask &= ~irq.bit;
-            }
-            self.bus.updateCpuIrq();
+        zgui.tableSetupColumn("", .{
+            .flags = .{ .width_fixed = true, .no_hide = true, .no_resize = true },
+            .init_width_or_height = 72.0,
+        });
+        for (interrupts) |irq| {
+            zgui.tableSetupColumn(irq.short, .{
+                .flags = .{ .width_fixed = true, .no_hide = true, .no_resize = true },
+                .init_width_or_height = 44.0,
+            });
         }
-        zgui.popId();
-    }
+        zgui.tableHeadersRow();
 
-    // Pending row with checkboxes
-    zgui.text("Pending:    ", .{});
-    for (interrupts, 0..) |irq, i| {
-        zgui.sameLine(.{});
-        var pend = (self.bus.irq_stat & irq.bit) != 0;
-        zgui.pushIntId(@intCast(i + 100));
-        if (zgui.checkbox("##p", .{ .v = &pend })) {
-            if (pend) {
-                self.bus.irq_stat |= irq.bit;
-            } else {
-                self.bus.irq_stat &= ~irq.bit;
+        zgui.tableNextRow(.{});
+        _ = zgui.tableNextColumn();
+        zgui.alignTextToFramePadding();
+        zgui.text("Mask", .{});
+        for (interrupts, 0..) |irq, i| {
+            _ = zgui.tableNextColumn();
+            var mask_enabled = (self.bus.irq_mask & irq.bit) != 0;
+            zgui.pushIntId(@intCast(i));
+            if (zgui.checkbox("##m", .{ .v = &mask_enabled })) {
+                if (mask_enabled) {
+                    self.bus.irq_mask |= irq.bit;
+                } else {
+                    self.bus.irq_mask &= ~irq.bit;
+                }
+                self.bus.updateCpuIrq();
             }
-            self.bus.updateCpuIrq();
+            zgui.popId();
         }
-        zgui.popId();
-    }
 
-    // Active indicator row (mask AND pending)
-    zgui.text("Active:     ", .{});
-    for (interrupts) |irq| {
-        zgui.sameLine(.{});
-        const is_active = (self.bus.irq_stat & irq.bit) != 0 and (self.bus.irq_mask & irq.bit) != 0;
-        if (is_active) {
-            zgui.textColored(.{ 1.0, 0.3, 0.3, 1.0 }, "[*]   ", .{});
-        } else {
-            zgui.textColored(.{ 0.4, 0.4, 0.4, 1.0 }, "[ ]   ", .{});
+        zgui.tableNextRow(.{});
+        _ = zgui.tableNextColumn();
+        zgui.alignTextToFramePadding();
+        zgui.text("Pending", .{});
+        for (interrupts, 0..) |irq, i| {
+            _ = zgui.tableNextColumn();
+            var pend = (self.bus.irq_stat & irq.bit) != 0;
+            zgui.pushIntId(@intCast(i + 100));
+            if (zgui.checkbox("##p", .{ .v = &pend })) {
+                if (pend) {
+                    self.bus.irq_stat |= irq.bit;
+                } else {
+                    self.bus.irq_stat &= ~irq.bit;
+                }
+                self.bus.updateCpuIrq();
+            }
+            zgui.popId();
+        }
+
+        zgui.tableNextRow(.{});
+        _ = zgui.tableNextColumn();
+        zgui.alignTextToFramePadding();
+        zgui.text("Active", .{});
+        for (interrupts) |irq| {
+            _ = zgui.tableNextColumn();
+            zgui.alignTextToFramePadding();
+            const is_active = (self.bus.irq_stat & irq.bit) != 0 and (self.bus.irq_mask & irq.bit) != 0;
+            if (is_active) {
+                zgui.textColored(.{ 1.0, 0.3, 0.3, 1.0 }, "[*]", .{});
+            } else {
+                zgui.textColored(.{ 0.4, 0.4, 0.4, 1.0 }, "[ ]", .{});
+            }
         }
     }
 }

@@ -8,7 +8,9 @@ const disasm_mod = @import("disasm.zig");
 const gpu_mod = @import("gpu.zig");
 const cdrom_mod = @import("cdrom.zig");
 const spu_mod = @import("spu.zig");
-const joy_mod = @import("joy.zig");
+const sio0_mod = @import("sio0.zig");
+const sio1_mod = @import("sio1.zig");
+const memcard_mod = @import("memcard.zig");
 
 const CPU = @import("cpu.zig").CPU;
 const DMA = @import("dma.zig").DMA;
@@ -29,7 +31,11 @@ const Timers = timer_mod.Timers;
 const CDROM = cdrom_mod.CDROM;
 const Disc = cdrom_mod.Disc;
 const SPU = spu_mod.SPU;
-const Joypad = joy_mod.Joypad;
+const SIO0 = sio0_mod.SIO0;
+const SIO1 = sio1_mod.SIO1;
+const MemoryCard = memcard_mod.MemoryCard;
+
+const memcard_default_path = "memcard.mcd";
 
 pub fn logFn(
     comptime message_level: std.log.Level,
@@ -89,11 +95,11 @@ fn printBanner(io: std.Io) void {
 
 const Audio = struct {
     allocator: std.mem.Allocator,
-    io: std.Io,
     device: *zaudio.Device,
     bus: *Bus,
+    muted: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, bus: *Bus) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *Bus) *@This() {
         zaudio.init(allocator);
 
         const self = allocator.create(Audio) catch unreachable;
@@ -115,7 +121,6 @@ const Audio = struct {
 
         self.* = .{
             .allocator = allocator,
-            .io = io,
             .device = device,
             .bus = bus,
         };
@@ -128,6 +133,23 @@ const Audio = struct {
         self.device.destroy();
         self.allocator.destroy(self);
         zaudio.deinit();
+    }
+
+    pub fn setMuted(self: *@This(), muted: bool) void {
+        self.device.setMasterVolume(if (muted) 0.0 else 1.0) catch |err| {
+            std.log.err("failed to set audio master volume: {}", .{err});
+            return;
+        };
+        self.muted = muted;
+    }
+
+    pub fn toggleMuted(self: *@This()) void {
+        self.setMuted(!self.muted);
+    }
+
+    pub fn muteToggleCallback(user_data: *anyopaque) void {
+        const self: *@This() = @ptrCast(@alignCast(user_data));
+        self.toggleMuted();
     }
 
     fn callback(
@@ -146,8 +168,6 @@ const Audio = struct {
             buf[i * 2 + 0] = sample[0];
             buf[i * 2 + 1] = sample[1];
         }
-
-        self.bus.audio_stream.signal(self.io);
     }
 };
 
@@ -193,11 +213,22 @@ pub fn main(init: std.process.Init) !void {
     const spu = SPU.init(allocator, bus);
     defer spu.deinit();
 
-    const joy = Joypad.init(allocator, bus);
-    defer joy.deinit();
+    const memcard_path = if (args.memcard_path.len != 0) args.memcard_path else memcard_default_path;
+    const memcard = MemoryCard.loadOrCreate(allocator, io, memcard_path) catch |err| {
+        std.log.err("failed to load or create memory card: {}", .{err});
+        return err;
+    };
+    std.log.info("using memory card file: {s}", .{memcard_path});
+    defer memcard.deinit();
 
-    var disc: ?Disc = null;
-    defer if (disc) |*d| d.deinit();
+    const sio0 = SIO0.init(allocator, bus, memcard);
+    defer sio0.deinit();
+
+    const sio1 = SIO1.init(allocator);
+    defer sio1.deinit();
+
+    var disc: ?*Disc = null;
+    defer if (disc) |d| d.deinit();
 
     const cdrom = CDROM.init(allocator, bus);
     defer cdrom.deinit();
@@ -223,13 +254,14 @@ pub fn main(init: std.process.Init) !void {
         .dma = dma,
         .mdec = mdec,
         .spu = spu,
-        .joy = joy,
+        .sio0 = sio0,
+        .sio1 = sio1,
         .cdrom = cdrom,
         .timers = timers,
         .scratchpad = scratchpad,
     });
 
-    const audio = Audio.init(allocator, io, bus);
+    const audio = Audio.init(allocator, bus);
     defer audio.deinit();
 
     // const stdin = std.fs.File.stdin();
@@ -275,8 +307,13 @@ pub fn main(init: std.process.Init) !void {
             }
         }
     } else {
-        const ui = try UI.init(allocator, gpu, joy);
+        const ui = try UI.init(allocator, io, gpu, sio0);
         defer ui.deinit();
+        ui.setMuteToggleCallback(Audio.muteToggleCallback, audio);
+
+        if (args.uncapped) {
+            ui.setUncapped(true);
+        }
 
         if (args.cd_image_path.len != 0) {
             try ui.setFilename(args.cd_image_path);

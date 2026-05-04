@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const rasterizer = @import("rasterizer.zig");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
+const consts = @import("consts.zig");
 
 const Interrupt = mem.Interrupt;
 const Rasterizer = rasterizer.Rasterizer;
@@ -13,12 +14,6 @@ const Vertex = rasterizer.Vertex;
 const Color = rasterizer.RGB8;
 
 const log = std.log.scoped(.gpu);
-
-pub const gpu_cycles_hblank_start_ntsc: u32 = 2560;
-pub const gpu_cycles_hblank_end_ntsc: u32 = 3413;
-pub const gpu_scans_vblank_start_ntsc: u32 = 240;
-pub const gpu_scans_vblank_end_ntsc: u32 = 263;
-pub const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
 
 const Hres1 = enum(u2) { @"256" = 0, @"320" = 1, @"512" = 2, @"640" = 3 };
 const Hres2 = enum(u1) { @"256/320/512/640" = 0, @"368" = 1 };
@@ -34,7 +29,8 @@ const DisplayMode = packed struct(u32) {
     video_mode: VideoMode, // 3
     color_depth: ColorDepth, // 4
     interlace: bool, // 5
-    _pad0: u26, // 6-31
+    hres2: Hres2, // 6
+    _pad0: u25, // 7-31
 };
 
 const DrawMode = packed struct(u32) {
@@ -71,20 +67,20 @@ const GpuStat = packed struct(u32) {
     reverseflag: bool, // 14
     texture_disable: bool, // 15
     hres2: Hres2, // 16
-    hres1: Hres1, // 18
-    vres: Vres, // 20
-    video_mode: VideoMode, // 21
-    color_depth: ColorDepth, // 22
-    vertical_interlace: bool, // 23
+    hres1: Hres1, // 17-18
+    vres: Vres, // 19
+    video_mode: VideoMode, // 20
+    color_depth: ColorDepth, // 21
+    vertical_interlace: bool, // 22
 
-    display_enable: u1, // 24
-    interrupt_request: bool, // 25
-    dma_data_request: bool, // 26
-    ready_receive_cmd: bool, // 27
-    ready_send_vram_to_cpu: bool, // 28
-    ready_receive_dma_block: bool, // 29
-    dma_direction: DmaDirection, // 30-31
-    interlace_odd_line: bool, // 32
+    display_enable: u1, // 23
+    interrupt_request: bool, // 24
+    dma_data_request: bool, // 25
+    ready_receive_cmd: bool, // 26
+    ready_send_vram_to_cpu: bool, // 27
+    ready_receive_dma_block: bool, // 28
+    dma_direction: DmaDirection, // 29-30
+    interlace_odd_line: bool, // 31
 };
 
 const CmdState = enum {
@@ -141,6 +137,30 @@ inline fn argTextpage(v: u32) Textpage {
     return .{ .x = base_x, .y = base_y, .depth = depth };
 }
 
+const Timing = struct {
+    hblank_start: u32,
+    hblank_end: u32,
+    vblank_start: u32,
+    vblank_end: u32,
+    frame_time: f64,
+};
+
+const ntsc_timing = Timing{
+    .hblank_start = consts.gpu_cycles_hblank_start_ntsc,
+    .hblank_end = consts.gpu_cycles_hblank_end_ntsc,
+    .vblank_start = consts.gpu_scans_vblank_start_ntsc,
+    .vblank_end = consts.gpu_scans_vblank_end_ntsc,
+    .frame_time = consts.gpu_target_frame_time_ntsc,
+};
+
+const pal_timing = Timing{
+    .hblank_start = consts.gpu_cycles_hblank_start_pal,
+    .hblank_end = consts.gpu_cycles_hblank_end_pal,
+    .vblank_start = consts.gpu_scans_vblank_start_pal,
+    .vblank_end = consts.gpu_scans_vblank_end_pal,
+    .frame_time = consts.gpu_target_frame_time_pal,
+};
+
 pub const GPU = struct {
     pub const vram_size = 1024 * 512;
     pub const addr_gp0: u32 = 0x1f801810;
@@ -179,6 +199,7 @@ pub const GPU = struct {
     scanline: u32 = 0,
     in_hblank: bool = false,
     in_vblank: bool = false,
+    timing: Timing = ntsc_timing,
 
     bus: *mem.Bus,
     frame_ready: bool = false,
@@ -255,32 +276,52 @@ pub const GPU = struct {
         gpustat.interrupt_request = self.interrupt_request;
         gpustat.dma_direction = self.gp1_dma_direction;
         gpustat.hres1 = self.gp1_display_mode.hres;
-        gpustat.vres = .@"240"; // TODO: self.gp1_display_mode.vres does not work, why?
-        gpustat.video_mode = .ntsc;
+        gpustat.video_mode = self.gp1_display_mode.video_mode;
         gpustat.color_depth = self.gp1_display_mode.color_depth;
+        gpustat.hres2 = self.gp1_display_mode.hres2;
         gpustat.ready_send_vram_to_cpu = true;
         gpustat.ready_receive_dma_block = true;
         gpustat.ready_receive_cmd = true;
+
+        // The following fields should be taken from self.gp1_display_mode, but setting
+        // them to anything other than the hardcoded values seems to break everything.
+        gpustat.vres = .@"240";
+        gpustat.vertical_interlace = false;
 
         return @as(u32, @bitCast(gpustat));
     }
 
     pub inline fn getDisplayRes(self: *@This()) [2]u16 {
-        const w: u16 = switch (self.gp1_display_mode.hres) {
-            .@"256" => 256,
-            .@"320" => 320,
-            .@"512" => 512,
-            .@"640" => 640,
+        const w: u16 = switch (self.gp1_display_mode.hres2) {
+            .@"256/320/512/640" => switch (self.gp1_display_mode.hres) {
+                .@"256" => 256,
+                .@"320" => 320,
+                .@"512" => 512,
+                .@"640" => 640,
+            },
+            .@"368" => 368,
+        };
+        const base_h: u16 = switch (self.gp1_display_mode.video_mode) {
+            .ntsc => 240,
+            .pal => 288,
         };
         const h: u16 = switch (self.gp1_display_mode.vres) {
-            .@"240" => 240,
-            .@"480" => 480,
+            .@"240" => base_h,
+            .@"480" => base_h * 2,
         };
         return .{ w, h };
     }
 
+    pub inline fn getVideoMode(self: *@This()) u32 {
+        return @intFromEnum(self.gp1_display_mode.video_mode);
+    }
+
     pub inline fn getColorDepth(self: *@This()) ColorDepth {
         return self.gp1_display_mode.color_depth;
+    }
+
+    pub inline fn targetFrameTime(self: *@This()) f64 {
+        return self.timing.frame_time;
     }
 
     // =========================================================================
@@ -315,10 +356,10 @@ pub const GPU = struct {
             0x02 => self.fillVram(v),
             0x1f => self.interrupt_request = true,
 
-            0x20 => self.drawPoly3Flat(v, Opaque),
-            0x22 => self.drawPoly3Flat(v, SemiTrans),
-            0x28 => self.drawPoly4Flat(v, Opaque),
-            0x2a => self.drawPoly4Flat(v, SemiTrans),
+            0x20, 0x21 => self.drawPoly3Flat(v, Opaque),
+            0x22, 0x23 => self.drawPoly3Flat(v, SemiTrans),
+            0x28, 0x29 => self.drawPoly4Flat(v, Opaque),
+            0x2a, 0x2b => self.drawPoly4Flat(v, SemiTrans),
 
             0x24 => self.drawPoly3Textured(v, Opaque, Blend),
             0x25 => self.drawPoly3Textured(v, Opaque, Raw),
@@ -329,45 +370,48 @@ pub const GPU = struct {
             0x2e => self.drawPoly4Textured(v, SemiTrans, Blend),
             0x2f => self.drawPoly4Textured(v, SemiTrans, Raw),
 
-            0x34 => self.drawPoly3ShadedTextured(v, Opaque),
-            0x36 => self.drawPoly3ShadedTextured(v, SemiTrans),
-            0x3c => self.drawPoly4ShadedTextured(v, Opaque),
-            0x3e => self.drawPoly4ShadedTextured(v, SemiTrans),
+            0x34, 0x35 => self.drawPoly3ShadedTextured(v, Opaque),
+            0x36, 0x37 => self.drawPoly3ShadedTextured(v, SemiTrans),
+            0x3c, 0x3d => self.drawPoly4ShadedTextured(v, Opaque),
+            0x3e, 0x3f => self.drawPoly4ShadedTextured(v, SemiTrans),
 
-            0x30 => self.drawPoly3Shaded(v, Opaque),
-            0x32 => self.drawPoly3Shaded(v, SemiTrans),
-            0x38 => self.drawPoly4Shaded(v, Opaque),
-            0x3a => self.drawPoly4Shaded(v, SemiTrans),
+            0x30, 0x31 => self.drawPoly3Shaded(v, Opaque),
+            0x32, 0x33 => self.drawPoly3Shaded(v, SemiTrans),
+            0x38, 0x39 => self.drawPoly4Shaded(v, Opaque),
+            0x3a, 0x3b => self.drawPoly4Shaded(v, SemiTrans),
 
-            0x40 => self.drawLineFlat(v, Opaque),
-            0x42 => self.drawLineFlat(v, SemiTrans),
-            0x48 => self.drawPolyLineFlat(v, Opaque),
-            0x4a => self.drawPolyLineFlat(v, SemiTrans),
-            0x50 => self.drawLineShaded(v, Opaque),
-            0x52 => self.drawLineShaded(v, SemiTrans),
-            0x58 => self.drawPolyLineShaded(v, Opaque),
-            0x5a => self.drawPolyLineShaded(v, SemiTrans),
+            0x40, 0x41, 0x44, 0x45 => self.drawLineFlat(v, Opaque),
+            0x42, 0x43, 0x46, 0x47 => self.drawLineFlat(v, SemiTrans),
+            0x48, 0x49, 0x4c, 0x4d => self.drawPolyLineFlat(v, Opaque),
+            0x4a, 0x4b, 0x4e, 0x4f => self.drawPolyLineFlat(v, SemiTrans),
+            0x50, 0x51, 0x54, 0x55 => self.drawLineShaded(v, Opaque),
+            0x52, 0x53, 0x56, 0x57 => self.drawLineShaded(v, SemiTrans),
+            0x58, 0x59, 0x5c, 0x5d => self.drawPolyLineShaded(v, Opaque),
+            0x5a, 0x5b, 0x5e, 0x5f => self.drawPolyLineShaded(v, SemiTrans),
 
-            0x60 => self.drawRectFlat(v, null, Opaque),
-            0x62 => self.drawRectFlat(v, null, SemiTrans),
+            0x60, 0x61 => self.drawRectFlat(v, null, Opaque),
+            0x62, 0x63 => self.drawRectFlat(v, null, SemiTrans),
             0x64 => self.drawRectTextured(v, null, Opaque, Blend),
             0x65 => self.drawRectTextured(v, null, Opaque, Raw),
             0x66 => self.drawRectTextured(v, null, SemiTrans, Blend),
             0x67 => self.drawRectTextured(v, null, SemiTrans, Raw),
-            0x68 => self.drawRectFlat(v, 1, Opaque),
-            0x6a => self.drawRectFlat(v, 1, SemiTrans),
+
+            0x68, 0x69 => self.drawRectFlat(v, 1, Opaque),
+            0x6a, 0x6b => self.drawRectFlat(v, 1, SemiTrans),
             0x6c => self.drawRectTextured(v, 1, Opaque, Blend),
             0x6d => self.drawRectTextured(v, 1, Opaque, Raw),
             0x6e => self.drawRectTextured(v, 1, SemiTrans, Blend),
             0x6f => self.drawRectTextured(v, 1, SemiTrans, Raw),
-            0x70 => self.drawRectFlat(v, 8, Opaque),
-            0x72 => self.drawRectFlat(v, 8, SemiTrans),
+
+            0x70, 0x71 => self.drawRectFlat(v, 8, Opaque),
+            0x72, 0x73 => self.drawRectFlat(v, 8, SemiTrans),
             0x74 => self.drawRectTextured(v, 8, Opaque, Blend),
             0x75 => self.drawRectTextured(v, 8, Opaque, Raw),
             0x76 => self.drawRectTextured(v, 8, SemiTrans, Blend),
             0x77 => self.drawRectTextured(v, 8, SemiTrans, Raw),
-            0x78 => self.drawRectFlat(v, 16, Opaque),
-            0x7a => self.drawRectFlat(v, 16, SemiTrans),
+
+            0x78, 0x79 => self.drawRectFlat(v, 16, Opaque),
+            0x7a, 0x7b => self.drawRectFlat(v, 16, SemiTrans),
             0x7c => self.drawRectTextured(v, 16, Opaque, Blend),
             0x7d => self.drawRectTextured(v, 16, Opaque, Raw),
             0x7e => self.drawRectTextured(v, 16, SemiTrans, Blend),
@@ -384,9 +428,7 @@ pub const GPU = struct {
             0xe5 => self.setDrawOffset(v),
             0xe6 => self.setMaskBitSetting(v),
 
-            0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
-            0x21, 0x23, 0x29, 0x2b, 0x31, 0x33, 0x39, 0x3b => {}, // undocumented/nonsense
-            0x61, 0x63, 0x69, 0x6b, 0x71, 0x73, 0x79, 0x7b => self.drawRectFlat(v, 0, false), // 0x0 rectangles?
+            0x03, 0x04...0x1e, 0xe0, 0xe7...0xef => {}, // nop
 
             else => {
                 log.warn("unknown gp0 command: {x} (prev: {x}) ", .{ self.gp0_cmd, self.gp0_prev_cmd });
@@ -656,7 +698,10 @@ pub const GPU = struct {
                     self.rasterizer.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color, semi_trans);
                     self.gp0_state = .recv_command;
 
-                    log.debug("lineFlat: color={x} pos0=({},{}) pos1=({},{}) semi_trans={}", .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, semi_trans });
+                    log.debug(
+                        "lineFlat: color={x} pos0=({},{}) pos1=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color)), pos0.x, pos0.y, pos1.x, pos1.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -710,7 +755,10 @@ pub const GPU = struct {
                     self.rasterizer.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1, semi_trans);
                     self.gp0_state = .recv_command;
 
-                    log.debug("lineShaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) semi_trans={}", .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, semi_trans });
+                    log.debug(
+                        "lineShaded: color0={x} pos0=({},{}) color1={x} pos1=({},{}) semi_trans={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, semi_trans },
+                    );
                 }
             },
             else => unreachable,
@@ -1152,6 +1200,10 @@ pub const GPU = struct {
             0x08 => {
                 self.gp1_display_mode = @bitCast(v);
                 log.debug("gp1 set display mode", .{});
+                switch (self.gp1_display_mode.video_mode) {
+                    .ntsc => self.timing = ntsc_timing,
+                    .pal => self.timing = pal_timing,
+                }
             },
             0x10 => self.registerToGpuread(v),
             else => std.debug.panic("unknown gp1 command: 0x{x}", .{cmd}),
@@ -1192,30 +1244,27 @@ pub const GPU = struct {
     }
 
     pub fn tick(self: *@This(), cyc: u32) void {
-        self.cycle_f += @as(f32, @floatFromInt(cyc)) * gpu_cycles_per_cpu_cycle;
+        const t = self.timing;
+        self.cycle_f += @as(f32, @floatFromInt(cyc)) * @as(f32, @floatCast(consts.gpu_cycles_per_cpu_cycle));
 
-        if (!self.in_hblank and self.cycle_f >= gpu_cycles_hblank_start_ntsc) {
+        if (!self.in_hblank and self.cycle_f >= @as(f32, @floatFromInt(t.hblank_start))) {
             self.in_hblank = true;
             self.bus.dev.timers.hblankStart();
-        } else if (self.in_hblank and self.cycle_f >= gpu_cycles_hblank_end_ntsc) {
+        } else if (self.in_hblank and self.cycle_f >= @as(f32, @floatFromInt(t.hblank_end))) {
             self.scanline += 1;
             self.in_hblank = false;
-            self.cycle_f -= gpu_cycles_hblank_end_ntsc;
+            self.cycle_f -= @as(f32, @floatFromInt(t.hblank_end));
             self.bus.dev.timers.hblankEnd();
 
-            switch (self.scanline) {
-                gpu_scans_vblank_start_ntsc => {
-                    self.in_vblank = true;
-                    self.frame_ready = true;
-                    self.bus.dev.timers.vblankStart();
-                    self.bus.setInterrupt(Interrupt.vblank);
-                },
-                gpu_scans_vblank_end_ntsc => {
-                    self.scanline = 0;
-                    self.in_vblank = false;
-                    self.bus.dev.timers.vblankEnd();
-                },
-                else => {},
+            if (self.scanline == t.vblank_start) {
+                self.in_vblank = true;
+                self.frame_ready = true;
+                self.bus.dev.timers.vblankStart();
+                self.bus.setInterrupt(Interrupt.vblank);
+            } else if (self.scanline == t.vblank_end) {
+                self.scanline = 0;
+                self.in_vblank = false;
+                self.bus.dev.timers.vblankEnd();
             }
         }
     }

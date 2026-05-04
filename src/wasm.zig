@@ -5,7 +5,8 @@ const timer_mod = @import("timer.zig");
 const gpu_mod = @import("gpu.zig");
 const cdrom_mod = @import("cdrom.zig");
 const spu_mod = @import("spu.zig");
-const joy_mod = @import("joy.zig");
+const sio0_mod = @import("sio0.zig");
+const sio1_mod = @import("sio1.zig");
 const CPU = @import("cpu.zig").CPU;
 const DMA = @import("dma.zig").DMA;
 const MDEC = @import("mdec.zig").MDEC;
@@ -19,7 +20,8 @@ const GPU = gpu_mod.GPU;
 const Timers = timer_mod.Timers;
 const CDROM = cdrom_mod.CDROM;
 const SPU = spu_mod.SPU;
-const Joypad = joy_mod.Joypad;
+const SIO0 = sio0_mod.SIO0;
+const SIO1 = sio1_mod.SIO1;
 
 var bus: *Bus = undefined;
 var cpu: *CPU = undefined;
@@ -31,7 +33,8 @@ var dma: *DMA = undefined;
 var mdec: *MDEC = undefined;
 var timers: *Timers = undefined;
 var spu: *SPU = undefined;
-var joy: *Joypad = undefined;
+var sio0: *SIO0 = undefined;
+var sio1: *SIO1 = undefined;
 var cdrom: *CDROM = undefined;
 
 extern fn js_console_log(ptr: [*]const u8, len: usize) void;
@@ -101,7 +104,8 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     mdec = MDEC.init(allocator);
     timers = Timers.init(allocator, bus);
     spu = SPU.init(allocator, bus);
-    joy = Joypad.init(allocator, bus);
+    sio0 = SIO0.init(allocator, bus, null);
+    sio1 = SIO1.init(allocator);
     cdrom = CDROM.init(allocator, bus);
 
     bus.connect(.{
@@ -112,7 +116,8 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
         .dma = dma,
         .mdec = mdec,
         .spu = spu,
-        .joy = joy,
+        .sio0 = sio0,
+        .sio1 = sio1,
         .cdrom = cdrom,
         .timers = timers,
         .scratchpad = scratchpad,
@@ -175,7 +180,7 @@ export fn getDisplayInfoPtr() *DisplayInfo {
 }
 
 export fn setButtonState(state: u16) void {
-    joy.buttons[0] = @bitCast(state);
+    sio0.buttons = @bitCast(state);
 }
 
 export fn getAudioSamples(ptr: [*]f32, max_frames: u32) u32 {

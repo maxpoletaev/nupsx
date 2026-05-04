@@ -3,6 +3,7 @@ const bits = @import("bits.zig");
 const mem = @import("mem.zig");
 const cue = @import("cue.zig");
 const fifo = @import("fifo.zig");
+const xa_mod = @import("cdrom_xa.zig");
 
 const Interrupt = mem.Interrupt;
 
@@ -58,12 +59,12 @@ const SectorSize = enum(u1) {
     whole_sector = 1,
 };
 
-const ModeReg = packed struct(u8) {
+pub const ModeReg = packed struct(u8) {
     cdda: bool = false, // 0
     auto_pause: bool = false,
     play_report: bool = false, // 2
-    ignore_bit: bool = false, // 3
-    xa_filter: bool = false, // 4
+    xa_filter: bool = false, // 3
+    ignore_bit: bool = false, // 4
     sector_size: SectorSize = .data_only,
     xa_adpcm: bool = false, // 6
     speed: enum(u1) { normal = 0, double = 1 } = .normal, // 7
@@ -125,6 +126,7 @@ const Position = struct {
 
 const Track = struct {
     number: u8,
+    pregap_sector: u32,
     start_sector: u32,
     end_sector: u32,
 };
@@ -136,7 +138,7 @@ pub const Disc = struct {
     track_count: u8,
     pos: u32 = 0,
 
-    pub fn loadCue(allocator: std.mem.Allocator, io: std.Io, cue_path: []const u8) Error!@This() {
+    pub fn loadCue(allocator: std.mem.Allocator, io: std.Io, cue_path: []const u8) Error!*@This() {
         var diag: cue.Diagnostic = .{};
         var cue_sheet = cue.parseFile(allocator, io, cue_path, &diag) catch |err| {
             log.err("failed to parse cue sheet {s}: {s}", .{ cue_path, diag.msg() });
@@ -167,9 +169,16 @@ pub const Disc = struct {
             const file_sector_count: u32 = @intCast(@divExact(stat.size, cdrom_sector_size_cue));
 
             for (file.tracks) |track| {
-                const index_01: ?cue.IndexNode = for (track.indices) |idx| {
-                    if (idx.number == 1) break idx;
-                } else null;
+                var index_00: ?cue.IndexNode = null;
+                var index_01: ?cue.IndexNode = null;
+
+                for (track.indices) |track_index| {
+                    switch (track_index.number) {
+                        0 => index_00 = track_index,
+                        1 => index_01 = track_index,
+                        else => {},
+                    }
+                }
 
                 if (index_01 == null) {
                     log.err("cue sheet track {d} missing INDEX 01", .{track.number});
@@ -177,10 +186,12 @@ pub const Disc = struct {
                 }
 
                 const track_start = absolute_sector + index_01.?.position.toSectors();
+                const pregap_start = if (index_00) |x| absolute_sector + x.position.toSectors() else track_start;
                 const track_end = track_start + file_sector_count;
 
                 tracks.append(allocator, Track{
                     .number = track.number,
+                    .pregap_sector = pregap_start,
                     .start_sector = track_start,
                     .end_sector = track_end,
                 }) catch @panic("OOM");
@@ -235,36 +246,41 @@ pub const Disc = struct {
         }
 
         const tracks_slice = tracks.toOwnedSlice(allocator) catch @panic("OOM");
+        const self = allocator.create(@This()) catch @panic("OOM");
 
-        return .{
+        self.* = .{
             .allocator = allocator,
             .tracks = tracks_slice,
             .track_count = @intCast(tracks_slice.len),
             .data = disc_data,
         };
+        return self;
     }
 
-    pub fn loadBinFromOwnedBuffer(allocator: std.mem.Allocator, buf: []align(2) const u8) @This() {
+    pub fn loadBinFromOwnedBuffer(allocator: std.mem.Allocator, buf: []align(2) const u8) *@This() {
         var tracks: std.ArrayList(Track) = .empty;
         const total_sectors: u32 = @intCast(buf.len / cdrom_sector_size_cue);
 
         tracks.append(allocator, Track{
             .number = 1,
+            .pregap_sector = cdrom_file_offset_sectors_cue,
             .start_sector = cdrom_file_offset_sectors_cue,
             .end_sector = cdrom_file_offset_sectors_cue + total_sectors,
         }) catch @panic("OOM");
 
         const tracks_slice = tracks.toOwnedSlice(allocator) catch @panic("OOM");
+        const self = allocator.create(@This()) catch @panic("OOM");
 
-        return .{
+        self.* = .{
             .allocator = allocator,
             .tracks = tracks_slice,
             .track_count = 1,
             .data = buf,
         };
+        return self;
     }
 
-    pub fn loadBin(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!@This() {
+    pub fn loadBin(allocator: std.mem.Allocator, io: std.Io, path: []const u8) Error!*@This() {
         const file = std.Io.Dir.openFile(.cwd(), io, path, .{}) catch |err| {
             log.err("failed to open bin file {s}: {}", .{ path, err });
             return Error.FileIoError;
@@ -293,6 +309,7 @@ pub const Disc = struct {
     pub fn deinit(self: *@This()) void {
         self.allocator.free(self.tracks);
         self.allocator.free(self.data);
+        self.allocator.destroy(self);
     }
 
     pub fn seek(self: *@This(), sector: u32) void {
@@ -324,22 +341,43 @@ pub const Disc = struct {
         return @alignCast(sector);
     }
 
-    pub fn getTrackByNumber(self: *@This(), number: u8) ?*const Track {
+    pub fn getTrackByNumber(self: *const @This(), number: u8) ?Track {
         if (number == 0) {
             std.debug.assert(self.tracks.len > 0);
-            return &self.tracks[self.tracks.len - 1];
+            return self.tracks[self.tracks.len - 1];
         }
         for (0.., self.tracks) |i, track| {
             if (track.number == number) {
-                return &self.tracks[i];
+                return self.tracks[i];
             }
         }
         return null;
     }
 
-    pub fn isAtValidLocation(self: *@This()) bool {
+    pub fn getTrackBySector(self: *const @This(), sector: u32) ?Track {
+        for (self.tracks) |track| {
+            if (sector >= track.pregap_sector and sector < track.end_sector) {
+                return track;
+            }
+        }
+        return null;
+    }
+
+    pub fn isAtValidLocation(self: *const @This()) bool {
         const pos = self.pos + cdrom_file_offset_bytes_cue;
         return pos < self.data.len;
+    }
+
+    pub fn currentSector(self: *const @This()) u32 {
+        return @intCast((self.pos + cdrom_file_offset_bytes_cue) / cdrom_sector_size_cue);
+    }
+
+    pub fn readSectorRawAt(self: *const @This(), sector: u32) ?[]align(2) const u8 {
+        const pos = sector * cdrom_sector_size_cue -| cdrom_file_offset_bytes_cue;
+        if (pos + cdrom_sector_size_cue > self.data.len) {
+            return null;
+        }
+        return @alignCast(self.data[pos .. pos + cdrom_sector_size_cue]);
     }
 };
 
@@ -355,7 +393,7 @@ const ReadState = enum {
     playing,
 };
 
-const AudioBuffer = fifo.StaticFifo([2]i16, cdrom_sector_size_cue * 10 / 4);
+const AudioBuffer = fifo.StaticFifo([2]i16, 16384);
 
 pub const CDROM = struct {
     pub const addr_start: u32 = 0x1f801800;
@@ -373,18 +411,22 @@ pub const CDROM = struct {
 
     cmd: ?u8,
     cmd_state: CmdState,
-    cmd_queue: fifo.StaticFifo(u8, 16),
+    pending_cmd: ?u8,
     cmd_delay: u32,
-    params: fifo.StaticFifo(u8, 16),
+    pending_params: fifo.StaticFifo(u8, 16),
+    cmd_params: fifo.StaticFifo(u8, 16),
     results: fifo.StaticFifo(u8, 16),
 
-    disc: ?Disc,
+    disc: ?*Disc,
     seekloc: ?u32,
     audio_buffer: *AudioBuffer,
     data_buffer: ?[]const u8,
     data_pos: u32,
+    last_sector_header: [8]u8,
     read_state: ReadState,
     read_delay: u32,
+    xa: xa_mod.XaState,
+    last_sample: [2]i16,
 
     irq_mask: packed struct(u8) { int_enable: u3 = 0, _pad: u5 = 0 },
     irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
@@ -397,18 +439,21 @@ pub const CDROM = struct {
 
         self.* = .{
             .allocator = allocator,
-            .params = .empty,
+            .pending_params = .empty,
+            .cmd_params = .empty,
             .results = .empty,
             .irq_mask = std.mem.zeroes(@TypeOf(self.irq_mask)),
             .irq_pending = std.mem.zeroes(@TypeOf(self.irq_pending)),
             .audio_buffer = audio_buffer,
             .data_buffer = null,
             .data_pos = 0,
+            .last_sector_header = std.mem.zeroes([8]u8),
+            .xa = .{},
             .read_state = .idle,
             .read_delay = 0,
             .cmd = null,
             .cmd_state = .recv_cmd,
-            .cmd_queue = .empty,
+            .pending_cmd = null,
             .cmd_delay = 0,
             .disc = null,
             .mode = .{},
@@ -418,6 +463,7 @@ pub const CDROM = struct {
             .stat = .{},
             .addr = .{},
             .req = .{},
+            .last_sample = .{ 0, 0 },
         };
         return self;
     }
@@ -427,7 +473,7 @@ pub const CDROM = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn insertDisc(self: *@This(), disc: Disc) void {
+    pub fn insertDisc(self: *@This(), disc: *Disc) void {
         self.disc = disc;
     }
 
@@ -442,8 +488,15 @@ pub const CDROM = struct {
                 samples[offset + 0],
                 samples[offset + 1],
             };
-            self.audio_buffer.push(sample);
+            self.pushAudioSample(sample);
         }
+    }
+
+    inline fn pushAudioSample(self: *@This(), sample: [2]i16) void {
+        if (self.audio_buffer.isFull()) {
+            _ = self.audio_buffer.pop();
+        }
+        self.audio_buffer.push(sample);
     }
 
     inline fn setDataBuffer(self: *@This(), data: []const u8) void {
@@ -452,15 +505,22 @@ pub const CDROM = struct {
     }
 
     pub fn consumeAudioSample(self: *@This()) [2]i16 {
-        const is_playing = !self.mute and
-            self.read_state == .playing and
-            self.mode.cdda;
-        if (is_playing) {
-            return self.audio_buffer.pop() orelse blk: {
-                log.warn("audio buffer underrun", .{});
-                break :blk [2]i16{ 0, 0 };
+        if (self.read_state == .playing and self.mode.cdda) {
+            const sample = self.audio_buffer.pop() orelse blk: {
+                log.debug("audio buffer underrun", .{});
+                break :blk self.last_sample;
             };
+            if (self.mute) return .{ 0, 0 };
+            self.last_sample = sample;
+            return sample;
         }
+
+        if (self.read_state == .reading and self.mode.xa_adpcm) {
+            const sample = self.xa.consumeSample(self.disc.?);
+            if (self.mute) return .{ 0, 0 };
+            return sample;
+        }
+
         return [2]i16{ 0, 0 };
     }
 
@@ -539,16 +599,25 @@ pub const CDROM = struct {
                 self.resetReadState();
                 return;
             }
+
             self.stat.play = true;
+            const sector_id = self.disc.?.currentSector();
             const sector = self.disc.?.readSectorRaw();
             const samples = std.mem.bytesAsSlice(i16, sector);
             self.read_delay = cdrom_read_delay_cycles;
             self.fillAudioBuffer(samples);
+
+            if (self.mode.play_report) {
+                self.pushPlayReport(sector_id);
+            }
         }
     }
 
     fn beginReading(self: *@This()) void {
         self.read_state = .reading;
+        if (self.mode.xa_adpcm) {
+            self.xa.beginAt(self.seekloc orelse self.disc.?.currentSector());
+        }
         if (self.seekloc != null) {
             self.stat.seek = true;
             self.read_delay = cdrom_seekl_delay_cycles;
@@ -582,14 +651,25 @@ pub const CDROM = struct {
             self.stat.read = true;
             self.results.clear();
 
-            const sector = self.disc.?.readSector(self.mode.sector_size);
+            const sector = self.disc.?.readSectorRaw();
+            @memcpy(self.last_sector_header[0..], sector[12..20]);
+
             self.read_delay = switch (self.mode.speed) {
                 .normal => cdrom_read_delay_cycles,
                 .double => cdrom_read_2x_delay_cycles,
             };
 
+            if (self.xa.isXaAudioSector(sector)) {
+                return;
+            }
+
+            const payload = switch (self.mode.sector_size) {
+                .data_only => sector[24 .. 24 + 2048],
+                .whole_sector => sector[12..sector.len],
+            };
+
             self.pushResultByte(self.readStat());
-            self.setDataBuffer(sector);
+            self.setDataBuffer(payload);
             self.setInterrupt(1);
         }
     }
@@ -600,6 +680,7 @@ pub const CDROM = struct {
         self.audio_buffer.clear();
         self.data_buffer = null;
         self.data_pos = 0;
+        self.last_sector_header = std.mem.zeroes([8]u8);
         self.stat.seek = false;
         self.stat.read = false;
         self.stat.play = false;
@@ -611,9 +692,9 @@ pub const CDROM = struct {
         if (self.cmd == null) return;
         const cmd = self.cmd.?;
 
-        // This fixes some games but should we actually do this?
-        // self.irq_pending.ints = 0;
-        // self.results.clear();
+        // Start each command response phase from a clean result buffer rather
+        // than appending onto stale unread bytes from an older interrupt.
+        self.results.clear();
 
         switch (cmd) {
             0x01 => commands.getStat(self),
@@ -623,6 +704,7 @@ pub const CDROM = struct {
             0x08 => commands.stop(self),
             0x09 => commands.pause(self),
             0x0a => commands.initCmd(self),
+            0x0b => commands.mute(self),
             0x0c => commands.demute(self),
             0x0d => commands.setFilter(self),
             0x0e => commands.setMode(self),
@@ -635,18 +717,40 @@ pub const CDROM = struct {
             0x16 => commands.seekL(self), // seekP
             0x1a => commands.getId(self),
             0x19 => commands.testCmd(self),
+            0x1e => commands.readToc(self),
             else => {
-                // std.debug.panic("unhandled CDROM command: {x}", .{cmd});
-                log.warn("unhandled CDROM command: {x}", .{cmd});
+                // std.debug.panic("unhandled cdrom command: {x}", .{cmd});
+                log.warn("unhandled cdrom command: {x}", .{cmd});
+                self.pushError(.invalid_command);
+                self.setInterrupt(5);
+                self.finishCommand();
             },
         }
     }
 
+    fn beginCommand(self: *@This(), opcode: u8) void {
+        self.cmd = opcode;
+        self.cmd_state = .recv_cmd;
+        self.cmd_params = self.pending_params.clone();
+        self.pending_params.clear();
+        self.stepCommand();
+    }
+
     fn finishCommand(self: *@This()) void {
-        // self.params.clear();
+        self.cmd_params.clear();
         self.cmd_state = .recv_cmd;
         self.stat.err = false;
         self.cmd = null;
+    }
+
+    fn assertParamCount(self: *@This(), cmd_name: []const u8, expected: usize) bool {
+        if (self.cmd_params.len == expected) return true;
+        // std.debug.panic("wrong parameter count for {s}: expected {d}, got {d}", .{ cmd_name, expected, self.cmd_params.len });
+        log.warn("{s}: wrong parameter count: expected {d}, got {d}", .{ cmd_name, expected, self.cmd_params.len });
+        self.pushError(.wrong_parameter_count);
+        self.setInterrupt(5);
+        self.finishCommand();
+        return false;
     }
 
     fn pushResultByte(self: *@This(), byte: u8) void {
@@ -667,6 +771,40 @@ pub const CDROM = struct {
         stat.seekerr = err == .seek_failed;
         self.pushResultByte(@bitCast(stat));
         self.pushResultByte(err.code());
+    }
+
+    fn pushPlayReport(self: *@This(), sector_id: u32) void {
+        const abs_pos = Position.fromSectors(sector_id);
+        if (abs_pos.sector % 10 != 0) return;
+
+        const disc = self.disc orelse return;
+        const track = disc.getTrackBySector(sector_id) orelse return;
+
+        const in_pregap = sector_id < track.start_sector;
+        const track_index: u8 = if (in_pregap) 0 else 1;
+        const rel_sector = if (sector_id >= track.start_sector) sector_id - track.start_sector else track.start_sector - sector_id;
+        const rel_pos = Position.fromSectors(rel_sector);
+
+        self.results.clear();
+        self.pushResultByte(self.readStat());
+        self.pushResultByte(toBCD(track.number));
+        self.pushResultByte(toBCD(track_index));
+
+        if ((abs_pos.sector / 10) % 2 == 0) {
+            self.pushResultByte(toBCD(abs_pos.minute));
+            self.pushResultByte(toBCD(abs_pos.second));
+            self.pushResultByte(toBCD(abs_pos.sector));
+        } else {
+            self.pushResultByte(toBCD(rel_pos.minute));
+            self.pushResultByte(toBCD(rel_pos.second) | 0x80);
+            self.pushResultByte(toBCD(rel_pos.sector));
+        }
+
+        // TODO: peak values - are they important?
+        self.pushResultByte(0);
+        self.pushResultByte(0);
+
+        self.setInterrupt(1);
     }
 
     // =========================================================================
@@ -707,29 +845,29 @@ pub const CDROM = struct {
             0 => self.addr.bank_index = bits.field(val, 0, u2),
             1 => switch (bank_index) {
                 0 => self.writeCommand(val),
-                1 => log.warn("WRDATA: {x}", .{v}),
-                2 => log.warn("CI: {x}", .{v}),
-                3 => log.warn("AVT2: {x}", .{v}),
+                1 => log.warn("unimplemented WRDATA: {x}", .{v}),
+                2 => log.warn("unimplemented CI: {x}", .{v}),
+                3 => log.warn("unimplemented AVT2: {x}", .{v}),
             },
             2 => switch (bank_index) {
                 0 => self.writePram(val),
                 1 => self.irq_mask = @bitCast(val),
-                2 => log.warn("ATV0: {x}", .{v}),
-                3 => log.warn("ATV3: {x}", .{v}),
+                2 => log.warn("unimplemented ATV0: {x}", .{v}),
+                3 => log.warn("unimplemented ATV3: {x}", .{v}),
             },
             3 => switch (bank_index) {
                 0 => self.writeRequest(val),
                 1 => self.ackInterrupt(val),
-                2 => log.warn("ATV1: {x}", .{v}),
-                3 => log.warn("ADPCTL: {x}", .{v}),
+                2 => log.warn("unimplemented ATV1: {x}", .{v}),
+                3 => log.warn("unimplemented ADPCTL: {x}", .{v}),
             },
         }
     }
 
     fn readAddr(self: *@This()) u8 {
         var addr = self.addr;
-        addr.param_empty = self.params.isEmpty();
-        addr.param_not_full = !self.params.isFull();
+        addr.param_empty = self.pending_params.isEmpty();
+        addr.param_not_full = !self.pending_params.isFull();
         addr.result_ready = !self.results.isEmpty();
         addr.data_ready = self.req.want_data and self.data_buffer != null;
         addr.busy_status = self.cmd_state != .recv_cmd;
@@ -751,27 +889,19 @@ pub const CDROM = struct {
     }
 
     fn writePram(self: *@This(), v: u8) void {
-        self.params.push(v);
+        self.pending_params.push(v);
     }
 
     fn writeCommand(self: *@This(), opcode: u8) void {
         if (self.cmd != null and opcode != 0x09) {
-            log.warn("new command ({x}) while another command in progress ({x})", .{ opcode, self.cmd.? });
-        } else if (!self.results.isEmpty()) {
-            log.warn("new command ({x}) while having unread results", .{opcode});
+            const active_cmd = self.cmd orelse 0;
+            log.warn("new command ({x}) while another command in progress ({x})", .{ opcode, active_cmd });
         }
 
-        if (opcode == 0x09) { // pause
-            self.cmd = opcode;
-            self.cmd_state = .recv_cmd;
-            self.stepCommand();
+        if (self.cmd == null and self.irq_pending.ints == 0) {
+            self.beginCommand(opcode);
         } else {
-            self.cmd_queue.push(opcode);
-            if (self.cmd == null) {
-                self.cmd = self.cmd_queue.pop().?;
-                self.cmd_state = .recv_cmd;
-                self.stepCommand();
-            }
+            self.pending_cmd = opcode;
         }
     }
 
@@ -802,18 +932,14 @@ pub const CDROM = struct {
 
         self.irq_pending.ints &= ~ack.int_clear;
 
-        if (ack.param_clear) self.params.clear();
+        if (ack.param_clear) self.pending_params.clear();
 
-        if (self.cmd == null and !self.cmd_queue.isEmpty()) {
-            self.cmd = self.cmd_queue.pop().?;
+        if (self.irq_pending.ints == 0 and self.cmd == null and self.pending_cmd != null) {
+            const pending_cmd = self.pending_cmd.?;
+            self.pending_cmd = null;
             self.results.clear();
-            self.stepCommand();
+            self.beginCommand(pending_cmd);
         }
-
-        // psx-spx states that the results queue is drained. Seems like it does not happen in reality.
-        // pcsx-redux tests try to read the response AFTER acknowledging. Duckstation actually clears it
-        // before writing a command response, so we will do that as well.
-        // self.results.clear();
     }
 };
 
@@ -896,10 +1022,10 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 3);
-                const m = fromBCD(self.params.pop().?);
-                const s = fromBCD(self.params.pop().?);
-                const f = fromBCD(self.params.pop().?);
+                if (!self.assertParamCount("setLoc", 3)) return;
+                const m = fromBCD(self.cmd_params.pop().?);
+                const s = fromBCD(self.cmd_params.pop().?);
+                const f = fromBCD(self.cmd_params.pop().?);
 
                 log.debug("setLoc: m={d} s={d} f={d}", .{ m, s, f });
 
@@ -919,16 +1045,16 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 1);
-                const mode_byte = self.params.pop().?;
+                if (!self.assertParamCount("setMode", 1)) return;
+                const mode_byte = self.cmd_params.pop().?;
 
                 log.debug("setMode: mode={x}", .{mode_byte});
 
                 self.mode = @bitCast(mode_byte);
                 self.pushResultByte(self.readStat());
+                self.xa.setMode(self.mode.xa_adpcm, self.mode.xa_filter);
 
                 if (self.mode.auto_pause) log.warn("auto-pause not implemented", .{});
-                if (self.mode.play_report) log.warn("play-report not implemented", .{});
 
                 self.setInterrupt(3);
                 self.finishCommand();
@@ -947,7 +1073,7 @@ const commands = opaque {
             },
             .resp1 => {
                 if (self.seekloc == null) {
-                    std.debug.panic("CDROM SEEKL: no seek location set", .{});
+                    std.debug.panic("seekL: no seek location set", .{});
                 }
                 const loc = self.seekloc.?;
 
@@ -995,13 +1121,15 @@ const commands = opaque {
                 self.stat.motor_on = true;
             },
             .resp1 => {
-                const track_id = self.params.pop();
+                const track_id = self.cmd_params.pop();
+
                 if (track_id) |id| {
-                    const track = self.disc.?.getTrackByNumber(id) orelse {
-                        std.debug.panic("cdrom - play: invalid track id {d}", .{id});
+                    const track_num = fromBCD(id);
+                    const track = self.disc.?.getTrackByNumber(track_num) orelse {
+                        std.debug.panic("play: invalid track id {d}", .{track_num});
                     };
                     self.seekloc = track.start_sector;
-                    log.debug("seekTrack: id={d}", .{id});
+                    log.debug("play: track_id={d}", .{track_num});
                 }
 
                 self.beginPlaying();
@@ -1045,8 +1173,8 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 1);
-                const sub_cmd = self.params.pop() orelse unreachable;
+                if (!self.assertParamCount("test", 1)) return;
+                const sub_cmd = self.cmd_params.pop() orelse unreachable;
 
                 log.debug("test: cmd={x}", .{sub_cmd});
 
@@ -1059,6 +1187,26 @@ const commands = opaque {
                 self.finishCommand();
             },
             else => unreachable,
+        }
+    }
+
+    fn readToc(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.cmd_delay = cdrom_init_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                self.pushResultByte(self.readStat());
+                self.cmd_delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp2;
+                self.setInterrupt(3);
+            },
+            .resp2 => {
+                self.pushResultByte(self.readStat());
+                self.setInterrupt(2);
+                self.finishCommand();
+            },
         }
     }
 
@@ -1081,14 +1229,38 @@ const commands = opaque {
         }
     }
 
+    fn mute(self: *CDROM) void {
+        switch (self.cmd_state) {
+            .recv_cmd => {
+                self.cmd_delay = cdrom_avg_delay_cycles;
+                self.cmd_state = .resp1;
+            },
+            .resp1 => {
+                self.mute = true;
+                log.debug("mute", .{});
+                self.pushResultByte(self.readStat());
+                self.setInterrupt(3);
+                self.finishCommand();
+            },
+            else => unreachable,
+        }
+    }
+
     fn getTn(self: *CDROM) void {
         // std.debug.assert(self.params.len == 0);
 
+        const disc = self.disc orelse {
+            self.pushError(.cannot_respond);
+            self.setInterrupt(5);
+            self.finishCommand();
+            return;
+        };
+
         self.pushResultByte(self.readStat());
         self.pushResultByte(toBCD(1)); // first track number
-        self.pushResultByte(toBCD(self.disc.?.track_count)); // last track number
+        self.pushResultByte(toBCD(disc.track_count)); // last track number
 
-        log.debug("getTN: first={d} last={d}", .{ 1, self.disc.?.track_count });
+        log.debug("getTN: first={d} last={d}", .{ 1, disc.track_count });
 
         self.setInterrupt(3);
         self.finishCommand();
@@ -1103,7 +1275,7 @@ const commands = opaque {
             .resp1 => {
                 // std.debug.assert(self.params.len == 1);
 
-                const track_num = fromBCD(self.params.pop() orelse 0);
+                const track_num = fromBCD(self.cmd_params.pop() orelse 0);
                 const track = self.disc.?.getTrackByNumber(track_num) orelse {
                     self.pushError(.invalid_parameter);
                     self.setInterrupt(3);
@@ -1139,19 +1311,32 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                log.debug("getLocP", .{});
-                self.pushResultByte(self.readStat());
+                const disc = self.disc orelse {
+                    self.pushError(.cannot_respond);
+                    self.setInterrupt(5);
+                    self.finishCommand();
+                    return;
+                };
 
-                self.pushResultByte(toBCD(1)); // track number
-                self.pushResultByte(toBCD(1)); // track index
+                const sector = disc.currentSector();
+                const track = disc.getTrackBySector(sector).?;
+                const in_pregap = sector < track.start_sector;
+                const track_index: u8 = if (in_pregap) 0 else 1;
+                const rel_sector = if (sector >= track.start_sector) sector - track.start_sector else track.start_sector - sector;
 
-                self.pushResultByte(toBCD(0)); // track minute
-                self.pushResultByte(toBCD(2)); // track second
-                self.pushResultByte(toBCD(0)); // track sect
+                const rel_pos = Position.fromSectors(rel_sector);
+                const abs_pos = Position.fromSectors(sector);
 
-                self.pushResultByte(toBCD(0)); // absolute minute
-                self.pushResultByte(toBCD(2)); // absolute second
-                self.pushResultByte(toBCD(0)); // absolute sect
+                log.debug("getLocP: track={d} index={d} sector={d}", .{ track.number, track_index, sector });
+
+                self.pushResultByte(toBCD(track.number));
+                self.pushResultByte(toBCD(track_index));
+                self.pushResultByte(toBCD(rel_pos.minute));
+                self.pushResultByte(toBCD(rel_pos.second));
+                self.pushResultByte(toBCD(rel_pos.sector));
+                self.pushResultByte(toBCD(abs_pos.minute));
+                self.pushResultByte(toBCD(abs_pos.second));
+                self.pushResultByte(toBCD(abs_pos.sector));
 
                 self.setInterrupt(3);
                 self.finishCommand();
@@ -1167,12 +1352,13 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                std.debug.assert(self.params.len == 2);
+                if (!self.assertParamCount("setFilter", 2)) return;
 
-                const file = self.params.pop() orelse unreachable;
-                const channel = self.params.pop() orelse unreachable;
+                const file = self.cmd_params.pop() orelse unreachable;
+                const channel = self.cmd_params.pop() orelse unreachable;
 
                 log.debug("setFilter: file={x} channel={x}", .{ file, channel });
+                self.xa.setFilter(file, channel);
 
                 self.pushResultByte(self.readStat());
                 self.setInterrupt(3);
@@ -1222,8 +1408,7 @@ const commands = opaque {
                     return;
                 }
                 log.debug("getLocL", .{});
-                const b = self.data_buffer.?;
-                self.pushResultSlice(b[0..8]);
+                self.pushResultSlice(&self.last_sector_header);
                 self.setInterrupt(3);
                 self.finishCommand();
             },
