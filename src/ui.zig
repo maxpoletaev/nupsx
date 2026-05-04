@@ -13,11 +13,9 @@ const log = std.log.scoped(.ui);
 
 const gl_version = .{ 4, 1 };
 const window_title = "nuPSX";
-const display_width = 320;
-const display_height = 240;
 const scale = 3;
-const window_width = display_width * scale;
-const window_height = display_height * scale;
+const window_width = 320 * scale;
+const window_height = 240 * scale;
 const ntsc_width = 960;
 const ntsc_height = 720;
 
@@ -291,7 +289,7 @@ pub const UI = struct {
         gl.genFramebuffers(1, &rgb_fbo);
         gl.genTextures(1, &rgb_tex);
         gl.bindTexture(gl.TEXTURE_2D, rgb_tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, display_width, display_height, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, window_width, window_height, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -543,7 +541,7 @@ pub const UI = struct {
         gl.bindVertexArray(self.vao);
 
         if (self.ntsc_enabled) {
-            self.display.draw(self.rgb_fbo, self.vram_tex, display_width, display_height, self.gpu);
+            self.display.draw(self.rgb_fbo, self.vram_tex, window_width, window_height, self.gpu);
             self.encoder.draw(self.composite_fbo, self.rgb_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.decoder.draw(self.output_fbo, self.composite_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.ntsc_frame +%= 1;
