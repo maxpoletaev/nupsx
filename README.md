@@ -32,10 +32,12 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Final Fantasy VII|🟨 InGame|Broken textures in menus/overlays|
 |Frogger|🟩 Playable||
 |Gran Turismo|🟩 Playable||
+|Gran Turismo 2|🟥 Nothing||
 |Grand Theft Auto|🟩 Playable||
 |Metal Gear Solid|🟩 Playable||
 |Mortal Kombat 2|🟩 Playable||
 |Mortal Kombat 4|🟩 Playable||
+|Legacy of Kain: Soul Reaver|🟨 InGame|Sound issues|
 |Quake II|🟩 Playable||
 |Rayman|🟧 Intro||
 |Rayman 2|🟩 Playable||
@@ -44,11 +46,13 @@ Can boot and play a few commercial games (notably Crash Bandicoot and MGS) and h
 |Silent Hill|🟩 Playable||
 |Spyro the Dragon|🟩 Playable|No background music|
 |Spyro - Year of the Dragon|🟩 Playable||
+|Spider Man 2|🟨 InGame|Badly broken geometry|
 |Star Ocean - The Second Story|🟩 Playable||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
 |Tomb Raider|🟨 InGame|No background sounds|
 |Tomb Raider III|🟨 InGame|Incorrect shading|
+|Tony Hawk's Pro Skater 2|🟨 InGame|Broken geometry|
 |Wipeout|🟩 Playable||
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>

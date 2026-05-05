@@ -311,8 +311,8 @@ pub const SIO0 = struct {
     }
 
     fn advanceState(self: *@This(), tx_byte: u8) void {
-        if (!self.ctrl.tx_enable) @panic("tx_enable=false unhandled");
-        if (!self.ctrl.joy_select_enable) @panic("joy_select_enable=false unhandled");
+        if (!self.ctrl.tx_enable) return;
+        if (!self.ctrl.joy_select_enable) return;
 
         const exchange = switch (self.state) {
             .idle => self.handleIdle(tx_byte),
