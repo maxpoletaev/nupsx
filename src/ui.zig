@@ -76,6 +76,53 @@ fn createShaderProgram(vertex: []const u8, fragment: []const u8) !gl.Uint {
     return shader_program;
 }
 
+const KeyMapping = struct { glfw.Key, sio0_mod.Button };
+const key_mappings = [_]KeyMapping{
+    .{ glfw.Key.w, .up },
+    .{ glfw.Key.a, .left },
+    .{ glfw.Key.s, .down },
+    .{ glfw.Key.d, .right },
+    .{ glfw.Key.k, .cross },
+    .{ glfw.Key.l, .circle },
+    .{ glfw.Key.j, .square },
+    .{ glfw.Key.i, .triangle },
+    .{ glfw.Key.e, .l1 },
+    .{ glfw.Key.q, .l2 },
+    .{ glfw.Key.u, .r1 },
+    .{ glfw.Key.o, .r2 },
+    .{ glfw.Key.enter, .start },
+    .{ glfw.Key.right_shift, .select },
+};
+
+const GamepadMapping = struct { u8, sio0_mod.Button };
+const gamepad_mappings = [_]GamepadMapping{
+    .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
+    .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },
+    .{ @intFromEnum(glfw.Gamepad.Button.dpad_left), .left },
+    .{ @intFromEnum(glfw.Gamepad.Button.dpad_right), .right },
+    .{ @intFromEnum(glfw.Gamepad.Button.cross), .cross },
+    .{ @intFromEnum(glfw.Gamepad.Button.circle), .circle },
+    .{ @intFromEnum(glfw.Gamepad.Button.square), .square },
+    .{ @intFromEnum(glfw.Gamepad.Button.triangle), .triangle },
+    .{ @intFromEnum(glfw.Gamepad.Button.left_bumper), .l1 },
+    .{ @intFromEnum(glfw.Gamepad.Button.left_thumb), .l2 },
+    .{ @intFromEnum(glfw.Gamepad.Button.right_bumper), .r1 },
+    .{ @intFromEnum(glfw.Gamepad.Button.right_thumb), .r2 },
+    .{ @intFromEnum(glfw.Gamepad.Button.start), .start },
+    .{ @intFromEnum(glfw.Gamepad.Button.back), .select },
+};
+
+const HotkeyAction = enum {
+    close,
+    mute_toggle,
+};
+
+const HotkeyMapping = struct { glfw.Key, HotkeyAction };
+const hotkey_mappings = [_]HotkeyMapping{
+    .{ glfw.Key.escape, .close },
+    .{ glfw.Key.m, .mute_toggle },
+};
+
 pub const UI = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -96,9 +143,9 @@ pub const UI = struct {
     is_running: bool = true,
     next_frame_time: f64 = 0,
     uncapped: bool = false,
-    mute_key_down: bool = false,
     filename: ?[]const u8 = null,
     mute_toggle_callback: ?Callback = null,
+    hotkey_down: std.enums.EnumArray(HotkeyAction, bool) = .initFill(false),
 
     const vertices = [_]f32{ // [x, y, u, v]
         -1.0, 1.0, 0.0, 0.0, // top left
@@ -210,7 +257,7 @@ pub const UI = struct {
         self.uncapped = uncapped;
     }
 
-    pub fn setMuteToggleCallback(
+    pub fn setMuteCallback(
         self: *@This(),
         func: *const fn (*anyopaque) void,
         user_data: *anyopaque,
@@ -236,56 +283,24 @@ pub const UI = struct {
         self.next_frame_time = @max(self.next_frame_time + self.gpu.targetFrameTime(), after);
     }
 
-    const KeyMapping = struct { glfw.Key, sio0_mod.Button };
-    const key_mappings = [_]KeyMapping{
-        .{ glfw.Key.w, .up },
-        .{ glfw.Key.a, .left },
-        .{ glfw.Key.s, .down },
-        .{ glfw.Key.d, .right },
-        .{ glfw.Key.k, .cross },
-        .{ glfw.Key.l, .circle },
-        .{ glfw.Key.j, .square },
-        .{ glfw.Key.i, .triangle },
-        .{ glfw.Key.e, .l1 },
-        .{ glfw.Key.q, .l2 },
-        .{ glfw.Key.u, .r1 },
-        .{ glfw.Key.o, .r2 },
-        .{ glfw.Key.enter, .start },
-        .{ glfw.Key.right_shift, .select },
-    };
-
-    const GamepadMapping = struct { u8, sio0_mod.Button };
-    const gamepad_mappings = [_]GamepadMapping{
-        .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
-        .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },
-        .{ @intFromEnum(glfw.Gamepad.Button.dpad_left), .left },
-        .{ @intFromEnum(glfw.Gamepad.Button.dpad_right), .right },
-        .{ @intFromEnum(glfw.Gamepad.Button.cross), .cross },
-        .{ @intFromEnum(glfw.Gamepad.Button.circle), .circle },
-        .{ @intFromEnum(glfw.Gamepad.Button.square), .square },
-        .{ @intFromEnum(glfw.Gamepad.Button.triangle), .triangle },
-        .{ @intFromEnum(glfw.Gamepad.Button.left_bumper), .l1 },
-        .{ @intFromEnum(glfw.Gamepad.Button.left_thumb), .l2 },
-        .{ @intFromEnum(glfw.Gamepad.Button.right_bumper), .r1 },
-        .{ @intFromEnum(glfw.Gamepad.Button.right_thumb), .r2 },
-        .{ @intFromEnum(glfw.Gamepad.Button.start), .start },
-        .{ @intFromEnum(glfw.Gamepad.Button.back), .select },
-    };
+    fn triggerHotkey(self: *@This(), action: HotkeyAction) void {
+        switch (action) {
+            .mute_toggle => if (self.mute_toggle_callback) |cb| cb.call(),
+            .close => glfw.setWindowShouldClose(self.window, true),
+        }
+    }
 
     fn handleInput(self: *@This()) void {
-        if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
-            glfw.setWindowShouldClose(self.window, true);
-        }
-
         if (self.window.shouldClose()) {
             self.is_running = false;
         }
 
-        const mute_pressed = glfw.getKey(self.window, glfw.Key.m) == .press;
-        if (mute_pressed and !self.mute_key_down) {
-            if (self.mute_toggle_callback) |callback| callback.call();
+        for (hotkey_mappings) |mapping| {
+            const pressed = glfw.getKey(self.window, mapping[0]) == .press;
+            const was_pressed = self.hotkey_down.get(mapping[1]);
+            if (pressed and !was_pressed) self.triggerHotkey(mapping[1]);
+            self.hotkey_down.set(mapping[1], pressed);
         }
-        self.mute_key_down = mute_pressed;
 
         inline for (key_mappings) |mapping| {
             const key_state = glfw.getKey(self.window, mapping[0]);
@@ -294,7 +309,6 @@ pub const UI = struct {
         }
 
         const gamepad_id = 0;
-
         if (glfw.joystickIsGamepad(@enumFromInt(gamepad_id))) {
             const gp_state = glfw.Gamepad.getState(@enumFromInt(gamepad_id)) catch |err| {
                 log.err("failed to get gamepad state: {}", .{err});
@@ -307,6 +321,25 @@ pub const UI = struct {
         }
     }
 
+    inline fn updateWindowTitle(self: *@This(), fps: f64) void {
+        var title_buf: [256]u8 = undefined;
+        if (self.filename) |filename| {
+            const title = std.fmt.bufPrintZ(
+                &title_buf,
+                "{s} - {s} - {d:.1} FPS",
+                .{ window_title, filename, fps },
+            ) catch unreachable;
+            self.window.setTitle(title);
+        } else {
+            const title = std.fmt.bufPrintZ(
+                &title_buf,
+                "{s} - NO DISK - {d:.1} FPS",
+                .{ window_title, fps },
+            ) catch unreachable;
+            self.window.setTitle(title);
+        }
+    }
+
     fn updateInternal(self: *@This(), now: f64) void {
         glfw.pollEvents();
 
@@ -315,24 +348,7 @@ pub const UI = struct {
 
         if (fps_elapsed >= 1.0) {
             const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
-            var title_buf: [256]u8 = undefined;
-
-            if (self.filename) |filename| {
-                const title = std.fmt.bufPrintZ(
-                    &title_buf,
-                    "{s} - {s} - {d:.1} FPS",
-                    .{ window_title, filename, fps },
-                ) catch unreachable;
-                self.window.setTitle(title);
-            } else {
-                const title = std.fmt.bufPrintZ(
-                    &title_buf,
-                    "{s} - NO DISK - {d:.1} FPS",
-                    .{ window_title, fps },
-                ) catch unreachable;
-                self.window.setTitle(title);
-            }
-
+            self.updateWindowTitle(fps);
             self.last_fps_update_time = now;
             self.frame_count = 0;
         }

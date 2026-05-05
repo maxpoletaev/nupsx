@@ -309,7 +309,7 @@ pub fn main(init: std.process.Init) !void {
     } else {
         const ui = try UI.init(allocator, io, gpu, sio0);
         defer ui.deinit();
-        ui.setMuteToggleCallback(Audio.muteToggleCallback, audio);
+        ui.setMuteCallback(Audio.muteToggleCallback, audio);
 
         if (args.uncapped) {
             ui.setUncapped(true);
