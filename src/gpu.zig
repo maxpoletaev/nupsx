@@ -94,9 +94,13 @@ inline fn argColor(v: u32) Color {
     return @bitCast(@as(u24, @truncate(v)));
 }
 
+inline fn signExtend11(v: u16) i16 {
+    return @intCast(@as(i11, @bitCast(@as(u11, @truncate(v)))));
+}
+
 inline fn argVertex(v: u32) struct { x: i16, y: i16 } {
-    const x = @as(i16, @bitCast(bits.field(v, 0, u16)));
-    const y = @as(i16, @bitCast(bits.field(v, 16, u16)));
+    const x = signExtend11(bits.field(v, 0, u16));
+    const y = signExtend11(bits.field(v, 16, u16));
     return .{ .x = x, .y = y };
 }
 
