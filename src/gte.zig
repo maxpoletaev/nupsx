@@ -343,7 +343,7 @@ pub const GTE = struct {
 
         switch (cmd.opcode) {
             0x00 => {},
-            0x01 => self.rtps(cmd, 0),
+            0x01 => self.rtps(cmd, 0, true),
             0x06 => self.nclip(cmd),
             0x0c => self.op(cmd),
             0x10 => self.dpcs(cmd, false),
@@ -374,9 +374,9 @@ pub const GTE = struct {
             0x2d => self.avsz3(),
             0x2e => self.avsz4(),
             0x30 => { // rtpt
-                self.rtps(cmd, 0);
-                self.rtps(cmd, 1);
-                self.rtps(cmd, 2);
+                self.rtps(cmd, 0, false);
+                self.rtps(cmd, 1, false);
+                self.rtps(cmd, 2, true);
             },
             0x3d => self.gpf(cmd),
             0x3e => self.gpl(cmd),
@@ -405,7 +405,7 @@ pub const GTE = struct {
     }
 
     /// RTPS - Perspective transformation
-    fn rtps(self: *GTE, cmd: Command, n: u2) void {
+    fn rtps(self: *GTE, cmd: Command, n: u2, update_ir0: bool) void {
         const result_z = self.transformVertex(n, cmd);
 
         self.pushSZ(result_z >> 12);
@@ -415,8 +415,10 @@ pub const GTE = struct {
         const sy = self.setMAC0(quotient * self.ir[2] + self.screen_offset[1]) >> 16;
         self.pushSXY(sx, sy);
 
-        const depth = self.setMAC0(quotient * self.dqa + self.dqb);
-        self.ir[0] = self.saturateIR(0, depth >> 12, false);
+        if (update_ir0) {
+            const depth = self.setMAC0(quotient * self.dqa + self.dqb);
+            self.ir[0] = self.saturateIR(0, depth >> 12, false);
+        }
     }
 
     /// AVSZ3 - Average of 3 Z values
@@ -485,10 +487,9 @@ pub const GTE = struct {
             rgb[2] = self.rgbScaled(2);
         }
 
-        inline for (1..4) |i| {
-            const value = (@as(i64, self.far_color[i - 1]) << 12) - (rgb[i - 1] << 12);
-            self.setMACtoIR(i, value, false, cmd.sf);
-        }
+        self.setMACtoIR(1, (@as(i64, self.far_color[0]) << 12) - (rgb[0] << 12), false, cmd.sf);
+        self.setMACtoIR(2, (@as(i64, self.far_color[1]) << 12) - (rgb[1] << 12), false, cmd.sf);
+        self.setMACtoIR(3, (@as(i64, self.far_color[2]) << 12) - (rgb[2] << 12), false, cmd.sf);
 
         self.interpolateWithIR0(.{ @intCast(rgb[0]), @intCast(rgb[1]), @intCast(rgb[2]) }, cmd);
         self.pushRGB();
@@ -498,15 +499,13 @@ pub const GTE = struct {
     fn dcpl(self: *GTE, cmd: Command) void {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
-        inline for (1..4) |i| {
-            const value = (@as(i64, self.far_color[i - 1]) << 12) - self.rgbScaled(i - 1) * prev[i - 1];
-            self.setMACtoIR(i, value, false, cmd.sf);
-        }
+        self.setMACtoIR(1, (@as(i64, self.far_color[0]) << 12) - self.rgbScaled(0) * prev[0], false, cmd.sf);
+        self.setMACtoIR(2, (@as(i64, self.far_color[1]) << 12) - self.rgbScaled(1) * prev[1], false, cmd.sf);
+        self.setMACtoIR(3, (@as(i64, self.far_color[2]) << 12) - self.rgbScaled(2) * prev[2], false, cmd.sf);
 
-        inline for (1..4) |i| {
-            const value = self.rgbScaled(i - 1) * prev[i - 1] + @as(i64, self.ir[0]) * self.ir[i];
-            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
-        }
+        self.setMACtoIR(1, self.rgbScaled(0) * prev[0] + @as(i64, self.ir[0]) * self.ir[1], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, self.rgbScaled(1) * prev[1] + @as(i64, self.ir[0]) * self.ir[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, self.rgbScaled(2) * prev[2] + @as(i64, self.ir[0]) * self.ir[3], cmd.lm, cmd.sf);
 
         self.pushRGB();
     }
@@ -515,10 +514,9 @@ pub const GTE = struct {
     fn intpl(self: *GTE, cmd: Command) void {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
-        inline for (1..4) |i| {
-            const value = (@as(i64, self.far_color[i - 1]) << 12) - (@as(i64, prev[i - 1]) << 12);
-            self.setMACtoIR(i, value, false, cmd.sf);
-        }
+        self.setMACtoIR(1, (@as(i64, self.far_color[0]) << 12) - (@as(i64, prev[0]) << 12), false, cmd.sf);
+        self.setMACtoIR(2, (@as(i64, self.far_color[1]) << 12) - (@as(i64, prev[1]) << 12), false, cmd.sf);
+        self.setMACtoIR(3, (@as(i64, self.far_color[2]) << 12) - (@as(i64, prev[2]) << 12), false, cmd.sf);
 
         self.interpolateWithIR0(prev, cmd);
         self.pushRGB();
@@ -533,18 +531,17 @@ pub const GTE = struct {
     /// GPL - General purpose interpolation with base
     fn gpl(self: *GTE, cmd: Command) void {
         const shift: u6 = @as(u6, cmd.sf) * 12;
-        inline for (1..4) |i| {
-            const value = (@as(i64, self.mac[i]) << shift) + @as(i64, self.ir[0]) * self.ir[i];
-            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
-        }
+        self.setMACtoIR(1, (@as(i64, self.mac[1]) << shift) + @as(i64, self.ir[0]) * self.ir[1], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, (@as(i64, self.mac[2]) << shift) + @as(i64, self.ir[0]) * self.ir[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, (@as(i64, self.mac[3]) << shift) + @as(i64, self.ir[0]) * self.ir[3], cmd.lm, cmd.sf);
         self.pushRGB();
     }
 
     /// SQR - Square vector
     fn sqr(self: *GTE, cmd: Command) void {
-        inline for (1..4) |i| {
-            self.setMACtoIR(i, @as(i64, self.ir[i]) * self.ir[i], cmd.lm, cmd.sf);
-        }
+        self.setMACtoIR(1, @as(i64, self.ir[1]) * self.ir[1], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, @as(i64, self.ir[2]) * self.ir[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, @as(i64, self.ir[3]) * self.ir[3], cmd.lm, cmd.sf);
     }
 
     /// OP - Outer product
@@ -566,18 +563,23 @@ pub const GTE = struct {
         const shift: u6 = @as(u6, cmd.sf) * 12;
 
         // Flags from first component, but IR gets intermediate result
-        inline for (1..4) |i| {
-            const value = (@as(i64, self.far_color[i - 1]) << 12) + @as(i64, matrix[i - 1][0]) * vec[0];
-            const val = self.saturateMAC(i, value);
-            self.ir[i] = self.saturateIR(i, val >> shift, false);
-        }
+        const val1 = self.saturateMAC(1, (@as(i64, self.far_color[0]) << 12) + @as(i64, matrix[0][0]) * vec[0]);
+        const val2 = self.saturateMAC(2, (@as(i64, self.far_color[1]) << 12) + @as(i64, matrix[1][0]) * vec[0]);
+        const val3 = self.saturateMAC(3, (@as(i64, self.far_color[2]) << 12) + @as(i64, matrix[2][0]) * vec[0]);
+        self.ir[1] = self.saturateIR(1, val1 >> shift, false);
+        self.ir[2] = self.saturateIR(2, val2 >> shift, false);
+        self.ir[3] = self.saturateIR(3, val3 >> shift, false);
 
         // Result from components 2 and 3
-        inline for (1..4) |i| {
-            var acc = self.saturateMAC(i, @as(i64, matrix[i - 1][1]) * vec[1]);
-            acc = self.saturateMAC(i, acc + @as(i64, matrix[i - 1][2]) * vec[2]);
-            self.setMACtoIR(i, acc, cmd.lm, cmd.sf);
-        }
+        var acc1 = self.saturateMAC(1, @as(i64, matrix[0][1]) * vec[1]);
+        var acc2 = self.saturateMAC(2, @as(i64, matrix[1][1]) * vec[1]);
+        var acc3 = self.saturateMAC(3, @as(i64, matrix[2][1]) * vec[1]);
+        acc1 = self.saturateMAC(1, acc1 + @as(i64, matrix[0][2]) * vec[2]);
+        acc2 = self.saturateMAC(2, acc2 + @as(i64, matrix[1][2]) * vec[2]);
+        acc3 = self.saturateMAC(3, acc3 + @as(i64, matrix[2][2]) * vec[2]);
+        self.setMACtoIR(1, acc1, cmd.lm, cmd.sf);
+        self.setMACtoIR(2, acc2, cmd.lm, cmd.sf);
+        self.setMACtoIR(3, acc3, cmd.lm, cmd.sf);
     }
 
     /// MVMVA - Matrix-vector multiply and add
@@ -638,35 +640,34 @@ pub const GTE = struct {
     fn depthCue(self: *GTE, cmd: Command) void {
         const prev = [3]i16{ self.ir[1], self.ir[2], self.ir[3] };
 
-        inline for (1..4) |i| {
-            const value = (@as(i64, self.far_color[i - 1]) << 12) - self.rgbScaled(i - 1) * self.ir[i];
-            self.setMACtoIR(i, value, false, cmd.sf);
-        }
+        self.setMACtoIR(1, (@as(i64, self.far_color[0]) << 12) - self.rgbScaled(0) * self.ir[1], false, cmd.sf);
+        self.setMACtoIR(2, (@as(i64, self.far_color[1]) << 12) - self.rgbScaled(1) * self.ir[2], false, cmd.sf);
+        self.setMACtoIR(3, (@as(i64, self.far_color[2]) << 12) - self.rgbScaled(2) * self.ir[3], false, cmd.sf);
 
-        inline for (1..4) |i| {
-            const value = self.rgbScaled(i - 1) * prev[i - 1] + @as(i64, self.ir[0]) * self.ir[i];
-            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
-        }
+        self.setMACtoIR(1, self.rgbScaled(0) * prev[0] + @as(i64, self.ir[0]) * self.ir[1], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, self.rgbScaled(1) * prev[1] + @as(i64, self.ir[0]) * self.ir[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, self.rgbScaled(2) * prev[2] + @as(i64, self.ir[0]) * self.ir[3], cmd.lm, cmd.sf);
     }
 
     fn interpolateRGB(self: *GTE, cmd: Command) void {
-        inline for (1..4) |i| {
-            self.setMACtoIR(i, self.rgbScaled(i - 1) * self.ir[i], cmd.lm, cmd.sf);
-        }
+        self.setMACtoIR(1, self.rgbScaled(0) * self.ir[1], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, self.rgbScaled(1) * self.ir[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, self.rgbScaled(2) * self.ir[3], cmd.lm, cmd.sf);
     }
 
     fn interpolateWithIR0(self: *GTE, base: [3]i16, cmd: Command) void {
-        inline for (1..4) |i| {
-            const value = (@as(i64, base[i - 1]) << 12) + @as(i64, self.ir[0]) * self.ir[i];
-            self.setMACtoIR(i, value, cmd.lm, cmd.sf);
-        }
+        self.setMACtoIR(1, (@as(i64, base[0]) << 12) + @as(i64, self.ir[0]) * self.ir[1], cmd.lm, cmd.sf);
+        self.setMACtoIR(2, (@as(i64, base[1]) << 12) + @as(i64, self.ir[0]) * self.ir[2], cmd.lm, cmd.sf);
+        self.setMACtoIR(3, (@as(i64, base[2]) << 12) + @as(i64, self.ir[0]) * self.ir[3], cmd.lm, cmd.sf);
     }
 
     fn matrixMultiply(self: *GTE, m: [3][3]i16, vec: [3]i16, tr: [3]i32, cmd: Command) void {
-        inline for (1..4) |i| {
-            const result = self.accumulate(i, tr[i - 1], m[i - 1], vec);
-            self.setMACtoIR(i, result, cmd.lm, cmd.sf);
-        }
+        const mac1 = self.accumulate(1, tr[0], m[0], vec);
+        const mac2 = self.accumulate(2, tr[1], m[1], vec);
+        const mac3 = self.accumulate(3, tr[2], m[2], vec);
+        self.setMACtoIR(1, mac1, cmd.lm, cmd.sf);
+        self.setMACtoIR(2, mac2, cmd.lm, cmd.sf);
+        self.setMACtoIR(3, mac3, cmd.lm, cmd.sf);
     }
 
     fn accumulate(self: *GTE, comptime i: u2, tr: i32, row: [3]i16, vec: [3]i16) i64 {
