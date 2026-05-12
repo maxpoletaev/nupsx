@@ -5,6 +5,8 @@ const CPU = @import("cpu.zig").CPU;
 
 const log = std.log.scoped(.exe);
 
+pub const exe_start_addr = 0x80030000;
+
 pub const Error = error{
     InvalidExeFormat,
     FileReadError,
