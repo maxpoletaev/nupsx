@@ -195,7 +195,7 @@ pub fn main(init: std.process.Init) !void {
     const scratchpad = Scratchpad.init(allocator);
     defer scratchpad.deinit();
 
-    const gpu = GPU.init(allocator, bus);
+    const gpu = GPU.init(allocator, io, bus);
     defer gpu.deinit();
 
     const cpu = CPU.init(allocator, bus);
