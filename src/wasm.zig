@@ -98,7 +98,7 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     bus = Bus.init(allocator);
     ram = RAM.init(allocator);
     scratchpad = Scratchpad.init(allocator);
-    gpu = GPU.init(allocator, undefined, bus);
+    gpu = GPU.init(allocator, null, bus);
     cpu = CPU.init(allocator, bus);
     dma = DMA.init(allocator, bus);
     mdec = MDEC.init(allocator);
