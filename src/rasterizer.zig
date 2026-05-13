@@ -122,10 +122,6 @@ pub const RasterCommand = union(enum) {
         return .{ .set_dithering = enable };
     }
 
-    pub fn setPixelRaw(x: i32, y: i32, color: u16) RasterCommand {
-        return .{ .set_pixel_raw = .{ .x = x, .y = y, .color = color } };
-    }
-
     pub fn fillRectUnmasked(x: i32, y: i32, w: i32, h: i32, color: RGB8) RasterCommand {
         return .{ .fill_rect_unmasked = .{ .x = x, .y = y, .w = w, .h = h, .color = color } };
     }
