@@ -45,7 +45,7 @@ last_frame_time: f64 = 0,
 next_frame_time: f64 = 0,
 is_running: bool = true,
 
-pub fn init(allocator: std.mem.Allocator, io: std.Io, cpu: *CPU, bus: *Bus) !*@This() {
+pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     try glfw.init();
     glfw.windowHint(.context_version_major, gl_version[0]);
     glfw.windowHint(.context_version_minor, gl_version[1]);
@@ -65,7 +65,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, cpu: *CPU, bus: *Bus) !*@T
 
     try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
 
-    zgui.init(io, allocator);
+    zgui.init(allocator);
     zgui.backend.init(window);
 
     const style = zgui.getStyle();
