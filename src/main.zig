@@ -304,6 +304,7 @@ pub fn main(init: std.process.Init) !void {
         defer ui.deinit();
 
         ui.setMuteCallback(Audio.muteToggleCallback, audio);
+        if (args.no_shader) ui.setNtscShaderEnabled(!args.no_shader);
         if (args.uncapped) ui.setUncapped(true);
 
         if (args.cd_image_path.len != 0) {
