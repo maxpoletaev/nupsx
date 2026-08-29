@@ -16,6 +16,7 @@ const help_text = (
     \\  --disasm             Enable disassembly output
     \\  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
     \\  --uncapped           Run the emulator without frame rate limiting
+    \\  --no-shader          Disable the CRT/NTSC shader
     \\  -h, --help           Show this help message
 );
 
@@ -36,6 +37,8 @@ pub const Args = struct {
     breakpoint: u32 = 0,
     uncapped: bool = false,
 
+    no_shader: bool = false,
+
     pub fn printHelp(io: std.Io) void {
         std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
     }
@@ -54,6 +57,7 @@ pub const Args = struct {
             .disasm = false,
             .breakpoint = 0,
             .uncapped = false,
+            .no_shader = false,
         };
 
         while (args_iter.next()) |arg| {
@@ -115,6 +119,10 @@ pub const Args = struct {
 
             if (std.mem.eql(u8, arg, "--uncapped")) {
                 args.uncapped = true;
+            }
+
+            if (std.mem.eql(u8, arg, "--no-shader")) {
+                args.no_shader = true;
             }
         }
 

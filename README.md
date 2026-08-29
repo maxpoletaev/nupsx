@@ -94,6 +94,8 @@ Options:
   --debug              Enable debug user interface
   --disasm             Enable disassembly output
   --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
+  --uncapped           Run the emulator without frame rate limiting
+  --no-shader          Disable the CRT/NTSC shader
   -h, --help           Show this help message
 ```
 

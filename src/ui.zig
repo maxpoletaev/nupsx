@@ -270,8 +270,7 @@ pub const UI = struct {
     output_fbo: gl.Uint,
     output_tex: gl.Uint,
     ntsc_frame: gl.Int,
-    ntsc_enabled: bool = true,
-    ntsc_key_prev: bool = false,
+    ntsc_shader_enabled: bool = true,
     last_fps_update_time: f64 = 0,
     frame_count: u64 = 0,
     is_running: bool = true,
@@ -430,6 +429,10 @@ pub const UI = struct {
         self.uncapped = uncapped;
     }
 
+    pub fn setNtscShaderEnabled(self: *@This(), enabled: bool) void {
+        self.ntsc_shader_enabled = enabled;
+    }
+
     pub fn setMuteCallback(
         self: *@This(),
         func: *const fn (*anyopaque) void,
@@ -467,10 +470,6 @@ pub const UI = struct {
         if (glfw.getKey(self.window, glfw.Key.escape) == .press) {
             glfw.setWindowShouldClose(self.window, true);
         }
-
-        const ntsc_key = glfw.getKey(self.window, glfw.Key.n) == .press;
-        if (ntsc_key and !self.ntsc_key_prev) self.ntsc_enabled = !self.ntsc_enabled;
-        self.ntsc_key_prev = ntsc_key;
 
         if (self.window.shouldClose()) {
             self.is_running = false;
@@ -558,11 +557,12 @@ pub const UI = struct {
         self.uploadVram();
         gl.bindVertexArray(self.vao);
 
-        if (self.ntsc_enabled) {
+        if (self.ntsc_shader_enabled) {
             self.display.draw(self.rgb_fbo, self.vram_tex, window_width, window_height, self.gpu);
             self.encoder.draw(self.composite_fbo, self.rgb_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.decoder.draw(self.output_fbo, self.composite_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.ntsc_frame +%= 1;
+
             // Blit output FBO to window, stretching to fit
             gl.bindFramebuffer(gl.READ_FRAMEBUFFER, self.output_fbo);
             gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, 0);
