@@ -5,16 +5,16 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zgui = .{
-            .url = "git+https://github.com/cyberegoorg/zgui#3ad1a950e95626e5272b3b2e49451fa9eba3d827",
-            .hash = "zgui-0.6.0-dev--L6sZCmBcQAQiwWne7UnKuz-ANOHQmPRMinTUOJqlrRl",
+            .url = "git+https://github.com/zig-gamedev/zgui#bfbebed372723d1f585f86fc0a550232b3427f4d",
+            .hash = "zgui-0.6.0-dev--L6sZJhIbgAjWdK5h6xuVUrsOcD-RdqEOEPf03Zgi4mF",
         },
         .zglfw = .{
-            .url = "git+https://github.com/simeks/zglfw#d0ff2ed426f57dbafc1bdcb0d08ada00c5332e3e",
+            .url = "git+https://github.com/zig-gamedev/zglfw#51003c105d23db378bb59ce415a387b22f1b0892",
             .hash = "zglfw-0.10.0-dev-zgVDNIy4IQDJNRy4jrP1As-SZxfJpuWhU1iJ-wBab_VD",
         },
         .zopengl = .{
-            .url = "git+https://github.com/fourlexboehm/zopengl#fd054f8beef13ee6a986db3f2b17dc5932e5b0f0",
-            .hash = "zopengl-0.6.0-dev-5-tnz76mDgBd5vSbvhwr7PrWteiut8CYUM3nR7ivKd4Z",
+            .url = "git+https://github.com/zig-gamedev/zopengl#29908b1ba2d91baf91e348f6cd192630488d77b6",
+            .hash = "zopengl-0.6.0-dev-5-tnz32mDgB82moljuLD0fmbj1mU3NSCXjzttpmoV2iP",
         },
         .zaudio = .{
             .url = "git+https://github.com/fourlexboehm/zaudio#557f8fcdf0c26e86a57f83e2a67affd09aa6498b",

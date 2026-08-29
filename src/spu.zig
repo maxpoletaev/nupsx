@@ -244,9 +244,232 @@ const Voice = struct {
     }
 };
 
-inline fn applyVolume(sample: i32, volume: i32) i32 {
-    return (sample *| volume) >> 15;
+inline fn mul(a: i32, b: i32) i32 {
+    return (a *| b) >> 15;
 }
+
+const Reverb = struct {
+    const Channel = enum {
+        left,
+        right,
+    };
+
+    dapf1: i16 = 0,
+    dapf2: i16 = 0,
+    viir: i16 = 0,
+    vcomb1: i16 = 0,
+    vcomb2: i16 = 0,
+    vcomb3: i16 = 0,
+    vcomb4: i16 = 0,
+    vwall: i16 = 0,
+    vapf1: i16 = 0,
+    vapf2: i16 = 0,
+    mlsame: i16 = 0,
+    mrsame: i16 = 0,
+    mlcomb1: i16 = 0,
+    mrcomb1: i16 = 0,
+    mlcomb2: i16 = 0,
+    mrcomb2: i16 = 0,
+    dlsame: i16 = 0,
+    drsame: i16 = 0,
+    mldiff: i16 = 0,
+    mrdiff: i16 = 0,
+    mlcomb3: i16 = 0,
+    mrcomb3: i16 = 0,
+    mlcomb4: i16 = 0,
+    mrcomb4: i16 = 0,
+    dldiff: i16 = 0,
+    drdiff: i16 = 0,
+    mlapf1: i16 = 0,
+    mrapf1: i16 = 0,
+    mlapf2: i16 = 0,
+    mrapf2: i16 = 0,
+    vlin: i16 = 0,
+    vrin: i16 = 0,
+
+    vol_out_l: i16 = 0,
+    vol_out_r: i16 = 0,
+    enable: u32 = 0,
+    half: bool = true,
+    last_out: [2]i32 = .{ 0, 0 },
+
+    base: u32 = 0x80000,
+    cur: u32 = 0x80000,
+
+    fn setBase(self: *@This(), v: u16) void {
+        self.base = @as(u32, v) * 8;
+        self.cur = self.base;
+    }
+
+    fn setEnable(self: *@This(), half: u1, v: u16) void {
+        self.enable = switch (half) {
+            0 => (self.enable & 0xff0000) | v,
+            1 => (self.enable & 0x00ffff) | (@as(u32, v) << 16),
+        };
+    }
+
+    fn readReg(self: *const @This(), addr: u32) u16 {
+        return switch (addr) {
+            0x1f801dc0 => @bitCast(self.dapf1),
+            0x1f801dc2 => @bitCast(self.dapf2),
+            0x1f801dc4 => @bitCast(self.viir),
+            0x1f801dc6 => @bitCast(self.vcomb1),
+            0x1f801dc8 => @bitCast(self.vcomb2),
+            0x1f801dca => @bitCast(self.vcomb3),
+            0x1f801dcc => @bitCast(self.vcomb4),
+            0x1f801dce => @bitCast(self.vwall),
+            0x1f801dd0 => @bitCast(self.vapf1),
+            0x1f801dd2 => @bitCast(self.vapf2),
+            0x1f801dd4 => @bitCast(self.mlsame),
+            0x1f801dd6 => @bitCast(self.mrsame),
+            0x1f801dd8 => @bitCast(self.mlcomb1),
+            0x1f801dda => @bitCast(self.mrcomb1),
+            0x1f801ddc => @bitCast(self.mlcomb2),
+            0x1f801dde => @bitCast(self.mrcomb2),
+            0x1f801de0 => @bitCast(self.dlsame),
+            0x1f801de2 => @bitCast(self.drsame),
+            0x1f801de4 => @bitCast(self.mldiff),
+            0x1f801de6 => @bitCast(self.mrdiff),
+            0x1f801de8 => @bitCast(self.mlcomb3),
+            0x1f801dea => @bitCast(self.mrcomb3),
+            0x1f801dec => @bitCast(self.mlcomb4),
+            0x1f801dee => @bitCast(self.mrcomb4),
+            0x1f801df0 => @bitCast(self.dldiff),
+            0x1f801df2 => @bitCast(self.drdiff),
+            0x1f801df4 => @bitCast(self.mlapf1),
+            0x1f801df6 => @bitCast(self.mrapf1),
+            0x1f801df8 => @bitCast(self.mlapf2),
+            0x1f801dfa => @bitCast(self.mrapf2),
+            0x1f801dfc => @bitCast(self.vlin),
+            0x1f801dfe => @bitCast(self.vrin),
+            else => 0,
+        };
+    }
+
+    fn writeReg(self: *@This(), addr: u32, v: u16) void {
+        switch (addr) {
+            0x1f801dc0 => self.dapf1 = @bitCast(v),
+            0x1f801dc2 => self.dapf2 = @bitCast(v),
+            0x1f801dc4 => self.viir = @bitCast(v),
+            0x1f801dc6 => self.vcomb1 = @bitCast(v),
+            0x1f801dc8 => self.vcomb2 = @bitCast(v),
+            0x1f801dca => self.vcomb3 = @bitCast(v),
+            0x1f801dcc => self.vcomb4 = @bitCast(v),
+            0x1f801dce => self.vwall = @bitCast(v),
+            0x1f801dd0 => self.vapf1 = @bitCast(v),
+            0x1f801dd2 => self.vapf2 = @bitCast(v),
+            0x1f801dd4 => self.mlsame = @bitCast(v),
+            0x1f801dd6 => self.mrsame = @bitCast(v),
+            0x1f801dd8 => self.mlcomb1 = @bitCast(v),
+            0x1f801dda => self.mrcomb1 = @bitCast(v),
+            0x1f801ddc => self.mlcomb2 = @bitCast(v),
+            0x1f801dde => self.mrcomb2 = @bitCast(v),
+            0x1f801de0 => self.dlsame = @bitCast(v),
+            0x1f801de2 => self.drsame = @bitCast(v),
+            0x1f801de4 => self.mldiff = @bitCast(v),
+            0x1f801de6 => self.mrdiff = @bitCast(v),
+            0x1f801de8 => self.mlcomb3 = @bitCast(v),
+            0x1f801dea => self.mrcomb3 = @bitCast(v),
+            0x1f801dec => self.mlcomb4 = @bitCast(v),
+            0x1f801dee => self.mrcomb4 = @bitCast(v),
+            0x1f801df0 => self.dldiff = @bitCast(v),
+            0x1f801df2 => self.drdiff = @bitCast(v),
+            0x1f801df4 => self.mlapf1 = @bitCast(v),
+            0x1f801df6 => self.mrapf1 = @bitCast(v),
+            0x1f801df8 => self.mlapf2 = @bitCast(v),
+            0x1f801dfa => self.mrapf2 = @bitCast(v),
+            0x1f801dfc => self.vlin = @bitCast(v),
+            0x1f801dfe => self.vrin = @bitCast(v),
+            else => {},
+        }
+    }
+
+    inline fn scaledAddr(v: i16) i32 {
+        return @as(i32, v) * 8;
+    }
+
+    inline fn ramAddr(self: *const @This(), off: i32) u32 {
+        const base: i32 = @intCast(self.base);
+        const cur: i32 = @intCast(self.cur);
+        const work_size: i32 = @intCast(0x7FFFE - self.base + 2);
+        const rel = @mod(cur - base + off, work_size);
+        return (@as(u32, @intCast(base + rel))) & 0x7FFFE;
+    }
+
+    inline fn ramRead(self: *const @This(), ram: []const u8, off: i32) i32 {
+        const addr = self.ramAddr(off);
+        return std.mem.readInt(i16, ram[addr..][0..2], .little);
+    }
+
+    inline fn ramWrite(self: *@This(), ram: []u8, off: i32, val: i32) void {
+        const clamped: i16 = @intCast(clamp(val, -0x8000, 0x7fff));
+        const addr = self.ramAddr(off);
+        std.mem.writeInt(i16, ram[addr..][0..2], clamped, .little);
+    }
+
+    fn processChannel(self: *@This(), ram: []u8, input: i32, writes_enabled: bool, comptime channel: Channel) i32 {
+        if (self.base >= 0x80000) return 0;
+
+        const in = mul(input, if (channel == .left) self.vlin else self.vrin);
+
+        if (writes_enabled) {
+            const same_dst = if (channel == .left) self.mlsame else self.mrsame;
+            const same_src = if (channel == .left) self.dlsame else self.drsame;
+            const diff_dst = if (channel == .left) self.mldiff else self.mrdiff;
+            const diff_src = if (channel == .left) self.drdiff else self.dldiff;
+
+            const same_prev = self.ramRead(ram, scaledAddr(same_dst) - 2);
+            const new_same = mul(in + mul(self.ramRead(ram, scaledAddr(same_src)), self.vwall) - same_prev, self.viir) + same_prev;
+            self.ramWrite(ram, scaledAddr(same_dst), new_same);
+
+            const diff_prev = self.ramRead(ram, scaledAddr(diff_dst) - 2);
+            const new_diff = mul(in + mul(self.ramRead(ram, scaledAddr(diff_src)), self.vwall) - diff_prev, self.viir) + diff_prev;
+            self.ramWrite(ram, scaledAddr(diff_dst), new_diff);
+        }
+
+        const comb1 = if (channel == .left) self.mlcomb1 else self.mrcomb1;
+        const comb2 = if (channel == .left) self.mlcomb2 else self.mrcomb2;
+        const comb3 = if (channel == .left) self.mlcomb3 else self.mrcomb3;
+        const comb4 = if (channel == .left) self.mlcomb4 else self.mrcomb4;
+        const apf1 = if (channel == .left) self.mlapf1 else self.mrapf1;
+        const apf2 = if (channel == .left) self.mlapf2 else self.mrapf2;
+        const vol_out = if (channel == .left) self.vol_out_l else self.vol_out_r;
+
+        var out: i32 = 0;
+        out += mul(self.ramRead(ram, scaledAddr(comb1)), self.vcomb1);
+        out += mul(self.ramRead(ram, scaledAddr(comb2)), self.vcomb2);
+        out += mul(self.ramRead(ram, scaledAddr(comb3)), self.vcomb3);
+        out += mul(self.ramRead(ram, scaledAddr(comb4)), self.vcomb4);
+
+        const apf1_hist = self.ramRead(ram, scaledAddr(apf1) - scaledAddr(self.dapf1));
+        out -= mul(apf1_hist, self.vapf1);
+        if (writes_enabled) self.ramWrite(ram, scaledAddr(apf1), out);
+        out = mul(out, self.vapf1) + apf1_hist;
+
+        const apf2_hist = self.ramRead(ram, scaledAddr(apf2) - scaledAddr(self.dapf2));
+        out -= mul(apf2_hist, self.vapf2);
+        if (writes_enabled) self.ramWrite(ram, scaledAddr(apf2), out);
+        out = mul(out, self.vapf2) + apf2_hist;
+
+        if (channel == .right) {
+            const work_size = 0x80000 - self.base;
+            self.cur = self.base + (self.cur + 2 - self.base) % work_size;
+        }
+
+        return mul(out, vol_out);
+    }
+
+    fn process(self: *@This(), ram: []u8, lin: i32, rin: i32, writes_enabled: bool) [2]i32 {
+        if (self.base >= 0x80000) return self.last_out;
+        self.half = !self.half;
+        if (self.half) {
+            self.last_out[1] = self.processChannel(ram, rin, writes_enabled, .right);
+        } else {
+            self.last_out[0] = self.processChannel(ram, lin, writes_enabled, .left);
+        }
+        return self.last_out;
+    }
+};
 
 pub const SPU = struct {
     pub const addr_start: u32 = 0x1f801c00;
@@ -256,6 +479,7 @@ pub const SPU = struct {
 
     ram: [0x80000]u8,
     voices: [24]Voice,
+    reverb: Reverb,
 
     data_addr: u16,
     data_ctrl: u16,
@@ -267,6 +491,9 @@ pub const SPU = struct {
 
     capture_pos: u32,
     capture_irq_pos: u32,
+
+    vol_main_l: i16,
+    vol_main_r: i16,
 
     stub_data: [0x400]u16,
 
@@ -285,6 +512,9 @@ pub const SPU = struct {
             .capture_irq_pos = 0,
             .spucnt = .{},
             .spustat = .{},
+            .vol_main_l = 0,
+            .vol_main_r = 0,
+            .reverb = .{},
             .stub_data = std.mem.zeroes([0x400]u16),
             .capture_pos = 0,
             .bus = bus,
@@ -355,12 +585,12 @@ pub const SPU = struct {
         const vol_right: i16 = @bitCast(voice.volume_right);
 
         var left: i32 = voice.current_sample;
-        left = applyVolume(left, vol_left);
-        left = applyVolume(left, voice.adsr_volume);
+        left = mul(left, vol_left);
+        left = mul(left, voice.adsr_volume);
 
         var right: i32 = voice.current_sample;
-        right = applyVolume(right, vol_right);
-        right = applyVolume(right, voice.adsr_volume);
+        right = mul(right, vol_right);
+        right = mul(right, voice.adsr_volume);
 
         return .{ @intCast(left), @intCast(right) };
     }
@@ -387,11 +617,23 @@ pub const SPU = struct {
         if (!self.spucnt.spu_enable) return .{ 0, 0 };
 
         var mix: [2]i32 = .{ 0, 0 };
+        var reverb_in: [2]i32 = .{ 0, 0 };
 
         for (0..24) |i| {
             const sample = self.getVoiceSample(@intCast(i));
             mix[0] +|= @as(i32, sample[0]);
             mix[1] +|= @as(i32, sample[1]);
+            if ((self.reverb.enable >> @intCast(i)) & 1 != 0) {
+                reverb_in[0] +|= @as(i32, sample[0]);
+                reverb_in[1] +|= @as(i32, sample[1]);
+            }
+        }
+
+        if (self.reverb.base < 0x80000) {
+            const master_enable = self.spucnt.reverb_master_enable;
+            const reverb_out = self.reverb.process(&self.ram, reverb_in[0], reverb_in[1], master_enable);
+            mix[0] +|= reverb_out[0];
+            mix[1] +|= reverb_out[1];
         }
 
         self.stepCaptureBuffer();
@@ -449,7 +691,14 @@ pub const SPU = struct {
 
         // Control registers
         return switch (addr) {
+            0x1f801d80 => @bitCast(self.vol_main_l),
+            0x1f801d82 => @bitCast(self.vol_main_r),
+            0x1f801d84 => @bitCast(self.reverb.vol_out_l),
+            0x1f801d86 => @bitCast(self.reverb.vol_out_r),
+            0x1f801d98 => @truncate(self.reverb.enable & 0xffff),
+            0x1f801d9a => @truncate(self.reverb.enable >> 16),
             0x1f801d9c, 0x1f801d9e => self.readEndx(addr),
+            0x1f801da2 => @truncate(self.reverb.base / 8),
             0x1f801da4 => self.irq_addr,
             0x1f801da6 => self.data_addr,
             0x1f801daa => @bitCast(self.spucnt),
@@ -459,6 +708,7 @@ pub const SPU = struct {
                 const stat: u16 = @bitCast(self.spustat);
                 break :blk (stat & ~@as(u16, 0x1f)) | (cnt & 0x1f); // lower 5 bits are from SPUCNT
             },
+            0x1f801dc0...0x1f801dfe => self.reverb.readReg(addr),
             else => blk: {
                 // log.warn("unhandled read at {x}", .{addr});
                 const offset = addr - addr_start;
@@ -577,9 +827,16 @@ pub const SPU = struct {
 
         // Control registers
         switch (addr) {
+            0x1f801d80 => self.vol_main_l = @bitCast(v),
+            0x1f801d82 => self.vol_main_r = @bitCast(v),
+            0x1f801d84 => self.reverb.vol_out_l = @bitCast(v),
+            0x1f801d86 => self.reverb.vol_out_r = @bitCast(v),
             0x1f801d88, 0x1f801d8a => self.setVoiceKeyOn(addr, v),
             0x1f801d8c, 0x1f801d8e => self.setVoiceKeyOff(addr, v),
             0x1f801d94, 0x1f801d96 => self.setVoiceNoiseMode(addr, v),
+            0x1f801d98 => self.reverb.setEnable(0, v),
+            0x1f801d9a => self.reverb.setEnable(1, v),
+            0x1f801da2 => self.reverb.setBase(v),
             0x1f801da4 => {
                 log.debug("setIrqAddr: addr={x}", .{v});
                 self.irq_addr = v;
@@ -597,6 +854,7 @@ pub const SPU = struct {
                 self.spucnt = @bitCast(v);
             },
             0x1f801dac => self.data_ctrl = v,
+            0x1f801dc0...0x1f801dfe => self.reverb.writeReg(addr, v),
 
             else => {
                 // log.warn("unhandled write at {x} = {x}", .{ addr, v });

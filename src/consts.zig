@@ -12,7 +12,7 @@ pub const gpu_scans_vblank_end_pal: u32 = 314;
 
 pub const gpu_cycles_per_cpu_cycle = (11.0 / 7.0);
 
-pub fn gpuFrameTime(cycles_per_scanline: u32, scanlines_per_frame: u32) f64 {
+fn gpuFrameTime(cycles_per_scanline: u32, scanlines_per_frame: u32) f64 {
     return (@as(f64, @floatFromInt(cycles_per_scanline)) *
         @as(f64, @floatFromInt(scanlines_per_frame)) /
         gpu_cycles_per_cpu_cycle) / cpu_clock_hz;

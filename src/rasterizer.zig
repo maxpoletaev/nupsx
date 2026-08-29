@@ -1,4 +1,5 @@
 const std = @import("std");
+const fifo = @import("fifo.zig");
 
 const clamp = std.math.clamp;
 const log = std.log.scoped(.rasterizer);
@@ -69,6 +70,173 @@ pub const Vertex = struct {
     color: RGB8 = .init(0, 0, 0),
 };
 
+pub const RasterCommand = union(enum) {
+    fill_cmd: RGB8,
+    set_dithering: bool,
+    set_transparency_mode: TransparencyMode,
+    set_draw_offset: struct { x: i32, y: i32 },
+    set_draw_area_end: struct { x: i32, y: i32 },
+    set_draw_area_start: struct { x: i32, y: i32 },
+    set_mask_bit_setting: struct { force_mask_bit: bool, check_mask_bit: bool },
+    set_texture_window: struct { mask_x: u16, mask_y: u16, offset_x: u16, offset_y: u16 },
+    fill_rect_unmasked: struct { x: i32, y: i32, w: i32, h: i32, color: RGB8 },
+    copy_rect: struct { src_x: i32, src_y: i32, dest_x: i32, dest_y: i32, w: i32, h: i32 },
+    draw_line_flat: struct { x0: i32, y0: i32, x1: i32, y1: i32, color: RGB8, semi_trans: bool },
+    draw_line_shaded: struct { x0: i32, y0: i32, c0: RGB8, x1: i32, y1: i32, c1: RGB8, semi_trans: bool },
+    draw_rect_flat: struct { x: i32, y: i32, w: i32, h: i32, color: RGB8, semi_trans: bool },
+    draw_rect_textured: struct { x: i32, y: i32, w: i32, h: i32, u: u16, v: u16, clut_x: u16, clut_y: u16, texp_x: u16, texp_y: u16, depth: ColorDepth, blend_color: RGB8, semi_trans: bool, tex_blend: bool },
+    draw_triangle_flat: struct { v0: Vertex, v1: Vertex, v2: Vertex, color: RGB8, semi_trans: bool },
+    draw_triangle_shaded: struct { v0: Vertex, v1: Vertex, v2: Vertex, semi_trans: bool },
+    draw_triangle_textured: struct { v0: Vertex, v1: Vertex, v2: Vertex, clut_x: u16, clut_y: u16, texp_x: u16, texp_y: u16, depth: ColorDepth, blend_color: RGB8, semi_trans: bool, tex_blend: bool },
+    draw_triangle_shaded_textured: struct { v0: Vertex, v1: Vertex, v2: Vertex, clut_x: u16, clut_y: u16, texp_x: u16, texp_y: u16, depth: ColorDepth, semi_trans: bool },
+
+    pub fn fill(c: RGB8) RasterCommand {
+        return .{ .fill_cmd = c };
+    }
+
+    pub fn setTransparencyMode(mode: TransparencyMode) RasterCommand {
+        return .{ .set_transparency_mode = mode };
+    }
+
+    pub fn setTextureWindow(mask_x: u16, mask_y: u16, offset_x: u16, offset_y: u16) RasterCommand {
+        return .{ .set_texture_window = .{ .mask_x = mask_x, .mask_y = mask_y, .offset_x = offset_x, .offset_y = offset_y } };
+    }
+
+    pub fn setDrawAreaStart(x: i32, y: i32) RasterCommand {
+        return .{ .set_draw_area_start = .{ .x = x, .y = y } };
+    }
+
+    pub fn setDrawAreaEnd(x: i32, y: i32) RasterCommand {
+        return .{ .set_draw_area_end = .{ .x = x, .y = y } };
+    }
+
+    pub fn setDrawOffset(x: i32, y: i32) RasterCommand {
+        return .{ .set_draw_offset = .{ .x = x, .y = y } };
+    }
+
+    pub fn setMaskBitSetting(force_mask_bit: bool, check_mask_bit: bool) RasterCommand {
+        return .{ .set_mask_bit_setting = .{ .force_mask_bit = force_mask_bit, .check_mask_bit = check_mask_bit } };
+    }
+
+    pub fn setDithering(enable: bool) RasterCommand {
+        return .{ .set_dithering = enable };
+    }
+
+    pub fn fillRectUnmasked(x: i32, y: i32, w: i32, h: i32, color: RGB8) RasterCommand {
+        return .{ .fill_rect_unmasked = .{ .x = x, .y = y, .w = w, .h = h, .color = color } };
+    }
+
+    pub fn copyRect(src_x: i32, src_y: i32, dest_x: i32, dest_y: i32, w: i32, h: i32) RasterCommand {
+        return .{ .copy_rect = .{ .src_x = src_x, .src_y = src_y, .dest_x = dest_x, .dest_y = dest_y, .w = w, .h = h } };
+    }
+
+    pub fn drawLineFlat(x0: i32, y0: i32, x1: i32, y1: i32, color: RGB8, semi_trans: bool) RasterCommand {
+        return .{ .draw_line_flat = .{ .x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1, .color = color, .semi_trans = semi_trans } };
+    }
+
+    pub fn drawLineShaded(x0: i32, y0: i32, c0: RGB8, x1: i32, y1: i32, c1: RGB8, semi_trans: bool) RasterCommand {
+        return .{ .draw_line_shaded = .{ .x0 = x0, .y0 = y0, .c0 = c0, .x1 = x1, .y1 = y1, .c1 = c1, .semi_trans = semi_trans } };
+    }
+
+    pub fn drawRectFlat(x: i32, y: i32, w: i32, h: i32, color: RGB8, semi_trans: bool) RasterCommand {
+        return .{ .draw_rect_flat = .{ .x = x, .y = y, .w = w, .h = h, .color = color, .semi_trans = semi_trans } };
+    }
+
+    pub fn drawRectTextured(
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        u: u16,
+        v: u16,
+        clut_x: u16,
+        clut_y: u16,
+        texp_x: u16,
+        texp_y: u16,
+        depth: ColorDepth,
+        blend_color: RGB8,
+        semi_trans: bool,
+        tex_blend: bool,
+    ) RasterCommand {
+        return .{ .draw_rect_textured = .{
+            .x = x,
+            .y = y,
+            .w = w,
+            .h = h,
+            .u = u,
+            .v = v,
+            .clut_x = clut_x,
+            .clut_y = clut_y,
+            .texp_x = texp_x,
+            .texp_y = texp_y,
+            .depth = depth,
+            .blend_color = blend_color,
+            .semi_trans = semi_trans,
+            .tex_blend = tex_blend,
+        } };
+    }
+
+    pub fn drawTriangleFlat(v0: Vertex, v1: Vertex, v2: Vertex, color: RGB8, semi_trans: bool) RasterCommand {
+        return .{ .draw_triangle_flat = .{ .v0 = v0, .v1 = v1, .v2 = v2, .color = color, .semi_trans = semi_trans } };
+    }
+
+    pub fn drawTriangleShaded(v0: Vertex, v1: Vertex, v2: Vertex, semi_trans: bool) RasterCommand {
+        return .{ .draw_triangle_shaded = .{ .v0 = v0, .v1 = v1, .v2 = v2, .semi_trans = semi_trans } };
+    }
+
+    pub fn drawTriangleTextured(
+        v0: Vertex,
+        v1: Vertex,
+        v2: Vertex,
+        clut_x: u16,
+        clut_y: u16,
+        texp_x: u16,
+        texp_y: u16,
+        depth: ColorDepth,
+        blend_color: RGB8,
+        semi_trans: bool,
+        tex_blend: bool,
+    ) RasterCommand {
+        return .{ .draw_triangle_textured = .{
+            .v0 = v0,
+            .v1 = v1,
+            .v2 = v2,
+            .clut_x = clut_x,
+            .clut_y = clut_y,
+            .texp_x = texp_x,
+            .texp_y = texp_y,
+            .depth = depth,
+            .blend_color = blend_color,
+            .semi_trans = semi_trans,
+            .tex_blend = tex_blend,
+        } };
+    }
+
+    pub fn drawTriangleShadedTextured(
+        v0: Vertex,
+        v1: Vertex,
+        v2: Vertex,
+        clut_x: u16,
+        clut_y: u16,
+        texp_x: u16,
+        texp_y: u16,
+        depth: ColorDepth,
+        semi_trans: bool,
+    ) RasterCommand {
+        return .{ .draw_triangle_shaded_textured = .{
+            .v0 = v0,
+            .v1 = v1,
+            .v2 = v2,
+            .clut_x = clut_x,
+            .clut_y = clut_y,
+            .texp_x = texp_x,
+            .texp_y = texp_y,
+            .depth = depth,
+            .semi_trans = semi_trans,
+        } };
+    }
+};
+
 const fp_bits = 12;
 const fp_one: i32 = 1 << fp_bits;
 const Vec4i = @Vector(4, i32);
@@ -105,6 +273,10 @@ pub const Rasterizer = struct {
         };
     }
 
+    pub fn deinit(_: *@This()) void {}
+    pub fn start(_: *@This()) void {}
+    pub fn flush(_: *@This()) void {}
+
     // =========================================================================
     // Configuration
     // =========================================================================
@@ -137,6 +309,99 @@ pub const Rasterizer = struct {
 
     pub fn setDithering(self: *@This(), enable: bool) void {
         self.enable_dithering = enable;
+    }
+
+    // =========================================================================
+    // Command dispatching
+    // =========================================================================
+
+    pub fn execute(self: *@This(), cmd: RasterCommand) void {
+        switch (cmd) {
+            .fill_cmd => |c| self.fill(c),
+            .set_transparency_mode => |mode| self.setTransparencyMode(mode),
+            .set_draw_area_start => |args| self.setDrawAreaStart(args.x, args.y),
+            .set_draw_area_end => |args| self.setDrawAreaEnd(args.x, args.y),
+            .set_draw_offset => |args| self.setDrawOffset(args.x, args.y),
+            .set_dithering => |enable| self.setDithering(enable),
+            .fill_rect_unmasked => |args| self.fillRectUnmasked(args.x, args.y, args.w, args.h, args.color),
+            .set_mask_bit_setting => |args| self.setMaskBitSetting(args.force_mask_bit, args.check_mask_bit),
+            .set_texture_window => |args| self.setTextureWindow(args.mask_x, args.mask_y, args.offset_x, args.offset_y),
+            .copy_rect => |args| self.copyRect(args.src_x, args.src_y, args.dest_x, args.dest_y, args.w, args.h),
+            .draw_line_flat => |args| self.execDrawLineFlat(args),
+            .draw_line_shaded => |args| self.execDrawLineShaded(args),
+            .draw_rect_flat => |args| self.execDrawRectFlat(args),
+            .draw_rect_textured => |args| self.execDrawRectTextured(args),
+            .draw_triangle_flat => |args| self.execDrawTriangleFlat(args),
+            .draw_triangle_shaded => |args| self.execDrawTriangleShaded(args),
+            .draw_triangle_textured => |args| self.execDrawTriangleTextured(args),
+            .draw_triangle_shaded_textured => |args| self.execDrawTriangleShadedTextured(args),
+        }
+    }
+
+    inline fn execDrawLineFlat(self: *@This(), args: @FieldType(RasterCommand, "draw_line_flat")) void {
+        if (args.semi_trans) {
+            self.drawLineFlat(args.x0, args.y0, args.x1, args.y1, args.color, true);
+        } else {
+            self.drawLineFlat(args.x0, args.y0, args.x1, args.y1, args.color, false);
+        }
+    }
+
+    inline fn execDrawLineShaded(self: *@This(), args: @FieldType(RasterCommand, "draw_line_shaded")) void {
+        if (args.semi_trans) {
+            self.drawLineShaded(args.x0, args.y0, args.c0, args.x1, args.y1, args.c1, true);
+        } else {
+            self.drawLineShaded(args.x0, args.y0, args.c0, args.x1, args.y1, args.c1, false);
+        }
+    }
+
+    inline fn execDrawRectFlat(self: *@This(), args: @FieldType(RasterCommand, "draw_rect_flat")) void {
+        if (args.semi_trans) {
+            self.drawRectFlat(args.x, args.y, args.w, args.h, args.color, true);
+        } else {
+            self.drawRectFlat(args.x, args.y, args.w, args.h, args.color, false);
+        }
+    }
+
+    inline fn execDrawRectTextured(self: *@This(), args: @FieldType(RasterCommand, "draw_rect_textured")) void {
+        switch (@as(u2, @intFromBool(args.semi_trans)) << 1 | @intFromBool(args.tex_blend)) {
+            0 => self.drawRectTextured(args.x, args.y, args.w, args.h, args.u, args.v, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, false, false),
+            1 => self.drawRectTextured(args.x, args.y, args.w, args.h, args.u, args.v, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, false, true),
+            2 => self.drawRectTextured(args.x, args.y, args.w, args.h, args.u, args.v, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, true, false),
+            3 => self.drawRectTextured(args.x, args.y, args.w, args.h, args.u, args.v, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, true, true),
+        }
+    }
+
+    inline fn execDrawTriangleFlat(self: *@This(), args: @FieldType(RasterCommand, "draw_triangle_flat")) void {
+        if (args.semi_trans) {
+            self.drawTriangleFlat(args.v0, args.v1, args.v2, args.color, true);
+        } else {
+            self.drawTriangleFlat(args.v0, args.v1, args.v2, args.color, false);
+        }
+    }
+
+    inline fn execDrawTriangleShaded(self: *@This(), args: @FieldType(RasterCommand, "draw_triangle_shaded")) void {
+        if (args.semi_trans) {
+            self.drawTriangleShaded(args.v0, args.v1, args.v2, true);
+        } else {
+            self.drawTriangleShaded(args.v0, args.v1, args.v2, false);
+        }
+    }
+
+    inline fn execDrawTriangleTextured(self: *@This(), args: @FieldType(RasterCommand, "draw_triangle_textured")) void {
+        switch (@as(u2, @intFromBool(args.semi_trans)) << 1 | @intFromBool(args.tex_blend)) {
+            0 => self.drawTriangleTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, false, false),
+            1 => self.drawTriangleTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, false, true),
+            2 => self.drawTriangleTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, true, false),
+            3 => self.drawTriangleTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, args.blend_color, true, true),
+        }
+    }
+
+    inline fn execDrawTriangleShadedTextured(self: *@This(), args: @FieldType(RasterCommand, "draw_triangle_shaded_textured")) void {
+        if (args.semi_trans) {
+            self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, true);
+        } else {
+            self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, false);
+        }
     }
 
     // =========================================================================
@@ -292,10 +557,12 @@ pub const Rasterizer = struct {
             // write-protected
         } else {
             var dithered = color;
-            if (mode.dither and self.enable_dithering) dithered = applyDithering(dithered, x, y);
+            if (comptime mode.dither) {
+                if (self.enable_dithering) dithered = applyDithering(dithered, x, y);
+            }
 
             var out = toRGB5(dithered, mode.semi_trans);
-            if (mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
+            if (comptime mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
             if (self.force_mask_bit) out.mask_bit = true;
 
             self.vram[addr] = @bitCast(out);
@@ -321,13 +588,13 @@ pub const Rasterizer = struct {
             // write-protected
         } else {
             var dithered = blend_color;
-            if (mode.dither and self.enable_dithering) {
-                dithered = applyDithering(dithered, x, y);
+            if (comptime mode.dither) {
+                if (self.enable_dithering) dithered = applyDithering(dithered, x, y);
             }
 
             var front = texel;
-            if (mode.blend) front = applyBlending(front, dithered);
-            if (mode.semi_trans) front = applyTransparency(front, back, self.transparency_mode);
+            if (comptime mode.blend) front = applyBlending(front, dithered);
+            if (comptime mode.semi_trans) front = applyTransparency(front, back, self.transparency_mode);
             if (self.force_mask_bit) front.mask_bit = true;
 
             self.vram[addr] = @bitCast(front);
@@ -1240,6 +1507,104 @@ pub const Rasterizer = struct {
                 g_fp += g_dx;
                 b_fp += b_dx;
             }
+        }
+    }
+};
+
+pub const ThreadedRasterizer = struct {
+    const Queue = std.ArrayListUnmanaged(RasterCommand);
+
+    allocator: std.mem.Allocator,
+    io: std.Io,
+
+    rasterizer: Rasterizer,
+    mutex: std.Io.Mutex = .init,
+    cond: std.Io.Condition = .init,
+    next_seq: u64 = 0,
+    completed_seq: u64 = 0,
+    stopping: bool = false,
+    worker: ?std.Thread = null,
+    pending: Queue = .empty,
+    active: Queue = .empty,
+
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, vram: *align(16) [1024 * 512]u16) @This() {
+        return .{
+            .io = io,
+            .allocator = allocator,
+            .rasterizer = Rasterizer.init(vram),
+        };
+    }
+
+    pub fn start(self: *@This()) void {
+        self.worker = std.Thread.spawn(.{}, workerMain, .{self}) catch @panic("spawn rasterizer worker");
+    }
+
+    pub fn deinit(self: *@This()) void {
+        if (self.worker) |worker| {
+            self.mutex.lockUncancelable(self.io);
+            self.stopping = true;
+            self.cond.broadcast(self.io);
+            self.mutex.unlock(self.io);
+            worker.join();
+            self.worker = null;
+        }
+
+        self.pending.deinit(self.allocator);
+        self.active.deinit(self.allocator);
+    }
+
+    pub fn flush(self: *@This()) void {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        const target_seq = self.next_seq;
+        while (self.completed_seq < target_seq) {
+            self.cond.waitUncancelable(self.io, &self.mutex);
+        }
+    }
+
+    fn enqueue(self: *@This(), payload: RasterCommand) void {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        self.next_seq += 1;
+        const was_empty = self.pending.items.len == 0;
+        self.pending.append(self.allocator, payload) catch @panic("OOM");
+        if (was_empty) self.cond.signal(self.io);
+    }
+
+    pub fn execute(self: *@This(), cmd: RasterCommand) void {
+        @call(.always_inline, enqueue, .{ self, cmd });
+    }
+
+    pub inline fn setPixelRaw(self: *@This(), x: i32, y: i32, color: u16) void {
+        self.rasterizer.setPixelRaw(x, y, color);
+    }
+
+    fn swapQueues(self: *@This(), batch_seq: u64) u64 {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+        if (batch_seq != 0) {
+            self.completed_seq = batch_seq;
+            self.cond.broadcast(self.io);
+        }
+        while (self.pending.items.len == 0 and !self.stopping) {
+            self.cond.waitUncancelable(self.io, &self.mutex);
+        }
+        if (self.pending.items.len == 0) return 0;
+        std.mem.swap(Queue, &self.pending, &self.active);
+        return self.next_seq;
+    }
+
+    fn workerMain(self: *@This()) void {
+        var batch_seq: u64 = 0;
+        while (true) {
+            batch_seq = self.swapQueues(batch_seq);
+            if (batch_seq == 0) return;
+            for (self.active.items) |cmd| {
+                self.rasterizer.execute(cmd);
+            }
+            self.active.clearRetainingCapacity();
         }
     }
 };

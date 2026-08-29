@@ -195,7 +195,7 @@ pub fn main(init: std.process.Init) !void {
     const scratchpad = Scratchpad.init(allocator);
     defer scratchpad.deinit();
 
-    const gpu = GPU.init(allocator, bus);
+    const gpu = GPU.init(allocator, io, bus);
     defer gpu.deinit();
 
     const cpu = CPU.init(allocator, bus);
@@ -264,12 +264,9 @@ pub fn main(init: std.process.Init) !void {
     const audio = Audio.init(allocator, bus);
     defer audio.deinit();
 
-    // const stdin = std.fs.File.stdin();
-    // var stdin_buf: [1]u8 = undefined;
-
     if (args.exe_path.len != 0) {
         const path = args.exe_path;
-        while (cpu.pc != 0x80030000) {
+        while (cpu.pc != exe.exe_start_addr) {
             cpu.tickOnce();
         }
         std.log.info("loading exe file: {s}", .{path});
@@ -277,7 +274,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (args.debug) {
-        const debug_ui = try DebugUI.init(allocator, io, cpu, bus);
+        const debug_ui = try DebugUI.init(allocator, cpu, bus);
         defer debug_ui.deinit();
 
         while (debug_ui.is_running) {
@@ -297,10 +294,6 @@ pub fn main(init: std.process.Init) !void {
                     bus.breakpoint = false;
                 }
 
-                // if (cpu.next_pc == 0x8004e740) {
-                //     debug_ui.cpu_view.paused = true;
-                // }
-
                 if (gpu.consumeFrameReady()) {
                     debug_ui.update(io);
                 }
@@ -309,11 +302,9 @@ pub fn main(init: std.process.Init) !void {
     } else {
         const ui = try UI.init(allocator, io, gpu, sio0);
         defer ui.deinit();
-        ui.setMuteToggleCallback(Audio.muteToggleCallback, audio);
 
-        if (args.uncapped) {
-            ui.setUncapped(true);
-        }
+        ui.setMuteCallback(Audio.muteToggleCallback, audio);
+        if (args.uncapped) ui.setUncapped(true);
 
         if (args.cd_image_path.len != 0) {
             try ui.setFilename(args.cd_image_path);
@@ -323,7 +314,6 @@ pub fn main(init: std.process.Init) !void {
 
         var buf: [1024]u8 = undefined;
         var stdout = std.Io.File.stdout().writer(io, &buf);
-
         cpu.tty = &stdout.interface;
 
         while (ui.is_running) {

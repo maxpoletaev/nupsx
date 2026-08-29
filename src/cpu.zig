@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = @import("mem.zig");
 const bits = @import("bits.zig");
 const GTE = @import("gte.zig").GTE;
+const options = @import("build_options");
 
 const log = std.log.scoped(.cpu);
 
@@ -680,17 +681,12 @@ pub const CPU = struct {
         return &self.instr;
     }
 
-    const fetch = if (cpu_enable_cached_interpreter) fetchCached else fetchUncached;
+    const fetch = switch (cpu_enable_cached_interpreter) {
+        true => CPU.fetchCached,
+        false => CPU.fetchUncached,
+    };
 
-    inline fn tickInternal(self: *@This()) bool {
-        // During the execution:
-        //  * pc - incremented after fetch but before execute, so it points to the NEXT instruction to execute
-        //  * next_pc - address that will be loaded into pc after the current instruction (for branches/jumps)
-        //  * instr_addr - points to the current instruction being executed
-
-        self.gpr[0] = 0;
-
-        // Handle TTY output
+    inline fn handleTtyOutput(self: *@This()) void {
         if ((self.pc == 0xa0 and self.gpr[9] == 0x3c) or
             (self.pc == 0xb0 and self.gpr[9] == 0x3d))
         {
@@ -700,6 +696,19 @@ pub const CPU = struct {
                 tty.writeByte(char) catch @panic("TTY write");
                 if (char == '\n') tty.flush() catch @panic("TTY flush");
             }
+        }
+    }
+
+    inline fn tickInternal(self: *@This()) bool {
+        // During the execution:
+        //  * pc - incremented after fetch but before execute, so it points to the NEXT instruction to execute
+        //  * next_pc - address that will be loaded into pc after the current instruction (for branches/jumps)
+        //  * instr_addr - points to the current instruction being executed
+
+        self.gpr[0] = 0;
+
+        if (comptime options.tty) {
+            self.handleTtyOutput();
         }
 
         const instr = self.fetch(self.pc);
