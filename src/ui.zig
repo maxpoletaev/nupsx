@@ -289,8 +289,8 @@ pub const UI = struct {
         1.0, 1.0, 1.0, 0.0, // top right
     };
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, gpu: *GPU, joy: *SIO0) !*@This() {
-        try glfw.init();
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, gpu: *GPU, joy: *SIO0) *@This() {
+        glfw.init() catch @panic("GLFW");
         glfw.windowHint(.context_version_major, gl_version[0]);
         glfw.windowHint(.context_version_minor, gl_version[1]);
         glfw.windowHint(.opengl_profile, .opengl_core_profile);
@@ -299,13 +299,13 @@ pub const UI = struct {
         glfw.windowHint(.client_api, .opengl_api);
         glfw.windowHint(.doublebuffer, true);
 
-        const window = try glfw.createWindow(window_width, window_height, window_title, null, null);
+        const window = glfw.createWindow(window_width, window_height, window_title, null, null) catch @panic("GLFW");
         window.setAspectRatio(4, 3);
 
         glfw.makeContextCurrent(window);
         glfw.swapInterval(0);
 
-        try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
+        zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]) catch @panic("OpenGL");
 
         // VAO and VBO for fullscreen quad
         var vao: gl.Uint = undefined;
@@ -372,7 +372,7 @@ pub const UI = struct {
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, output_tex, 0);
         gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
 
-        const self = try allocator.create(@This());
+        const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,
             .io = io,
@@ -419,10 +419,10 @@ pub const UI = struct {
         allocator.destroy(self);
     }
 
-    pub fn setFilename(self: *@This(), path: []const u8) !void {
+    pub fn setFilename(self: *@This(), path: []const u8) void {
         if (self.filename) |old| self.allocator.free(old);
         const basename = std.fs.path.basename(path);
-        self.filename = try self.allocator.dupe(u8, basename);
+        self.filename = self.allocator.dupe(u8, basename) catch @panic("OOM");
     }
 
     pub fn setUncapped(self: *@This(), uncapped: bool) void {

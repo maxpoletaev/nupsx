@@ -5,8 +5,8 @@ const GPU = @import("../gpu.zig").GPU;
 allocator: std.mem.Allocator,
 gpu: *GPU,
 
-pub fn init(allocator: std.mem.Allocator, gpu: *GPU) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator, gpu: *GPU) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .gpu = gpu,

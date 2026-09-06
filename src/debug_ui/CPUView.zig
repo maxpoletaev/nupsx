@@ -24,8 +24,8 @@ bus: *Bus,
 paused: bool = false,
 step_requested: bool = false,
 
-pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .cpu = cpu,

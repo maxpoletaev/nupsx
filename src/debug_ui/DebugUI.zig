@@ -3,6 +3,7 @@ const zgui = @import("zgui");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
+const assets = @import("../assets/embed.zig");
 const mem = @import("../mem.zig");
 const sio0_mod = @import("../sio0.zig");
 const cpu_mod = @import("../cpu.zig");
@@ -21,7 +22,7 @@ const CDROMView = @import("CDROMView.zig");
 const DMAView = @import("DMAView.zig");
 const InterruptView = @import("InterruptView.zig");
 
-const default_font = @embedFile("../assets/freepixel.ttf");
+const default_font = assets.freepixel_ttf;
 const default_font_size = 16.0;
 const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };
@@ -45,8 +46,8 @@ last_frame_time: f64 = 0,
 next_frame_time: f64 = 0,
 is_running: bool = true,
 
-pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
-    try glfw.init();
+pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) *@This() {
+    glfw.init() catch @panic("GLFW");
     glfw.windowHint(.context_version_major, gl_version[0]);
     glfw.windowHint(.context_version_minor, gl_version[1]);
     glfw.windowHint(.opengl_profile, .opengl_core_profile);
@@ -57,13 +58,13 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
     glfw.windowHint(.doublebuffer, true);
 
     const monitor = glfw.getPrimaryMonitor();
-    const video_mode = try glfw.getVideoMode(monitor.?);
+    const video_mode = glfw.getVideoMode(monitor.?) catch @panic("GLFW");
 
-    const window = try glfw.createWindow(video_mode.width, video_mode.height, window_title, null, null);
+    const window = glfw.createWindow(video_mode.width, video_mode.height, window_title, null, null) catch @panic("GLFW");
     glfw.makeContextCurrent(window);
     glfw.swapInterval(1); // vsync
 
-    try zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]);
+    zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]) catch @panic("OpenGL");
 
     zgui.init(allocator);
     zgui.backend.init(window);
@@ -75,17 +76,17 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
 
     _ = zgui.io.addFontFromMemory(default_font, default_font_size);
 
-    const tty_view = try TTYView.init(allocator);
-    const cpu_view = try CPUView.init(allocator, cpu, bus);
-    const gpu_view = try GPUView.init(allocator, bus.dev.gpu);
-    const timer_view = try TimerView.init(allocator, bus.dev.timers);
-    const assembly_view = try AssemblyView.init(allocator, cpu, bus);
-    const vram_view = try VramView.init(allocator, bus.dev.gpu);
-    const cdrom_view = try CDROMView.init(allocator, bus.dev.cdrom);
-    const dma_view = try DMAView.init(allocator, bus.dev.dma);
-    const interrupt_view = try InterruptView.init(allocator, cpu, bus);
+    const tty_view = TTYView.init(allocator);
+    const cpu_view = CPUView.init(allocator, cpu, bus);
+    const gpu_view = GPUView.init(allocator, bus.dev.gpu);
+    const timer_view = TimerView.init(allocator, bus.dev.timers);
+    const assembly_view = AssemblyView.init(allocator, cpu, bus);
+    const vram_view = VramView.init(allocator, bus.dev.gpu);
+    const cdrom_view = CDROMView.init(allocator, bus.dev.cdrom);
+    const dma_view = DMAView.init(allocator, bus.dev.dma);
+    const interrupt_view = InterruptView.init(allocator, cpu, bus);
 
-    const self = try allocator.create(@This());
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .bus = bus,

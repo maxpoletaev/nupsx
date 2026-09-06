@@ -5,8 +5,8 @@ const Timers = @import("../timer.zig").Timers;
 allocator: std.mem.Allocator,
 timers: *Timers,
 
-pub fn init(allocator: std.mem.Allocator, timers: *Timers) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator, timers: *Timers) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .timers = timers,

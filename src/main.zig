@@ -19,6 +19,7 @@ const DebugUI = @import("debug_ui/DebugUI.zig");
 const Args = @import("args.zig").Args;
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
+const LauncherUI = @import("launcher/LauncherUI.zig");
 
 const Bus = mem_mod.Bus;
 const BIOS = mem_mod.BIOS;
@@ -171,14 +172,29 @@ const Audio = struct {
     }
 };
 
+fn getArgs(allocator: std.mem.Allocator, io: std.Io, proc_args: std.process.Args) Args {
+    if (Args.hasExplicitArgs(allocator, proc_args)) {
+        return Args.parse(allocator, io, proc_args) catch {
+            Args.printHelp(io);
+            std.process.exit(1);
+        };
+    } else {
+        std.log.info("no cli arguments provided, starting the launcher", .{});
+        const launcher = LauncherUI.init(allocator, io);
+        defer launcher.deinit();
+
+        return launcher.run() orelse {
+            std.log.info("launcher closed without input", .{});
+            std.process.exit(0);
+        };
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    var args = Args.parse(allocator, io, init.minimal.args) catch {
-        Args.printHelp(io);
-        std.process.exit(1);
-    };
+    var args = getArgs(allocator, io, init.minimal.args);
     defer args.deinit();
 
     printBanner(io);
@@ -274,7 +290,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (args.debug) {
-        const debug_ui = try DebugUI.init(allocator, cpu, bus);
+        const debug_ui = DebugUI.init(allocator, cpu, bus);
         defer debug_ui.deinit();
 
         while (debug_ui.is_running) {
@@ -300,7 +316,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
     } else {
-        const ui = try UI.init(allocator, io, gpu, sio0);
+        const ui = UI.init(allocator, io, gpu, sio0);
         defer ui.deinit();
 
         ui.setMuteCallback(Audio.muteToggleCallback, audio);
@@ -308,9 +324,9 @@ pub fn main(init: std.process.Init) !void {
         if (args.uncapped) ui.setUncapped(true);
 
         if (args.cd_image_path.len != 0) {
-            try ui.setFilename(args.cd_image_path);
+            ui.setFilename(args.cd_image_path);
         } else if (args.exe_path.len != 0) {
-            try ui.setFilename(args.exe_path);
+            ui.setFilename(args.exe_path);
         }
 
         var buf: [1024]u8 = undefined;

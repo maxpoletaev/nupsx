@@ -5,8 +5,8 @@ const CDROM = @import("../cdrom.zig").CDROM;
 allocator: std.mem.Allocator,
 cdrom: *CDROM,
 
-pub fn init(allocator: std.mem.Allocator, cdrom: *CDROM) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator, cdrom: *CDROM) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .cdrom = cdrom,

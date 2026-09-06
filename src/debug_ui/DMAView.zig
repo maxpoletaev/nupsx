@@ -15,8 +15,8 @@ const channel_names = [7][:0]const u8{
     "OTC",
 };
 
-pub fn init(allocator: std.mem.Allocator, dma: *DMA) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator, dma: *DMA) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .dma = dma,

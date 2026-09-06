@@ -21,11 +21,11 @@ gpu: *GPU,
 show_draw_area: bool,
 show_display_area: bool,
 
-pub fn init(allocator: std.mem.Allocator, gpu: *GPU) !*@This() {
+pub fn init(allocator: std.mem.Allocator, gpu: *GPU) *@This() {
     var texture_id: gl.Uint = undefined;
     gl.genTextures(1, &texture_id);
 
-    const self = try allocator.create(@This());
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .texture_id = texture_id,

@@ -31,8 +31,8 @@ allocator: std.mem.Allocator,
 bus: *Bus,
 cpu: *CPU,
 
-pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .bus = bus,

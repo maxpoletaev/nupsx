@@ -29,10 +29,10 @@ cpu: *CPU,
 follow_pc: bool,
 custom_addr: u32,
 
-pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) !*@This() {
+pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) *@This() {
     const list_clipper = zgui.ListClipper.init();
 
-    const self = try allocator.create(@This());
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .tmp_buf = .init(allocator),
         .allocator = allocator,

@@ -43,6 +43,14 @@ pub const Args = struct {
         std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
     }
 
+    pub fn hasExplicitArgs(allocator: std.mem.Allocator, proc_args: std.process.Args) bool {
+        var args_iter = proc_args.iterateAllocator(allocator) catch @panic("OOM");
+        defer args_iter.deinit();
+
+        _ = args_iter.next(); // skip binary path
+        return args_iter.next() != null;
+    }
+
     pub fn parse(allocator: std.mem.Allocator, io: std.Io, proc_args: std.process.Args) Error!@This() {
         var args_iter = proc_args.iterateAllocator(allocator) catch @panic("OOM");
         defer args_iter.deinit();

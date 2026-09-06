@@ -6,8 +6,8 @@ lines: std.array_list.Aligned([]u8, null),
 line_buf: std.array_list.Aligned(u8, null),
 new_line_added: bool,
 
-pub fn init(allocator: std.mem.Allocator) !*@This() {
-    const self = try allocator.create(@This());
+pub fn init(allocator: std.mem.Allocator) *@This() {
+    const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
         .allocator = allocator,
         .lines = .empty,
@@ -27,18 +27,18 @@ pub fn deinit(self: *@This()) void {
     self.allocator.destroy(self);
 }
 
-pub fn writeLine(self: *@This(), line: []const u8) !void {
-    const buf = try self.allocator.alloc(u8, line.len);
+pub fn writeLine(self: *@This(), line: []const u8) void {
+    const buf = self.allocator.alloc(u8, line.len) catch @panic("OOM");
     @memcpy(buf, line);
 
-    try self.lines.append(self.allocator, buf);
+    self.lines.append(self.allocator, buf) catch @panic("OOM");
     self.new_line_added = true;
 }
 
-pub fn writeChar(self: *@This(), char: u8) !void {
-    try self.line_buf.append(self.allocator, char);
+pub fn writeChar(self: *@This(), char: u8) void {
+    self.line_buf.append(self.allocator, char) catch @panic("OOM");
     if (char == '\n') {
-        try self.writeLine(self.line_buf.items);
+        self.writeLine(self.line_buf.items);
         self.line_buf.clearRetainingCapacity();
     }
 }
