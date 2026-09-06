@@ -313,32 +313,77 @@ footer a:hover { color: var(--text-bright); }
   text-shadow: 0 1px 3px #000;
 }
 
-/* Controls */
-.controls__grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px 0;
-}
-
-.binding {
+/* Keyboard Controls */
+.keyboard {
   display: flex;
-  gap: 16px;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  padding: 14px;
+  overflow-x: auto;
 }
 
-.binding__key {
-  color: var(--text-muted);
+.keyboard__row {
+  display: flex;
+  gap: 5px;
+}
+
+.keyboard__key {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  background: var(--bg-button);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.keyboard__code {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.keyboard__label {
+  font-family: var(--font);
+  font-size: 14px;
   font-weight: bold;
-  min-width: 40px;
-  text-align: left;
-  white-space: nowrap;
+  line-height: 1;
+  margin-top: 3px;
+  color: var(--accent);
 }
 
-.binding__action {
-  color: var(--text-bright);
-  min-width: 100px;
-  text-align: right;
-  white-space: nowrap;
+.keyboard__key--active {
+  background: #1e2638;
+  border-color: var(--accent);
+}
+
+.keyboard__key--active .keyboard__code {
+  color: var(--text-muted);
+}
+
+.keyboard__key--active .keyboard__label {
+  color: var(--accent);
+}
+
+.keyboard__key--backspace { flex: 2 1 0; }
+.keyboard__key--tab { flex: 1.5 1 0; }
+.keyboard__key--caps { flex: 1.75 1 0; }
+.keyboard__key--enter { flex: 2.25 1 0; }
+.keyboard__key--lshift { flex: 2.25 1 0; }
+.keyboard__key--rshift { flex: 2.75 1 0; }
+.keyboard__key--space { flex: 7 1 0; }
+.keyboard__key--mod { flex: 1.25 1 0; }
+
+.keyboard__key--enter .keyboard__label,
+.keyboard__key--rshift .keyboard__label {
+  font-size: 13px;
 }
 
 .controls__gamepad {
@@ -382,13 +427,30 @@ footer a:hover { color: var(--text-bright); }
   .field label { text-align: left; }
   .form-actions { grid-template-columns: 1fr;}
 
-  .binding {
-    flex-direction: column;
-    margin-bottom: 12px;
-    gap: 2px;
+  .keyboard {
+    padding: 8px;
+    gap: 3px;
   }
 
-  .binding__action {
-    text-align: left;
+  .keyboard__row {
+    gap: 3px;
+  }
+
+  .keyboard__key {
+    height: 38px;
+  }
+
+  .keyboard__code {
+    font-size: 10px;
+  }
+
+  .keyboard__label {
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .keyboard__key--enter .keyboard__label,
+  .keyboard__key--rshift .keyboard__label {
+    font-size: 10px;
   }
 }

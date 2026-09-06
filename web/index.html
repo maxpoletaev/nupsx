@@ -107,16 +107,79 @@
 
   <section class="controls">
     <h2>Controls</h2>
-    <div class="controls__grid">
-      <div class="binding"><span class="binding__action">D-Pad</span><b class="binding__key">WASD</b></div>
-      <div class="binding"><span class="binding__action">Start</span><b class="binding__key">Enter</b></div>
-      <div class="binding"><span class="binding__action">Select</span><b class="binding__key">RShift</b></div>
-      <div class="binding"><span class="binding__action">✕ Cross</span><b class="binding__key">K</b></div>
-      <div class="binding"><span class="binding__action">○ Circle</span><b class="binding__key">L</b></div>
-      <div class="binding"><span class="binding__action">□ Square</span><b class="binding__key">J</b></div>
-      <div class="binding"><span class="binding__action">△ Triangle</span><b class="binding__key">I</b></div>
-      <div class="binding"><span class="binding__action">L2 / L1</span><b class="binding__key">Q / E</b></div>
-      <div class="binding"><span class="binding__action">R2 / R1</span><b class="binding__key">O / U</b></div>
+    <div class="keyboard">
+      <div class="keyboard__row">
+        <div class="keyboard__key"><span class="keyboard__code">`</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">1</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">2</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">3</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">4</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">5</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">6</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">7</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">8</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">9</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">0</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">-</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">=</span></div>
+        <div class="keyboard__key keyboard__key--backspace"><span class="keyboard__code">Backspace</span></div>
+      </div>
+      <div class="keyboard__row">
+        <div class="keyboard__key keyboard__key--tab"><span class="keyboard__code">Tab</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">Q</span><span class="keyboard__label">L2</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">W</span><span class="keyboard__label">▲</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">E</span><span class="keyboard__label">L1</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">R</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">T</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">Y</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">U</span><span class="keyboard__label">R1</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">I</span><span class="keyboard__label">△</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">O</span><span class="keyboard__label">R2</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">P</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">[</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">]</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">\</span></div>
+      </div>
+      <div class="keyboard__row">
+        <div class="keyboard__key keyboard__key--caps"><span class="keyboard__code">Caps</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">A</span><span class="keyboard__label">◀</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">S</span><span class="keyboard__label">▼</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">D</span><span class="keyboard__label">▶</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">F</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">G</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">H</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">J</span><span class="keyboard__label">□</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">K</span><span class="keyboard__label">✕</span></div>
+        <div class="keyboard__key keyboard__key--active"><span class="keyboard__code">L</span><span class="keyboard__label">○</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">;</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">'</span></div>
+        <div class="keyboard__key keyboard__key--enter keyboard__key--active">
+          <span class="keyboard__code">Enter</span><span class="keyboard__label">Start</span>
+        </div>
+      </div>
+      <div class="keyboard__row">
+        <div class="keyboard__key keyboard__key--lshift"><span class="keyboard__code">Shift</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">Z</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">X</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">C</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">V</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">B</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">N</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">M</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">,</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">.</span></div>
+        <div class="keyboard__key"><span class="keyboard__code">/</span></div>
+        <div class="keyboard__key keyboard__key--rshift keyboard__key--active">
+          <span class="keyboard__code">RShift</span><span class="keyboard__label">Select</span>
+        </div>
+      </div>
+      <div class="keyboard__row">
+        <div class="keyboard__key keyboard__key--mod"><span class="keyboard__code">Ctrl</span></div>
+        <div class="keyboard__key keyboard__key--mod"><span class="keyboard__code">Alt</span></div>
+        <div class="keyboard__key keyboard__key--space"><span class="keyboard__code"></span></div>
+        <div class="keyboard__key keyboard__key--mod"><span class="keyboard__code">Alt</span></div>
+        <div class="keyboard__key keyboard__key--mod"><span class="keyboard__code">Ctrl</span></div>
+      </div>
     </div>
     <div id="gamepadStatus" class="controls__gamepad"><span style="visibility:hidden">●</span></div>
   </section>
