@@ -165,6 +165,19 @@ p:last-child {
   color: #000;
 }
 
+.download-note {
+  margin-top: 14px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+code {
+  font-family: var(--font);
+  color: var(--text-bright);
+  font-size: inherit;
+}
+
 /* Run in browser */
 .run-form {
   border: 1px solid var(--border);

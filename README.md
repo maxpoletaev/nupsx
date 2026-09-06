@@ -70,6 +70,8 @@ Below are links to the latest prebuilt binaries. I don't have enough computers s
 * [nupsx-x86_64-macos.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-macos.zip)
 * [nupsx-x86_64-windows.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-windows.zip)
 
+> **Note for macOS users**: macOS will quarantine downloaded binaries by default. If you get a warning that the app is damaged or cannot be opened, remove the quarantine attribute with: `xattr -d com.apple.quarantine nupsx`
+
 ## Build & Run
 
 ```
