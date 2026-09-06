@@ -347,5 +347,6 @@ document.addEventListener('DOMContentLoaded', () => {
         await init(biosData, exeData, binData);
         $setup.style.display = 'none';
         $fps.style.display = 'block';
+        document.documentElement.style.overflow = 'hidden';
     });
 });
