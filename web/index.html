@@ -186,46 +186,32 @@
 
   <section id="download">
     <h2>Download</h2>
-    <p>Links to the latest cross-compiled binaries. Note that I don't test
-       every single one of them as I don't have enough computers.</p>
-    <div class="downloads">
-      <div class="download-row">
-        <div>
-          <span class="platform">Linux</span>
-          <span class="meta">x86_64</span>
+    <p>Links to the latest cross-compiled binaries. Note that not all of 
+       them are tested, as I don't have that many computers.
+    </p>
+    <div class="download">
+      <div class="download__row">
+        <span class="download__platform">macOS</span>
+        <div class="download__links">
+          <a class="download__link" href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-macos.zip">Apple Silicon</a>
+          <a class="download__link" href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-macos.zip">Intel</a>
         </div>
-        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-linux-gnu.zip">nupsx-x86_64-linux-gnu.zip</a>
       </div>
-      <div class="download-row">
-        <div>
-          <span class="platform">Linux</span>
-          <span class="meta">aarch64</span>
+      <div class="download__row">
+        <span class="download__platform">Linux</span></span>
+        <div class="download__links">
+          <a class="download__link" href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-linux-gnu.zip">x86_64</a>
+          <a class="download__link" href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-linux-gnu.zip">aarch64</a>
         </div>
-        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-linux-gnu.zip">nupsx-aarch64-linux-gnu.zip</a>
       </div>
-      <div class="download-row">
-        <div>
-          <span class="platform">macOS</span>
-          <span class="meta">Apple Silicon</span>
+      <div class="download__row">
+        <span class="download__platform">Windows</span>
+        <div class="download__links">
+          <a class="download__link" href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-windows.zip">x86_64</a>
         </div>
-        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-macos.zip">nupsx-aarch64-macos.zip</a>
-      </div>
-      <div class="download-row">
-        <div>
-          <span class="platform">macOS</span>
-          <span class="meta">Intel</span>
-        </div>
-        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-macos.zip">nupsx-x86_64-macos.zip</a>
-      </div>
-      <div class="download-row">
-        <div>
-          <span class="platform">Windows</span>
-          <span class="meta">x86_64</span>
-        </div>
-        <a href="https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-windows.zip">nupsx-x86_64-windows.zip</a>
       </div>
     </div>
-    <p class="download-note">
+    <p class="download__note">
       <b>Note for macOS users:</b> macOS will quarantine downloaded binaries by default. If you get a warning that the app is
       damaged or cannot be opened, run <code>xattr -d com.apple.quarantine nupsx</code> to remove the quarantine flag.
     </p>
