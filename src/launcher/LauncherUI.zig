@@ -8,11 +8,11 @@ const Args = @import("../args.zig").Args;
 const FileBrowser = @import("FileBrowser.zig");
 const PathInput = FileBrowser.PathInput;
 
-const default_font = assets.freepixel_ttf;
-const default_font_size = 16.0;
+const default_font = assets.firacode_ttf;
+const default_font_size = 18.0;
 const window_title = "nuPSX Launcher";
 const window_width = 600;
-const window_height = 620;
+const window_height = 640;
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
@@ -49,7 +49,6 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
     glfw.windowHint(.opengl_profile, .opengl_core_profile);
     glfw.windowHint(.opengl_forward_compat, true);
     glfw.windowHint(.cocoa_retina_framebuffer, true);
-    glfw.windowHint(.scale_framebuffer, false);
     glfw.windowHint(.client_api, .opengl_api);
     glfw.windowHint(.doublebuffer, true);
     glfw.windowHint(.resizable, false);
@@ -88,6 +87,18 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
     return self;
 }
 
+// zgui.backend.newFrame() clobbers io.DisplaySize with the framebuffer size
+// and pins io.DisplayFramebufferScale to 1, which breaks HiDPI.
+// Fixed by https://github.com/zig-gamedev/zgui/pull/105, but not merged yet.
+// This is a workaround which calls the backends directly.
+extern fn ImGui_ImplGlfw_NewFrame() void;
+extern fn ImGui_ImplOpenGL3_NewFrame() void;
+fn imguiNewFrame() void {
+    ImGui_ImplGlfw_NewFrame();
+    ImGui_ImplOpenGL3_NewFrame();
+    zgui.newFrame();
+}
+
 pub fn deinit(self: *@This()) void {
     active_instance = null;
     self.browser.deinit();
@@ -108,8 +119,7 @@ pub fn run(self: *@This()) ?Args {
             glfw.setWindowShouldClose(self.window, true);
         }
 
-        const fb_size = self.window.getFramebufferSize();
-        zgui.backend.newFrame(@intCast(fb_size[0]), @intCast(fb_size[1]));
+        imguiNewFrame();
 
         gl.clearColor(0.12, 0.12, 0.14, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -186,9 +196,9 @@ fn dropCallback(_: *glfw.Window, count: i32, paths: [*][*:0]const u8) callconv(.
 }
 
 fn update(self: *@This()) bool {
-    const fb_size = self.window.getFramebufferSize();
-    const win_w: f32 = @floatFromInt(fb_size[0]);
-    const win_h: f32 = @floatFromInt(fb_size[1]);
+    const win_size = self.window.getSize();
+    const win_w: f32 = @floatFromInt(win_size[0]);
+    const win_h: f32 = @floatFromInt(win_size[1]);
 
     zgui.setNextWindowPos(.{ .x = 0, .y = 0 });
     zgui.setNextWindowSize(.{ .w = win_w, .h = win_h });
