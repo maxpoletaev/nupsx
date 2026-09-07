@@ -3,6 +3,7 @@ const zgui = @import("zgui");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
+const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
 const mem = @import("../mem.zig");
 const sio0_mod = @import("../sio0.zig");
@@ -22,7 +23,7 @@ const CDROMView = @import("CDROMView.zig");
 const DMAView = @import("DMAView.zig");
 const InterruptView = @import("InterruptView.zig");
 
-const default_font = assets.freepixel_ttf;
+const default_font = assets.firacode_ttf;
 const default_font_size = 16.0;
 const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };
@@ -53,7 +54,6 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) *@This() {
     glfw.windowHint(.opengl_profile, .opengl_core_profile);
     glfw.windowHint(.opengl_forward_compat, true);
     glfw.windowHint(.cocoa_retina_framebuffer, true);
-    glfw.windowHint(.scale_framebuffer, false);
     glfw.windowHint(.client_api, .opengl_api);
     glfw.windowHint(.doublebuffer, true);
 
@@ -191,8 +191,7 @@ inline fn handleInput(self: *@This()) void {
 }
 
 inline fn updateInternal(self: *@This(), now: f64) void {
-    const fb_size = self.window.getFramebufferSize();
-    zgui.backend.newFrame(@intCast(fb_size[0]), @intCast(fb_size[1]));
+    imgui_fix.newFrame();
     glfw.pollEvents();
 
     gl.clearColor(0.1, 0.1, 0.1, 1.0);

@@ -3,6 +3,7 @@ const zgui = @import("zgui");
 const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 
+const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
 const Args = @import("../args.zig").Args;
 const FileBrowser = @import("FileBrowser.zig");
@@ -87,18 +88,6 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
     return self;
 }
 
-// zgui.backend.newFrame() clobbers io.DisplaySize with the framebuffer size
-// and pins io.DisplayFramebufferScale to 1, which breaks HiDPI.
-// Fixed by https://github.com/zig-gamedev/zgui/pull/105, but not merged yet.
-// This is a workaround which calls the backends directly.
-extern fn ImGui_ImplGlfw_NewFrame() void;
-extern fn ImGui_ImplOpenGL3_NewFrame() void;
-fn imguiNewFrame() void {
-    ImGui_ImplGlfw_NewFrame();
-    ImGui_ImplOpenGL3_NewFrame();
-    zgui.newFrame();
-}
-
 pub fn deinit(self: *@This()) void {
     active_instance = null;
     self.browser.deinit();
@@ -119,7 +108,7 @@ pub fn run(self: *@This()) ?Args {
             glfw.setWindowShouldClose(self.window, true);
         }
 
-        imguiNewFrame();
+        imgui_fix.newFrame();
 
         gl.clearColor(0.12, 0.12, 0.14, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -286,8 +275,8 @@ fn update(self: *@This()) bool {
         // other options
         {
             zgui.text("Options:", .{});
-            _ = zgui.checkbox("Enable CRT / NTSC Shader Filter", .{ .v = &self.shader_enabled });
-            zgui.textDisabled("Simulates CRT scanlines and composite video artifacts", .{});
+            _ = zgui.checkbox("Enable NTSC Shader Filter", .{ .v = &self.shader_enabled });
+            zgui.textDisabled("Simulates composite video artifacts", .{});
 
             _ = zgui.checkbox("Launch with Debugger (Debug UI)", .{ .v = &self.debug });
             zgui.textDisabled("Opens the disassembly, CPU, VRAM, and register inspector views", .{});
