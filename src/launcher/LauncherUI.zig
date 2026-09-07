@@ -6,6 +6,7 @@ const zopengl = @import("zopengl");
 const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
 const Args = @import("../args.zig").Args;
+const Config = @import("../config.zig").Config;
 const FileBrowser = @import("FileBrowser.zig");
 const PathInput = FileBrowser.PathInput;
 
@@ -22,6 +23,7 @@ const browse_button_spacing = 10;
 
 const bios_size = 512 * 1024;
 const default_memcard_path = "memcard.mcd";
+const launcher_config_path = "nupsx.conf";
 
 const accent_color: [4]f32 = .{ 0.35, 0.75, 1.0, 1.0 };
 const subtitle_color: [4]f32 = .{ 0.65, 0.65, 0.7, 1.0 };
@@ -31,6 +33,7 @@ allocator: std.mem.Allocator,
 io: std.Io,
 window: *glfw.Window,
 browser: *FileBrowser,
+config: *Config,
 
 bios: PathInput = .{},
 game: PathInput = .{},
@@ -71,6 +74,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
     _ = zgui.io.addFontFromMemory(default_font, default_font_size);
 
     const browser = FileBrowser.init(allocator, io);
+    const config = Config.init(allocator, io, launcher_config_path);
 
     const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
@@ -78,9 +82,11 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
         .io = io,
         .window = window,
         .browser = browser,
+        .config = config,
     };
 
     self.memcard.set(default_memcard_path);
+    self.loadConfig();
 
     active_instance = self;
     _ = glfw.setDropCallback(window, dropCallback);
@@ -89,8 +95,10 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
 }
 
 pub fn deinit(self: *@This()) void {
+    self.saveConfig();
     active_instance = null;
     self.browser.deinit();
+    self.config.deinit();
 
     zgui.backend.deinit();
     zgui.deinit();
@@ -139,6 +147,23 @@ pub fn run(self: *@This()) ?Args {
 
 fn dupePath(self: *@This(), path: []const u8) []const u8 {
     return self.allocator.dupe(u8, path) catch @panic("OOM");
+}
+
+fn loadConfig(self: *@This()) void {
+    if (self.config.get("bios")) |path| self.bios.set(path);
+    if (self.config.get("game")) |path| self.game.set(path);
+    if (self.config.get("memcard")) |path| self.memcard.set(path);
+    if (self.config.getBool("shader_enabled")) |enabled| self.shader_enabled = enabled;
+    if (self.config.getBool("debug")) |enabled| self.debug = enabled;
+}
+
+fn saveConfig(self: *@This()) void {
+    self.config.set("bios", self.bios.path());
+    self.config.set("game", self.game.path());
+    self.config.set("memcard", self.memcard.path());
+    self.config.setBool("shader_enabled", self.shader_enabled);
+    self.config.setBool("debug", self.debug);
+    self.config.saveConfig();
 }
 
 fn isValidBios(self: *@This(), path: []const u8) bool {
