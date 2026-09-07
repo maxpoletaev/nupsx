@@ -153,6 +153,7 @@ fn loadConfig(self: *@This()) void {
     if (self.config.get("bios")) |path| self.bios.set(path);
     if (self.config.get("game")) |path| self.game.set(path);
     if (self.config.get("memcard")) |path| self.memcard.set(path);
+    if (self.config.get("current_dir")) |path| self.browser.setCurrentDir(path);
     if (self.config.getBool("shader_enabled")) |enabled| self.shader_enabled = enabled;
     if (self.config.getBool("debug")) |enabled| self.debug = enabled;
 }
@@ -161,6 +162,7 @@ fn saveConfig(self: *@This()) void {
     self.config.set("bios", self.bios.path());
     self.config.set("game", self.game.path());
     self.config.set("memcard", self.memcard.path());
+    self.config.set("current_dir", self.browser.currentDir());
     self.config.setBool("shader_enabled", self.shader_enabled);
     self.config.setBool("debug", self.debug);
     self.config.saveConfig();

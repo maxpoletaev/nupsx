@@ -94,6 +94,10 @@ pub fn open(self: *@This(), kind: FileKind, target: *PathInput) void {
     self.refreshEntries();
 }
 
+pub fn currentDir(self: *const @This()) []const u8 {
+    return self.current_dir.items;
+}
+
 pub fn update(self: *@This(), parent_w: f32, parent_h: f32) bool {
     if (!self.is_open) return false;
 
@@ -189,9 +193,10 @@ fn refreshEntries(self: *@This()) void {
     std.mem.sort(Entry, self.entries.items, {}, Entry.lessThan);
 }
 
-fn setCurrentDir(self: *@This(), path: []const u8) void {
+pub fn setCurrentDir(self: *@This(), path: []const u8) void {
     self.current_dir.clearRetainingCapacity();
     self.current_dir.appendSlice(self.allocator, path) catch @panic("OOM");
+    self.refreshEntries();
 }
 
 fn navigateUp(self: *@This()) void {
@@ -205,9 +210,7 @@ fn navigateUp(self: *@This()) void {
 fn navigateInto(self: *@This(), sub_dir: []const u8) void {
     const new_path = std.fs.path.join(self.allocator, &.{ self.current_dir.items, sub_dir }) catch @panic("OOM");
     defer self.allocator.free(new_path);
-
     self.setCurrentDir(new_path);
-    self.refreshEntries();
 }
 
 fn selectFile(self: *@This(), filename: []const u8) void {
