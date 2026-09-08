@@ -14,10 +14,12 @@ const default_font = assets.firacode_ttf;
 const default_font_size = 18.0;
 const window_title = "nuPSX Launcher";
 const window_width = 600;
-const window_height = 640;
+const window_height = 620;
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
+const content_padding = 24.0;
+const hint_font_size = 14.0;
 const browse_button_width = 80;
 const browse_button_spacing = 10;
 
@@ -25,6 +27,13 @@ const bios_size = 512 * 1024;
 const default_memcard_path = "memcard.mcd";
 const launcher_config_path = "nupsx.conf";
 
+const header_height = 90.0;
+const header_title_prefix = "nu";
+const header_title_suffix = "PSX";
+const header_subtitle = "PLAYSTATION EMULATOR";
+
+const header_bg_color: [4]f32 = .{ 0.08, 0.13, 0.20, 1.0 };
+const title_color: [4]f32 = .{ 0.94, 0.97, 1.0, 1.0 };
 const accent_color: [4]f32 = .{ 0.35, 0.75, 1.0, 1.0 };
 const subtitle_color: [4]f32 = .{ 0.65, 0.65, 0.7, 1.0 };
 const error_color: [4]f32 = .{ 1.0, 0.3, 0.3, 1.0 };
@@ -231,25 +240,20 @@ fn update(self: *@This()) bool {
     zgui.pushStyleVar1f(.{ .idx = .window_border_size, .v = 0 });
     defer zgui.popStyleVar(.{ .count = 2 });
 
-    var start = false;
+    var start_pressed = false;
 
-    if (zgui.begin("Launcher", .{ .flags = flags })) {
+    zgui.pushStyleVar2f(.{ .idx = .window_padding, .v = .{ content_padding, 12.0 } });
+    const window_open = zgui.begin("Launcher", .{ .flags = flags });
+    zgui.popStyleVar(.{ .count = 1 });
+
+    if (window_open) {
         const content_w = zgui.getContentRegionAvail()[0];
         const input_w = content_w - browse_button_width - browse_button_spacing;
 
-        zgui.dummy(.{ .w = 0, .h = 8 });
+        drawHeader(win_w);
 
-        // title header
-        {
-            zgui.pushFont(null, 32.0);
-            zgui.textColored(accent_color, "nuPSX", .{});
-            zgui.popFont();
-            zgui.textColored(subtitle_color, "PlayStation Emulator", .{});
-            zgui.dummy(.{ .w = 0, .h = 10 });
-
-            zgui.textDisabled("Configure settings or drag-and-drop ROMs directly onto this window", .{});
-            zgui.dummy(.{ .w = 0, .h = 4 });
-        }
+        drawHint("You can drag-and-drop ROMs directly onto this window");
+        zgui.dummy(.{ .w = 0, .h = 4 });
 
         zgui.separator();
         zgui.dummy(.{ .w = 0, .h = 10 });
@@ -264,13 +268,13 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##bios", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.bios, &self.bios);
             }
-            zgui.textDisabled("Select a 512 KB PS1 BIOS dump (e.g. SCPH1001.bin)", .{});
+            drawHint("Select a 512 KB PS1 BIOS dump (e.g. SCPH1001.bin)");
             zgui.dummy(.{ .w = 0, .h = 12 });
         }
 
         // disk image selection
         {
-            zgui.text("Game / Disc Image (Optional):", .{});
+            zgui.text("Disk Image or Executable:", .{});
             zgui.pushItemWidth(input_w);
             _ = zgui.inputText("##game", .{ .buf = &self.game.buf });
             zgui.popItemWidth();
@@ -278,7 +282,7 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##game", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.game, &self.game);
             }
-            zgui.textDisabled("Accepts .cue, .bin, or .exe (leave empty to boot into BIOS menu)", .{});
+            drawHint("Accepts .cue, .bin, or .exe (leave empty to boot into BIOS menu)");
             zgui.dummy(.{ .w = 0, .h = 12 });
         }
 
@@ -292,7 +296,7 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##memcard", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.memcard, &self.memcard);
             }
-            zgui.textDisabled("Auto-created if not found (default: memcard.mcd)", .{});
+            drawHint("Auto-created if not found (default: memcard.mcd)");
             zgui.dummy(.{ .w = 0, .h = 15 });
         }
 
@@ -303,10 +307,9 @@ fn update(self: *@This()) bool {
         {
             zgui.text("Options:", .{});
             _ = zgui.checkbox("Enable NTSC Shader Filter", .{ .v = &self.shader_enabled });
-            zgui.textDisabled("Simulates composite video artifacts", .{});
-
-            _ = zgui.checkbox("Launch with Debugger (Debug UI)", .{ .v = &self.debug });
-            zgui.textDisabled("Opens the disassembly, CPU, VRAM, and register inspector views", .{});
+            drawHint("Simulates composite video artifacts");
+            _ = zgui.checkbox("Launch with Debugger", .{ .v = &self.debug });
+            drawHint("Opens the disassembly, CPU, VRAM, and register inspector views");
             zgui.dummy(.{ .w = 0, .h = 20 });
         }
 
@@ -318,7 +321,7 @@ fn update(self: *@This()) bool {
 
         // launch button
         if (zgui.button("Start Emulator", .{ .w = content_w, .h = 42 })) {
-            start = self.validate();
+            start_pressed = self.validate();
         }
 
         // file browser modal (if open)
@@ -328,7 +331,7 @@ fn update(self: *@This()) bool {
     }
     zgui.end();
 
-    return start;
+    return start_pressed;
 }
 
 fn validate(self: *@This()) bool {
@@ -351,4 +354,49 @@ fn validate(self: *@This()) bool {
     }
 
     return true;
+}
+
+fn rgba(c: [4]f32, alpha: f32) u32 {
+    return zgui.colorConvertFloat4ToU32(.{ c[0], c[1], c[2], c[3] * alpha });
+}
+
+fn drawHeader(win_w: f32) void {
+    const dl = zgui.getWindowDrawList();
+    const origin = zgui.getWindowPos();
+    const x0 = origin[0];
+    const y0 = origin[1];
+    const x1 = x0 + win_w;
+    const y1 = y0 + header_height;
+
+    dl.pushClipRect(.{ .pmin = .{ x0, y0 }, .pmax = .{ x1, y1 } });
+    defer dl.popClipRect();
+
+    dl.addRectFilled(.{
+        .pmin = .{ x0, y0 },
+        .pmax = .{ x1, y1 },
+        .col = rgba(header_bg_color, 1.0),
+    });
+
+    zgui.pushFont(null, 46.0);
+    const prefix_dim = zgui.calcTextSize(header_title_prefix, .{});
+    const title_x = x0 + content_padding;
+    const title_y = y0 + 18.0;
+    dl.addTextUnformatted(.{ title_x, title_y }, rgba(title_color, 1.0), header_title_prefix);
+    dl.addTextUnformatted(.{ title_x + prefix_dim[0], title_y }, rgba(accent_color, 1.0), header_title_suffix);
+    zgui.popFont();
+
+    zgui.pushFont(null, 13.0);
+    dl.addTextUnformatted(
+        .{ title_x + 3.0, title_y + prefix_dim[1] + 2.0 },
+        rgba(subtitle_color, 0.9),
+        header_subtitle,
+    );
+    zgui.popFont();
+    zgui.setCursorPosY(header_height + 14.0);
+}
+
+fn drawHint(comptime txt: []const u8) void {
+    zgui.pushFont(null, hint_font_size);
+    zgui.textDisabled(txt, .{});
+    zgui.popFont();
 }
