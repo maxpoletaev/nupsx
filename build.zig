@@ -28,6 +28,8 @@ pub fn build(b: *std.Build) void {
     nupsx_mod.addImport("zgui", zgui.module("root"));
     nupsx_mod.addImport("zaudio", zaudio.module("root"));
 
+    const imgui = zgui.artifact("imgui");
+
     const nupsx_exe = b.addExecutable(.{
         .name = "nupsx",
         .root_module = nupsx_mod,
@@ -46,6 +48,8 @@ pub fn build(b: *std.Build) void {
             if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
                 nupsx_mod.addLibraryPath(system_sdk.path("macos12/usr/lib"));
                 nupsx_mod.addFrameworkPath(system_sdk.path("macos12/System/Library/Frameworks"));
+                imgui.root_module.addFrameworkPath(system_sdk.path("macos12/System/Library/Frameworks"));
+                imgui.root_module.addSystemIncludePath(system_sdk.path("macos12/usr/include"));
             }
         },
         .linux => {
@@ -61,7 +65,7 @@ pub fn build(b: *std.Build) void {
         },
         else => {},
     }
-    nupsx_mod.linkLibrary(zgui.artifact("imgui"));
+    nupsx_mod.linkLibrary(imgui);
     nupsx_mod.linkLibrary(zglfw.artifact("glfw"));
     nupsx_mod.linkLibrary(zaudio.artifact("miniaudio"));
     b.installArtifact(nupsx_exe);
