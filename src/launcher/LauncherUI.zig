@@ -7,12 +7,13 @@ const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
 const Args = @import("../args.zig").Args;
 const Config = @import("../config.zig").Config;
+const host_paths = @import("../host_paths.zig");
 const FileBrowser = @import("FileBrowser.zig");
 const PathInput = FileBrowser.PathInput;
 
 const default_font = assets.firacode_ttf;
 const default_font_size = 18.0;
-const window_title = "nuPSX Launcher";
+const window_title = "nuPSX";
 const window_width = 600;
 const window_height = 620;
 const gl_version = .{ 4, 1 };
@@ -24,8 +25,6 @@ const browse_button_width = 80;
 const browse_button_spacing = 10;
 
 const bios_size = 512 * 1024;
-const default_memcard_path = "memcard.mcd";
-const launcher_config_path = "nupsx.conf";
 
 const header_height = 90.0;
 const header_title_prefix = "nu";
@@ -82,8 +81,8 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
 
     _ = zgui.io.addFontFromMemory(default_font, default_font_size);
 
-    const browser = FileBrowser.init(allocator, io);
-    const config = Config.init(allocator, io, launcher_config_path);
+    const browser = FileBrowser.init(allocator, io, host_paths.home_path);
+    const config = Config.init(allocator, io, host_paths.config_path);
 
     const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{
@@ -94,10 +93,12 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
         .config = config,
     };
 
-    self.memcard.set(default_memcard_path);
+    self.memcard.set(host_paths.default_memcard_path);
     self.loadConfig();
 
+    std.debug.assert(active_instance == null);
     active_instance = self;
+
     _ = glfw.setDropCallback(window, dropCallback);
 
     return self;
@@ -105,6 +106,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
 
 pub fn deinit(self: *@This()) void {
     self.saveConfig();
+
     active_instance = null;
     self.browser.deinit();
     self.config.deinit();
@@ -193,7 +195,6 @@ fn dropCallback(_: *glfw.Window, count: i32, paths: [*][*:0]const u8) callconv(.
 
     // disk image or ps-exe
     if (std.mem.endsWith(u8, path, ".cue") or
-        std.mem.endsWith(u8, path, ".iso") or
         std.mem.endsWith(u8, path, ".exe"))
     {
         self.game.set(path);
@@ -296,7 +297,7 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##memcard", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.memcard, &self.memcard);
             }
-            drawHint("Auto-created if not found (default: memcard.mcd)");
+            drawHint("Auto-created if not found");
             zgui.dummy(.{ .w = 0, .h = 15 });
         }
 

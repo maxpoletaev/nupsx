@@ -6,7 +6,6 @@ if ! command -v hdiutil >/dev/null 2>&1; then
     exit 1
 fi
 
-# Locate the built executable and choose the bundle version.
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BINARY_PATH="${BINARY_PATH:-$ROOT_DIR/zig-out/bin/nupsx}"
 APP_DIR="$ROOT_DIR/macos/nuPSX.app"
@@ -23,8 +22,9 @@ fi
 echo "Creating app bundle: $APP_DIR"
 
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/nupsx"
+cp "$ROOT_DIR/macos/nupsx.icns" "$APP_DIR/Contents/Resources/nupsx.icns"
 sed "s/@VERSION@/$VERSION/g" "$ROOT_DIR/macos/Info.plist" > "$APP_DIR/Contents/Info.plist"
 
 echo "Creating DMG: $DMG_PATH"

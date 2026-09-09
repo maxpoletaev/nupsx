@@ -69,14 +69,10 @@ target: *PathInput = undefined,
 current_dir: std.ArrayList(u8) = .empty,
 entries: std.ArrayList(Entry) = .empty,
 
-pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
+pub fn init(allocator: std.mem.Allocator, io: std.Io, start_dir: []const u8) *@This() {
     const self = allocator.create(@This()) catch @panic("OOM");
     self.* = .{ .allocator = allocator, .io = io };
-
-    var cwd_buf: [max_path_len]u8 = undefined;
-    const cwd_len = std.Io.Dir.realPathFile(.cwd(), io, ".", &cwd_buf) catch 0;
-    self.setCurrentDir(if (cwd_len > 0) cwd_buf[0..cwd_len] else ".");
-
+    self.setCurrentDir(start_dir);
     return self;
 }
 

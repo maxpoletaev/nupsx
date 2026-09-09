@@ -36,4 +36,4 @@ lipo -create \
     -output "$WORK_DIR/nupsx"
 
 # Bundle the universal executable and create the DMG
-BINARY_PATH="$WORK_DIR/nupsx" VERSION="$VERSION" "$ROOT_DIR/macos/bundle.sh"
+BINARY_PATH="$WORK_DIR/nupsx" VERSION="$VERSION" "$ROOT_DIR/macos/make-app.sh"

@@ -7,3 +7,5 @@
 /games
 /bios
 /web/nupsx.wasm
+/macos/*.app
+/macos/*.dmg

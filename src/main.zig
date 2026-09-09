@@ -20,6 +20,7 @@ const Args = @import("args.zig").Args;
 const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
 const LauncherUI = @import("launcher/LauncherUI.zig");
+const host_paths = @import("host_paths.zig");
 
 const Bus = mem_mod.Bus;
 const BIOS = mem_mod.BIOS;
@@ -35,8 +36,6 @@ const SPU = spu_mod.SPU;
 const SIO0 = sio0_mod.SIO0;
 const SIO1 = sio1_mod.SIO1;
 const MemoryCard = memcard_mod.MemoryCard;
-
-const memcard_default_path = "memcard.mcd";
 
 pub fn logFn(
     comptime message_level: std.log.Level,
@@ -194,6 +193,9 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
+    host_paths.init(allocator, io, init.environ_map);
+    defer host_paths.deinit(io);
+
     var args = getArgs(allocator, io, init.minimal.args);
     defer args.deinit();
 
@@ -229,7 +231,7 @@ pub fn main(init: std.process.Init) !void {
     const spu = SPU.init(allocator, bus);
     defer spu.deinit();
 
-    const memcard_path = if (args.memcard_path.len != 0) args.memcard_path else memcard_default_path;
+    const memcard_path = if (args.memcard_path.len != 0) args.memcard_path else host_paths.default_memcard_path;
     const memcard = MemoryCard.loadOrCreate(allocator, io, memcard_path) catch |err| {
         std.log.err("failed to load or create memory card: {}", .{err});
         return err;

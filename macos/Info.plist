@@ -8,6 +8,8 @@
 	<string>nupsx</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.maxpoletaev.nupsx</string>
+	<key>CFBundleIconFile</key>
+	<string>nupsx</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

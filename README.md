@@ -1,6 +1,8 @@
-# nuPSX
+<p align="center"><img src="logo.png" width="200"></p>
 
-nuPSX is an experimental PlayStation 1 emulator and debugger written in Zig, built as a learning exercise to explore Zig's capabilities and PSX hardware architecture. While I'm super proud of how far it has come, this is by no means an emulator that most would consider usable and complete. If you've come here for learning about emulation, this is probably a good project to dig into. If you are looking for the emulator to play games, better to check out DuckStation.
+<hr>
+
+**nuPSX** is an experimental PlayStation 1 emulator and debugger written in Zig, built as a learning exercise to explore Zig's capabilities and PSX hardware architecture. While I'm super proud of how far it has come, this is by no means an emulator that most would consider usable and complete. If you've come here for learning about emulation, this is probably a good project to dig into. If you are looking for the emulator to play games, better to check out DuckStation.
 
 <p>
 <img src="./images/debugger.png" width="99%">
@@ -92,7 +94,7 @@ Options:
   --bios <path>        Path to BIOS file (required)
   --exe <path>         Path to executable file to run
   --cdrom <path>       Path to CD-ROM image file (.cue)
-  --memcard <path>     Path to memory card image (default: memcard.mcd)
+  --memcard <path>     Path to memory card image (default: ~/.nupsx/memcard.mcd)
   --debug              Enable debug user interface
   --disasm             Enable disassembly output
   --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
