@@ -29,6 +29,7 @@ pub fn build(b: *std.Build) void {
     nupsx_mod.addImport("zaudio", zaudio.module("root"));
 
     const imgui = zgui.artifact("imgui");
+    imgui.root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
 
     const nupsx_exe = b.addExecutable(.{
         .name = "nupsx",
