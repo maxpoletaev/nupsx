@@ -70,27 +70,28 @@ a:hover {
 
 /* Header */
 .header {
-  margin-bottom: 48px;
-  line-height: 0.9;
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  margin: 48px 0;
+}
+
+.header__logo {
+  flex: none;
+  width: 128px;
+  height: auto;
 }
 
 .header__title {
-  font-size: 48px;
-  color: var(--text-bright);
-  font-weight: bold;
+  display: inline;
+  font-size: inherit;
 }
 
-.header__title-accent {
-  color: var(--accent);
-}
-
-.header__subtitle {
-  color: var(--text-muted);
-  font-size: 13px;
-}
 
 /* Sections */
-section { margin-bottom: 48px; }
+section { 
+  margin-bottom: 48px; 
+}
 
 h2 {
   font-size: 1.4em;
@@ -427,6 +428,13 @@ footer a:hover { color: var(--text-bright); }
 
   body {
     padding: 20px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    margin-top: 20px;
   }
 
   .download {
