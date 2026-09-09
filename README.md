@@ -68,6 +68,7 @@ Below are links to the latest prebuilt binaries. I don't have enough computers s
 
 * [nupsx-aarch64-linux-gnu.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-linux-gnu.zip)
 * [nupsx-x86_64-linux-gnu.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-linux-gnu.zip)
+* [nupsx-macos.dmg](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-macos.dmg) (universal)
 * [nupsx-aarch64-macos.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-aarch64-macos.zip)
 * [nupsx-x86_64-macos.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-macos.zip)
 * [nupsx-x86_64-windows.zip](https://github.com/maxpoletaev/nupsx/releases/latest/download/nupsx-x86_64-windows.zip)
