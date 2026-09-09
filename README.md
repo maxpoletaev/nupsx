@@ -147,3 +147,5 @@ Also special thanks to folks in [EmuDev Discord](https://discord.gg/dkmJAes) for
  * https://github.com/allkern/psxe
  * https://github.com/stenzek/duckstation
  * https://github.com/JaCzekanski/Avocado
+ * https://github.com/allkern/iris (shaders)
+
