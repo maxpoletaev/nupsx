@@ -6,6 +6,7 @@ const fifo = @import("fifo.zig");
 const xa_mod = @import("cdrom_xa.zig");
 
 const Interrupt = mem.Interrupt;
+const clamp = std.math.clamp;
 
 const log = std.log.scoped(.cdrom);
 
@@ -74,6 +75,19 @@ const RequestReg = packed struct(u8) {
     unused0: u5 = 0, // 0-4 (always 0)
     unused1: u2 = 0, // 5-6 (smen and bfwr)
     want_data: bool = false, // 7 (BFRD)
+};
+
+const VolumeReg = struct {
+    l_to_l: u8 = 0x80,
+    l_to_r: u8 = 0x00,
+    r_to_r: u8 = 0x80,
+    r_to_l: u8 = 0x00,
+};
+
+const AdpcmCtrlReg = packed struct(u8) {
+    unused0: u5 = 0,
+    apply_volume: bool = false,
+    unused1: u2 = 0,
 };
 
 const DriveError = enum(u8) {
@@ -428,6 +442,9 @@ pub const CDROM = struct {
     xa: xa_mod.XaState,
     last_sample: [2]i16,
 
+    volume: VolumeReg,
+    volume_pending: VolumeReg,
+
     irq_mask: packed struct(u8) { int_enable: u3 = 0, _pad: u5 = 0 },
     irq_pending: packed struct(u8) { ints: u3 = 0, _pad: u5 = 0 },
 
@@ -464,6 +481,8 @@ pub const CDROM = struct {
             .addr = .{},
             .req = .{},
             .last_sample = .{ 0, 0 },
+            .volume = .{},
+            .volume_pending = .{},
         };
         return self;
     }
@@ -504,6 +523,17 @@ pub const CDROM = struct {
         self.data_pos = 0;
     }
 
+    inline fn applyVolume(self: *const @This(), sample: [2]i16) [2]i16 {
+        const l: i32 = sample[0];
+        const r: i32 = sample[1];
+        const out_l = (l * self.volume.l_to_l + r * self.volume.r_to_l) >> 7;
+        const out_r = (l * self.volume.l_to_r + r * self.volume.r_to_r) >> 7;
+        return .{
+            @intCast(clamp(out_l, -0x8000, 0x7fff)),
+            @intCast(clamp(out_r, -0x8000, 0x7fff)),
+        };
+    }
+
     pub fn consumeAudioSample(self: *@This()) [2]i16 {
         if (self.read_state == .playing and self.mode.cdda) {
             const sample = self.audio_buffer.pop() orelse blk: {
@@ -512,13 +542,13 @@ pub const CDROM = struct {
             };
             if (self.mute) return .{ 0, 0 };
             self.last_sample = sample;
-            return sample;
+            return self.applyVolume(sample);
         }
 
         if (self.read_state == .reading and self.mode.xa_adpcm) {
             const sample = self.xa.consumeSample(self.disc.?);
             if (self.mute) return .{ 0, 0 };
-            return sample;
+            return self.applyVolume(sample);
         }
 
         return [2]i16{ 0, 0 };
@@ -847,19 +877,19 @@ pub const CDROM = struct {
                 0 => self.writeCommand(val),
                 1 => log.warn("unimplemented WRDATA: {x}", .{v}),
                 2 => log.warn("unimplemented CI: {x}", .{v}),
-                3 => log.warn("unimplemented AVT2: {x}", .{v}),
+                3 => self.volume_pending.r_to_r = val,
             },
             2 => switch (bank_index) {
                 0 => self.writePram(val),
                 1 => self.irq_mask = @bitCast(val),
-                2 => log.warn("unimplemented ATV0: {x}", .{v}),
-                3 => log.warn("unimplemented ATV3: {x}", .{v}),
+                2 => self.volume_pending.l_to_l = val,
+                3 => self.volume_pending.r_to_l = val,
             },
             3 => switch (bank_index) {
                 0 => self.writeRequest(val),
                 1 => self.ackInterrupt(val),
-                2 => log.warn("unimplemented ATV1: {x}", .{v}),
-                3 => log.warn("unimplemented ADPCTL: {x}", .{v}),
+                2 => self.volume_pending.l_to_r = val,
+                3 => self.writeAdpcmCtrl(val),
             },
         }
     }
@@ -890,6 +920,14 @@ pub const CDROM = struct {
 
     fn writePram(self: *@This(), v: u8) void {
         self.pending_params.push(v);
+    }
+
+    fn writeAdpcmCtrl(self: *@This(), v: u8) void {
+        const ctrl: AdpcmCtrlReg = @bitCast(v);
+
+        if (ctrl.apply_volume) {
+            self.volume = self.volume_pending;
+        }
     }
 
     fn writeCommand(self: *@This(), opcode: u8) void {
