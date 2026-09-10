@@ -349,6 +349,7 @@ pub const Bus = struct {
 
             0x1f801000...0x1f801023 => 0, // memctl
             0x1f801060...0x1f801063 => 0, // ramsize
+            0x1f801130...0x1f8017ff => 0, // unused (timers .. cdrom)
             0xfffe0130...0xfffe0133 => 0, // cachectl
             0x1f000000...0x1f0000ff => 0, // expansion 1
             0x1f802000...0x1f802041 => 0, // expansion 2
@@ -396,6 +397,7 @@ pub const Bus = struct {
 
             0x1f801000...0x1f801023 => {}, // memctl
             0x1f801060...0x1f801063 => {}, // ramsize
+            0x1f801130...0x1f8017ff => {}, // unused (timers .. cdrom)
             0xfffe0130...0xfffe0133 => {}, // cachectl
             0x1f000000...0x1f0000ff => {}, // expansion 1
             0x1f802000...0x1f802041 => {}, // expansion 2
