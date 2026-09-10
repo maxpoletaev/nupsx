@@ -215,7 +215,7 @@ const Voice = struct {
 
         if (self.adsr_env.exponential) {
             if (!self.adsr_env.decrease and self.adsr_volume > 0x6000) cycles *= 4;
-            if (self.adsr_env.decrease) step = (step * self.adsr_volume) >> 15; // div by 0x8000
+            if (self.adsr_env.decrease) step = @max(1, (step * self.adsr_volume) >> 15); // div by 0x8000
         }
 
         if (self.adsr_env.decrease) step = -step;
