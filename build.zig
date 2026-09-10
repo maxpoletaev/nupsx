@@ -4,9 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zglfw = b.dependency("zglfw", .{ .target = target });
-    const zgui = b.dependency("zgui", .{ .target = target, .backend = .glfw_opengl3 });
-    const zaudio = b.dependency("zaudio", .{ .target = target });
+    const zglfw = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
+    const zgui = b.dependency("zgui", .{ .target = target, .optimize = optimize, .backend = .glfw_opengl3 });
+    const zaudio = b.dependency("zaudio", .{ .target = target, .optimize = optimize });
     const zopengl = b.dependency("zopengl", .{});
 
     const options = b.addOptions();
