@@ -307,6 +307,8 @@ pub const GPU = struct {
         gpustat.vres = .@"240";
         gpustat.vertical_interlace = false;
 
+        gpustat.interlace_odd_line = !self.in_vblank and (self.scanline & 1) != 0;
+
         return @as(u32, @bitCast(gpustat));
     }
 
