@@ -563,7 +563,7 @@ pub const Rasterizer = struct {
 
             var out = toRGB5(dithered, mode.semi_trans);
             if (comptime mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
-            if (self.force_mask_bit) out.mask_bit = true;
+            out.mask_bit = self.force_mask_bit;
 
             self.vram[addr] = @bitCast(out);
         }
