@@ -79,8 +79,8 @@ const banner_text =
     \\
     \\              ____  ______  __
     \\  _ __  _   _|  _ \/ ___\ \/ /
-    \\ | '_ \| | | | |_) \___ \\  / 
-    \\ | | | | |_| |  __/ ___) /  \ 
+    \\ | '_ \| | | | |_) \___ \\  /
+    \\ | | | | |_| |  __/ ___) /  \
     \\ |_| |_|\__,_|_|   |____/_/\_\   PlayStation Emulator
     \\
     \\
@@ -104,6 +104,12 @@ const Audio = struct {
 
         const self = allocator.create(Audio) catch unreachable;
 
+        self.* = .{
+            .allocator = allocator,
+            .device = undefined,
+            .bus = bus,
+        };
+
         var config = zaudio.Device.Config.init(.playback);
         config.playback.format = .signed16;
         config.playback.channels = 2;
@@ -111,18 +117,13 @@ const Audio = struct {
         config.sample_rate = 44100;
         config.user_data = self;
 
-        var device = zaudio.Device.create(null, config) catch |err| {
+        const device = zaudio.Device.create(null, config) catch |err| {
             std.debug.panic("failed to create audio device: {}", .{err});
         };
+        self.device = device;
 
         device.start() catch |err| {
             std.debug.panic("failed to start audio device: {}", .{err});
-        };
-
-        self.* = .{
-            .allocator = allocator,
-            .device = device,
-            .bus = bus,
         };
 
         return self;
