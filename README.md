@@ -34,7 +34,7 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Final Fantasy VII|🟨 InGame|Broken textures in menus/overlays|
 |Frogger|🟩 Playable||
 |Gran Turismo|🟩 Playable||
-|Gran Turismo 2|🟥 Nothing||
+|Gran Turismo 2|🟩 Playable||
 |Grand Theft Auto|🟩 Playable||
 |Metal Gear Solid|🟩 Playable||
 |Mortal Kombat 2|🟩 Playable||
