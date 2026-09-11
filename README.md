@@ -55,6 +55,7 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Tomb Raider|🟨 InGame|No background sounds|
 |Tomb Raider III|🟨 InGame|Incorrect shading|
 |Tony Hawk's Pro Skater 2|🟨 InGame|Broken geometry|
+|Vagrant Story|🟨 InGame|Textures in menus/overlays, sound effects pitch|
 |Wipeout|🟩 Playable||
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
