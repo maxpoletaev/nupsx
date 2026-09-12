@@ -17,6 +17,7 @@ const help_text = (
     \\  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
     \\  --uncapped           Run the emulator without frame rate limiting
     \\  --no-shader          Disable the CRT/NTSC shader
+    \\  --upscale <n>        Internal resolution scale, 1-4 (default: 1)
     \\  -h, --help           Show this help message
 );
 
@@ -38,6 +39,7 @@ pub const Args = struct {
     uncapped: bool = false,
 
     no_shader: bool = false,
+    upscale: u32 = 1,
 
     pub fn printHelp(io: std.Io) void {
         std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
@@ -66,6 +68,7 @@ pub const Args = struct {
             .breakpoint = 0,
             .uncapped = false,
             .no_shader = false,
+            .upscale = 1,
         };
 
         while (args_iter.next()) |arg| {
@@ -131,6 +134,18 @@ pub const Args = struct {
 
             if (std.mem.eql(u8, arg, "--no-shader")) {
                 args.no_shader = true;
+            }
+
+            if (std.mem.eql(u8, arg, "--upscale")) {
+                const scale_str = args_iter.next() orelse {
+                    log.err("missing value after --upscale", .{});
+                    return Error.InvalidArgument;
+                };
+                args.upscale = std.fmt.parseUnsigned(u32, scale_str, 10) catch 0;
+                if (args.upscale < 1 or args.upscale > 4) {
+                    log.err("invalid --upscale value: {s} (expected 1-4)", .{scale_str});
+                    return Error.InvalidArgument;
+                }
             }
         }
 

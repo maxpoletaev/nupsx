@@ -106,14 +106,18 @@ const DisplayPass = struct {
         const display_res = gpu.getDisplayRes();
         const start_x: f32 = @floatFromInt(gpu.gp1_display_area_start.x);
         var start_y: f32 = @floatFromInt(gpu.gp1_display_area_start.y);
-        if (start_y == 2) start_y = 0; // HACK: old bioses set this to 2, resulting in cluts being displayed in the viewport
 
+        const res_scale: f32 = switch (color_depth) {
+            .bit15 => @floatFromInt(gpu.rasterizer.framebuffer().upscale),
+            .bit24 => 1.0, // always native since this is mostly mdec
+        };
         const offset_x: f32 = switch (color_depth) {
-            .bit15 => start_x,
+            .bit15 => start_x * res_scale,
             .bit24 => start_x * (2.0 / 3.0),
         };
+        start_y *= res_scale;
         const vram_size_x: f32 = switch (color_depth) {
-            .bit15 => 1024.0,
+            .bit15 => 1024.0 * res_scale,
             .bit24 => 682.0,
         };
 
@@ -124,10 +128,10 @@ const DisplayPass = struct {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, vram_tex);
         gl.uniform2f(self.u_display_offset, offset_x, start_y);
-        gl.uniform2f(self.u_display_size, @as(f32, @floatFromInt(display_res[0])), @as(f32, @floatFromInt(display_res[1])));
+        gl.uniform2f(self.u_display_size, @as(f32, @floatFromInt(display_res[0])) * res_scale, @as(f32, @floatFromInt(display_res[1])) * res_scale);
         gl.uniform1i(self.u_video_mode, @intCast(gpu.getVideoMode()));
         gl.uniform2f(self.u_display_range_y, @floatFromInt(gpu.gp1_display_range_y.y1), @floatFromInt(gpu.gp1_display_range_y.y2));
-        gl.uniform2f(self.u_vram_size, vram_size_x, 512.0);
+        gl.uniform2f(self.u_vram_size, vram_size_x, 512.0 * res_scale);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -530,10 +534,11 @@ pub const UI = struct {
     }
 
     fn uploadVram(self: *@This()) void {
+        const fb = self.gpu.rasterizer.framebuffer();
         gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
         switch (self.gpu.getColorDepth()) {
-            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, 1024, 512, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, self.gpu.vram),
+            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, fb.width, fb.height, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, fb.pixels.ptr),
             .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 682, 512, 0, gl.RGB, gl.UNSIGNED_BYTE, self.gpu.vram),
         }
     }

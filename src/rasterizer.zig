@@ -70,6 +70,13 @@ pub const Vertex = struct {
     color: RGB8 = .init(0, 0, 0),
 };
 
+pub const Framebuffer = struct {
+    pixels: []u16,
+    width: i32,
+    height: i32,
+    upscale: i32,
+};
+
 pub const RasterCommand = union(enum) {
     fill_cmd: RGB8,
     set_dithering: bool,
@@ -247,8 +254,13 @@ inline fn vec4Init(base: i32, dx: i32) Vec4i {
 }
 
 pub const Rasterizer = struct {
+    pub const max_upscale = 4;
+
+    const to_native_mask = vram_res_x * max_upscale - 1;
     const vram_res_x = 1024;
     const vram_res_y = 512;
+
+    allocator: std.mem.Allocator,
 
     vram: *align(16) [vram_res_x * vram_res_y]u16,
     transparency_mode: TransparencyMode,
@@ -261,9 +273,30 @@ pub const Rasterizer = struct {
     check_mask_bit: bool = false,
     enable_dithering: bool = false,
 
-    pub fn init(vram: *align(16) [vram_res_x * vram_res_y]u16) @This() {
-        return .{
+    hires: []u16,
+    hires_w: i32,
+    hires_h: i32,
+    upscale: i32,
+    to_native: [vram_res_x * max_upscale]u16 = undefined, // x/scale
+    to_native_aligned: [vram_res_x * max_upscale]i16 = undefined, // x/scale if x%scale == 0, else -1
+
+    pub fn init(allocator: std.mem.Allocator, vram: *align(16) [vram_res_x * vram_res_y]u16, upscale: u32) @This() {
+        std.debug.assert(upscale >= 1 and upscale <= max_upscale);
+
+        const hires = if (upscale == 1) vram else blk: {
+            const scaled_x = vram_res_x * upscale;
+            const scaled_y = vram_res_y * upscale;
+            log.info("internal resolution is set to x={d} y={d}", .{ scaled_x, scaled_y });
+            break :blk allocator.alloc(u16, scaled_x * scaled_y) catch @panic("OOM");
+        };
+
+        var self: @This() = .{
+            .allocator = allocator,
             .vram = vram,
+            .hires = hires,
+            .hires_w = @intCast(vram_res_x * upscale),
+            .hires_h = @intCast(vram_res_y * upscale),
+            .upscale = @intCast(upscale),
             .texwin_mask = .{ 0, 0 },
             .texwin_offset = .{ 0, 0 },
             .draw_offset = .{ 0, 0 },
@@ -271,11 +304,23 @@ pub const Rasterizer = struct {
             .transparency_mode = .@"B+F",
             .draw_area_end = .{ vram_res_x - 1, vram_res_y - 1 },
         };
+        for (0..vram_res_x * upscale) |i| {
+            self.to_native[i] = @intCast(i / upscale);
+            self.to_native_aligned[i] = if (i % upscale == 0) @intCast(i / upscale) else -1;
+        }
+        return self;
     }
 
-    pub fn deinit(_: *@This()) void {}
+    pub fn deinit(self: *@This()) void {
+        if (self.upscale != 1) self.allocator.free(self.hires);
+    }
+
     pub fn start(_: *@This()) void {}
     pub fn flush(_: *@This()) void {}
+
+    pub fn framebuffer(self: *@This()) Framebuffer {
+        return .{ .pixels = self.hires, .width = self.hires_w, .height = self.hires_h, .upscale = self.upscale };
+    }
 
     // =========================================================================
     // Configuration
@@ -419,13 +464,45 @@ pub const Rasterizer = struct {
     }
 
     pub inline fn fill(self: *@This(), c: RGB8) void {
-        @memset(self.vram, @bitCast(toRGB5(c, false)));
+        const color: u16 = @bitCast(toRGB5(c, false));
+        @memset(self.vram, color);
+        if (self.upscale != 1) @memset(self.hires, color);
     }
 
     inline fn toVramAddr(x: i32, y: i32) usize {
         const xx = @as(u32, @bitCast(x)) & 0x3ff; // 0..1023
         const yy = @as(u32, @bitCast(y)) & 0x1ff; // 0..511
         return xx + yy * vram_res_x;
+    }
+
+    inline fn toHiresAddr(self: *@This(), x: i32, y: i32) usize {
+        return @intCast(x + y * self.hires_w);
+    }
+
+    inline fn writeNativePixel(self: *@This(), x: i32, y: i32, color: u16) void {
+        const xx: i32 = x & 0x3ff;
+        const yy: i32 = y & 0x1ff;
+        self.vram[@intCast(xx + yy * vram_res_x)] = color;
+        if (self.upscale != 1) {
+            const s: usize = @intCast(self.upscale);
+            const w: usize = @intCast(self.hires_w);
+            var row: usize = @intCast(yy * self.upscale * self.hires_w + xx * self.upscale);
+            for (0..s) |_| {
+                @memset(self.hires[row..][0..s], color);
+                row += w;
+            }
+        }
+    }
+
+    inline fn writeHiresPixel(self: *@This(), x: i32, y: i32, color: u16) void {
+        self.hires[self.toHiresAddr(x, y)] = color;
+        if (self.upscale != 1) {
+            const nx = self.to_native_aligned[@intCast(x)];
+            const ny = self.to_native_aligned[@intCast(y)];
+            if (nx >= 0 and ny >= 0) {
+                self.vram[@as(usize, @intCast(nx)) + @as(usize, @intCast(ny)) * vram_res_x] = color;
+            }
+        }
     }
 
     const dithering_table: [4][4]i8 = .{
@@ -537,7 +614,7 @@ pub const Rasterizer = struct {
         }
         var out = color;
         if (self.force_mask_bit) out |= (1 << 15);
-        self.vram[addr] = out;
+        self.writeNativePixel(x, y, out);
     }
 
     fn setPixelFlat(
@@ -548,24 +625,31 @@ pub const Rasterizer = struct {
         comptime mode: struct {
             dither: bool = false,
             semi_trans: bool = false,
+            native: bool = false, // x, y are native coordinates
         },
     ) void {
-        const addr = toVramAddr(x, y);
-        const back: RGB5 = @bitCast(self.vram[addr]);
+        const addr = if (mode.native) toVramAddr(x, y) else self.toHiresAddr(x, y);
+        const back: RGB5 = @bitCast(if (mode.native) self.vram[addr] else self.hires[addr]);
 
         if (self.check_mask_bit and back.mask_bit) {
             // write-protected
         } else {
             var dithered = color;
             if (comptime mode.dither) {
-                if (self.enable_dithering) dithered = applyDithering(dithered, x, y);
+                const nx = if (mode.native) x else self.to_native[@intCast(x)];
+                const ny = if (mode.native) y else self.to_native[@intCast(y)];
+                if (self.enable_dithering) dithered = applyDithering(dithered, nx, ny);
             }
 
             var out = toRGB5(dithered, mode.semi_trans);
             if (comptime mode.semi_trans) out = applyTransparency(out, back, self.transparency_mode);
             out.mask_bit = self.force_mask_bit;
 
-            self.vram[addr] = @bitCast(out);
+            if (mode.native) {
+                self.writeNativePixel(x, y, @bitCast(out));
+            } else {
+                self.writeHiresPixel(x, y, @bitCast(out));
+            }
         }
     }
 
@@ -581,15 +665,17 @@ pub const Rasterizer = struct {
             blend: bool = false,
         },
     ) void {
-        const addr = toVramAddr(x, y);
-        const back: RGB5 = @bitCast(self.vram[addr]);
+        const addr = self.toHiresAddr(x, y);
+        const back: RGB5 = @bitCast(self.hires[addr]);
 
         if (self.check_mask_bit and back.mask_bit) {
             // write-protected
         } else {
             var dithered = blend_color;
             if (comptime mode.dither) {
-                if (self.enable_dithering) dithered = applyDithering(dithered, x, y);
+                const nx = self.to_native[@intCast(x)];
+                const ny = self.to_native[@intCast(y)];
+                if (self.enable_dithering) dithered = applyDithering(dithered, nx, ny);
             }
 
             var front = texel;
@@ -597,7 +683,7 @@ pub const Rasterizer = struct {
             if (comptime mode.semi_trans) front = applyTransparency(front, back, self.transparency_mode);
             if (self.force_mask_bit) front.mask_bit = true;
 
-            self.vram[addr] = @bitCast(front);
+            self.writeHiresPixel(x, y, @bitCast(front));
         }
     }
 
@@ -635,26 +721,30 @@ pub const Rasterizer = struct {
             abc = -abc;
         }
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], vram_res_y - 1);
+        const s0: Vertex = .{ .x = v0.x *% self.upscale, .y = v0.y *% self.upscale };
+        const s1: Vertex = .{ .x = v1.x *% self.upscale, .y = v1.y *% self.upscale };
+        const s2: Vertex = .{ .x = v2.x *% self.upscale, .y = v2.y *% self.upscale };
 
-        const abp_dx = v0.y - v1.y;
-        const abp_dy = v1.x - v0.x;
-        const bcp_dx = v1.y - v2.y;
-        const bcp_dy = v2.x - v1.x;
-        const cap_dx = v2.y - v0.y;
-        const cap_dy = v0.x - v2.x;
+        const x_min = @max(@min(s0.x, s1.x, s2.x), self.draw_area_start[0] * self.upscale, 0);
+        const y_min = @max(@min(s0.y, s1.y, s2.y), self.draw_area_start[1] * self.upscale, 0);
+        const x_max = @min(@max(s0.x, s1.x, s2.x), (self.draw_area_end[0] + 1) * self.upscale - 1, self.hires_w - 1);
+        const y_max = @min(@max(s0.y, s1.y, s2.y), (self.draw_area_end[1] + 1) * self.upscale - 1, self.hires_h - 1);
+
+        const abp_dx = s0.y - s1.y;
+        const abp_dy = s1.x - s0.x;
+        const bcp_dx = s1.y - s2.y;
+        const bcp_dy = s2.x - s1.x;
+        const cap_dx = s2.y - s0.y;
+        const cap_dy = s0.x - s2.x;
 
         const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
         const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
         const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
 
         const p = Vertex{ .x = x_min, .y = y_min };
-        var abp_row = edgeFunc(v0, v1, p) + bias0;
-        var bcp_row = edgeFunc(v1, v2, p) + bias1;
-        var cap_row = edgeFunc(v2, v0, p) + bias2;
+        var abp_row = edgeFunc(s0, s1, p) + bias0;
+        var bcp_row = edgeFunc(s1, s2, p) + bias1;
+        var cap_row = edgeFunc(s2, s0, p) + bias2;
 
         const zero_v: Vec4i = @splat(0);
         const abp_step4: Vec4i = @splat(abp_dx *% 4);
@@ -725,26 +815,30 @@ pub const Rasterizer = struct {
             abc = -abc;
         }
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], vram_res_y - 1);
+        const s0: Vertex = .{ .x = v0.x *% self.upscale, .y = v0.y *% self.upscale };
+        const s1: Vertex = .{ .x = v1.x *% self.upscale, .y = v1.y *% self.upscale };
+        const s2: Vertex = .{ .x = v2.x *% self.upscale, .y = v2.y *% self.upscale };
 
-        const abp_dx = v0.y - v1.y;
-        const abp_dy = v1.x - v0.x;
-        const bcp_dx = v1.y - v2.y;
-        const bcp_dy = v2.x - v1.x;
-        const cap_dx = v2.y - v0.y;
-        const cap_dy = v0.x - v2.x;
+        const x_min = @max(@min(s0.x, s1.x, s2.x), self.draw_area_start[0] * self.upscale, 0);
+        const y_min = @max(@min(s0.y, s1.y, s2.y), self.draw_area_start[1] * self.upscale, 0);
+        const x_max = @min(@max(s0.x, s1.x, s2.x), (self.draw_area_end[0] + 1) * self.upscale - 1, self.hires_w - 1);
+        const y_max = @min(@max(s0.y, s1.y, s2.y), (self.draw_area_end[1] + 1) * self.upscale - 1, self.hires_h - 1);
+
+        const abp_dx = s0.y - s1.y;
+        const abp_dy = s1.x - s0.x;
+        const bcp_dx = s1.y - s2.y;
+        const bcp_dy = s2.x - s1.x;
+        const cap_dx = s2.y - s0.y;
+        const cap_dy = s0.x - s2.x;
 
         const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
         const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
         const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
 
         const p = Vertex{ .x = x_min, .y = y_min };
-        const abp_row_start = edgeFunc(v0, v1, p) + bias0;
-        const bcp_row_start = edgeFunc(v1, v2, p) + bias1;
-        const cap_row_start = edgeFunc(v2, v0, p) + bias2;
+        const abp_row_start = edgeFunc(s0, s1, p) + bias0;
+        const bcp_row_start = edgeFunc(s1, s2, p) + bias1;
+        const cap_row_start = edgeFunc(s2, s0, p) + bias2;
 
         const r0: i32 = v0.color.r;
         const r1: i32 = v1.color.r;
@@ -763,9 +857,9 @@ pub const Rasterizer = struct {
         const b_dx = @divTrunc(((b1 -% b0) *% (v2.y -% v0.y) -% (b2 -% b0) *% (v1.y -% v0.y)) *% fp_one, abc);
         const b_dy = @divTrunc(((b2 -% b0) *% (v1.x -% v0.x) -% (b1 -% b0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
-        var r_row = r0 *% fp_one +% (x_min -% v0.x) *% r_dx +% (y_min -% v0.y) *% r_dy;
-        var g_row = g0 *% fp_one +% (x_min -% v0.x) *% g_dx +% (y_min -% v0.y) *% g_dy;
-        var b_row = b0 *% fp_one +% (x_min -% v0.x) *% b_dx +% (y_min -% v0.y) *% b_dy;
+        var r_row = r0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% r_dx +% (y_min -% s0.y) *% r_dy;
+        var g_row = g0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% g_dx +% (y_min -% s0.y) *% g_dy;
+        var b_row = b0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% b_dx +% (y_min -% s0.y) *% b_dy;
 
         const zero_v: Vec4i = @splat(0);
         const abp_step4: Vec4i = @splat(abp_dx *% 4);
@@ -795,9 +889,9 @@ pub const Rasterizer = struct {
                     inline for (0..4) |lane| {
                         if (inside[lane]) {
                             const color: RGB8 = .{
-                                .r = @truncate(@as(u32, @bitCast(r_v[lane] >> fp_bits))),
-                                .g = @truncate(@as(u32, @bitCast(g_v[lane] >> fp_bits))),
-                                .b = @truncate(@as(u32, @bitCast(b_v[lane] >> fp_bits))),
+                                .r = @truncate(self.to_native[@as(u32, @bitCast(r_v[lane] >> fp_bits)) & to_native_mask]),
+                                .g = @truncate(self.to_native[@as(u32, @bitCast(g_v[lane] >> fp_bits)) & to_native_mask]),
+                                .b = @truncate(self.to_native[@as(u32, @bitCast(b_v[lane] >> fp_bits)) & to_native_mask]),
                             };
                             self.setPixelFlat(x + @as(i32, @intCast(lane)), y, color, .{
                                 .semi_trans = semi_trans,
@@ -825,9 +919,9 @@ pub const Rasterizer = struct {
             while (x <= x_max) : (x += 1) {
                 if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const color: RGB8 = .{
-                        .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
-                        .g = @truncate(@as(u32, @bitCast(g >> fp_bits))),
-                        .b = @truncate(@as(u32, @bitCast(b >> fp_bits))),
+                        .r = @truncate(self.to_native[@as(u32, @bitCast(r >> fp_bits)) & to_native_mask]),
+                        .g = @truncate(self.to_native[@as(u32, @bitCast(g >> fp_bits)) & to_native_mask]),
+                        .b = @truncate(self.to_native[@as(u32, @bitCast(b >> fp_bits)) & to_native_mask]),
                     };
                     self.setPixelFlat(x, y, color, .{
                         .semi_trans = semi_trans,
@@ -877,26 +971,30 @@ pub const Rasterizer = struct {
             abc = -abc;
         }
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], vram_res_y - 1);
+        const s0: Vertex = .{ .x = v0.x *% self.upscale, .y = v0.y *% self.upscale };
+        const s1: Vertex = .{ .x = v1.x *% self.upscale, .y = v1.y *% self.upscale };
+        const s2: Vertex = .{ .x = v2.x *% self.upscale, .y = v2.y *% self.upscale };
 
-        const abp_dx = v0.y - v1.y;
-        const abp_dy = v1.x - v0.x;
-        const bcp_dx = v1.y - v2.y;
-        const bcp_dy = v2.x - v1.x;
-        const cap_dx = v2.y - v0.y;
-        const cap_dy = v0.x - v2.x;
+        const x_min = @max(@min(s0.x, s1.x, s2.x), self.draw_area_start[0] * self.upscale, 0);
+        const y_min = @max(@min(s0.y, s1.y, s2.y), self.draw_area_start[1] * self.upscale, 0);
+        const x_max = @min(@max(s0.x, s1.x, s2.x), (self.draw_area_end[0] + 1) * self.upscale - 1, self.hires_w - 1);
+        const y_max = @min(@max(s0.y, s1.y, s2.y), (self.draw_area_end[1] + 1) * self.upscale - 1, self.hires_h - 1);
+
+        const abp_dx = s0.y - s1.y;
+        const abp_dy = s1.x - s0.x;
+        const bcp_dx = s1.y - s2.y;
+        const bcp_dy = s2.x - s1.x;
+        const cap_dx = s2.y - s0.y;
+        const cap_dy = s0.x - s2.x;
 
         const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
         const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
         const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
 
         const p = Vertex{ .x = x_min, .y = y_min };
-        const abp_row_start = edgeFunc(v0, v1, p) + bias0;
-        const bcp_row_start = edgeFunc(v1, v2, p) + bias1;
-        const cap_row_start = edgeFunc(v2, v0, p) + bias2;
+        const abp_row_start = edgeFunc(s0, s1, p) + bias0;
+        const bcp_row_start = edgeFunc(s1, s2, p) + bias1;
+        const cap_row_start = edgeFunc(s2, s0, p) + bias2;
 
         const tex_u0: i32 = @intCast(v0.u);
         const tex_u1: i32 = @intCast(v1.u);
@@ -910,8 +1008,8 @@ pub const Rasterizer = struct {
         const v_dx = @divTrunc(((tex_v1 -% tex_v0) *% (v2.y -% v0.y) -% (tex_v2 -% tex_v0) *% (v1.y -% v0.y)) *% fp_one, abc);
         const v_dy = @divTrunc(((tex_v2 -% tex_v0) *% (v1.x -% v0.x) -% (tex_v1 -% tex_v0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
-        var u_row = tex_u0 *% fp_one +% (x_min -% v0.x) *% u_dx +% (y_min -% v0.y) *% u_dy;
-        var v_row = tex_v0 *% fp_one +% (x_min -% v0.x) *% v_dx +% (y_min -% v0.y) *% v_dy;
+        var u_row = tex_u0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% u_dx +% (y_min -% s0.y) *% u_dy;
+        var v_row = tex_v0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% v_dx +% (y_min -% s0.y) *% v_dy;
 
         const zero_v: Vec4i = @splat(0);
         const abp_step4: Vec4i = @splat(abp_dx *% 4);
@@ -939,8 +1037,8 @@ pub const Rasterizer = struct {
                     inline for (0..4) |lane| {
                         if (inside[lane]) {
                             const texel = self.sampleTexture(
-                                @truncate(@as(u32, @bitCast(u_v[lane] >> fp_bits))),
-                                @truncate(@as(u32, @bitCast(v_v[lane] >> fp_bits))),
+                                @truncate(self.to_native[@as(u32, @bitCast(u_v[lane] >> fp_bits)) & to_native_mask]),
+                                @truncate(self.to_native[@as(u32, @bitCast(v_v[lane] >> fp_bits)) & to_native_mask]),
                                 texp_x,
                                 texp_y,
                                 clut_x,
@@ -973,8 +1071,8 @@ pub const Rasterizer = struct {
             while (x <= x_max) : (x += 1) {
                 if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const texel = self.sampleTexture(
-                        @truncate(@as(u32, @bitCast(u >> fp_bits))),
-                        @truncate(@as(u32, @bitCast(v >> fp_bits))),
+                        @truncate(self.to_native[@as(u32, @bitCast(u >> fp_bits)) & to_native_mask]),
+                        @truncate(self.to_native[@as(u32, @bitCast(v >> fp_bits)) & to_native_mask]),
                         texp_x,
                         texp_y,
                         clut_x,
@@ -1027,26 +1125,30 @@ pub const Rasterizer = struct {
             abc = -abc;
         }
 
-        const x_min = @max(@min(v0.x, v1.x, v2.x), self.draw_area_start[0], 0);
-        const y_min = @max(@min(v0.y, v1.y, v2.y), self.draw_area_start[1], 0);
-        const x_max = @min(@max(v0.x, v1.x, v2.x), self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(@max(v0.y, v1.y, v2.y), self.draw_area_end[1], vram_res_y - 1);
+        const s0: Vertex = .{ .x = v0.x *% self.upscale, .y = v0.y *% self.upscale };
+        const s1: Vertex = .{ .x = v1.x *% self.upscale, .y = v1.y *% self.upscale };
+        const s2: Vertex = .{ .x = v2.x *% self.upscale, .y = v2.y *% self.upscale };
 
-        const abp_dx = v0.y - v1.y;
-        const abp_dy = v1.x - v0.x;
-        const bcp_dx = v1.y - v2.y;
-        const bcp_dy = v2.x - v1.x;
-        const cap_dx = v2.y - v0.y;
-        const cap_dy = v0.x - v2.x;
+        const x_min = @max(@min(s0.x, s1.x, s2.x), self.draw_area_start[0] * self.upscale, 0);
+        const y_min = @max(@min(s0.y, s1.y, s2.y), self.draw_area_start[1] * self.upscale, 0);
+        const x_max = @min(@max(s0.x, s1.x, s2.x), (self.draw_area_end[0] + 1) * self.upscale - 1, self.hires_w - 1);
+        const y_max = @min(@max(s0.y, s1.y, s2.y), (self.draw_area_end[1] + 1) * self.upscale - 1, self.hires_h - 1);
+
+        const abp_dx = s0.y - s1.y;
+        const abp_dy = s1.x - s0.x;
+        const bcp_dx = s1.y - s2.y;
+        const bcp_dy = s2.x - s1.x;
+        const cap_dx = s2.y - s0.y;
+        const cap_dy = s0.x - s2.x;
 
         const bias0: i32 = if (isTopLeft(v0, v1)) 0 else -1;
         const bias1: i32 = if (isTopLeft(v1, v2)) 0 else -1;
         const bias2: i32 = if (isTopLeft(v2, v0)) 0 else -1;
 
         const p = Vertex{ .x = x_min, .y = y_min };
-        const abp_row_start = edgeFunc(v0, v1, p) + bias0;
-        const bcp_row_start = edgeFunc(v1, v2, p) + bias1;
-        const cap_row_start = edgeFunc(v2, v0, p) + bias2;
+        const abp_row_start = edgeFunc(s0, s1, p) + bias0;
+        const bcp_row_start = edgeFunc(s1, s2, p) + bias1;
+        const cap_row_start = edgeFunc(s2, s0, p) + bias2;
 
         const tex_u0: i32 = @intCast(v0.u);
         const tex_u1: i32 = @intCast(v1.u);
@@ -1077,11 +1179,11 @@ pub const Rasterizer = struct {
         const b_dx = @divTrunc(((b1 -% b0) *% (v2.y -% v0.y) -% (b2 -% b0) *% (v1.y -% v0.y)) *% fp_one, abc);
         const b_dy = @divTrunc(((b2 -% b0) *% (v1.x -% v0.x) -% (b1 -% b0) *% (v2.x -% v0.x)) *% fp_one, abc);
 
-        var u_row = tex_u0 *% fp_one +% (x_min -% v0.x) *% u_dx +% (y_min -% v0.y) *% u_dy;
-        var v_row = tex_v0 *% fp_one +% (x_min -% v0.x) *% v_dx +% (y_min -% v0.y) *% v_dy;
-        var r_row = r0 *% fp_one +% (x_min -% v0.x) *% r_dx +% (y_min -% v0.y) *% r_dy;
-        var g_row = g0 *% fp_one +% (x_min -% v0.x) *% g_dx +% (y_min -% v0.y) *% g_dy;
-        var b_row = b0 *% fp_one +% (x_min -% v0.x) *% b_dx +% (y_min -% v0.y) *% b_dy;
+        var u_row = tex_u0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% u_dx +% (y_min -% s0.y) *% u_dy;
+        var v_row = tex_v0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% v_dx +% (y_min -% s0.y) *% v_dy;
+        var r_row = r0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% r_dx +% (y_min -% s0.y) *% r_dy;
+        var g_row = g0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% g_dx +% (y_min -% s0.y) *% g_dy;
+        var b_row = b0 *% fp_one *% self.upscale +% (x_min -% s0.x) *% b_dx +% (y_min -% s0.y) *% b_dy;
 
         const zero_v: Vec4i = @splat(0);
         const abp_step4: Vec4i = @splat(abp_dx *% 4);
@@ -1115,8 +1217,8 @@ pub const Rasterizer = struct {
                     inline for (0..4) |lane| {
                         if (inside[lane]) {
                             const texel = self.sampleTexture(
-                                @truncate(@as(u32, @bitCast(u_v[lane] >> fp_bits))),
-                                @truncate(@as(u32, @bitCast(v_v[lane] >> fp_bits))),
+                                @truncate(self.to_native[@as(u32, @bitCast(u_v[lane] >> fp_bits)) & to_native_mask]),
+                                @truncate(self.to_native[@as(u32, @bitCast(v_v[lane] >> fp_bits)) & to_native_mask]),
                                 texp_x,
                                 texp_y,
                                 clut_x,
@@ -1125,9 +1227,9 @@ pub const Rasterizer = struct {
                             );
                             if (!texel.isZero()) {
                                 const blend_color: RGB8 = .{
-                                    .r = @truncate(@as(u32, @bitCast(r_v[lane] >> fp_bits))),
-                                    .g = @truncate(@as(u32, @bitCast(g_v[lane] >> fp_bits))),
-                                    .b = @truncate(@as(u32, @bitCast(b_v[lane] >> fp_bits))),
+                                    .r = @truncate(self.to_native[@as(u32, @bitCast(r_v[lane] >> fp_bits)) & to_native_mask]),
+                                    .g = @truncate(self.to_native[@as(u32, @bitCast(g_v[lane] >> fp_bits)) & to_native_mask]),
+                                    .b = @truncate(self.to_native[@as(u32, @bitCast(b_v[lane] >> fp_bits)) & to_native_mask]),
                                 };
                                 self.setPixelTextured(x + @as(i32, @intCast(lane)), y, texel, blend_color, .{
                                     .semi_trans = semi_trans,
@@ -1161,8 +1263,8 @@ pub const Rasterizer = struct {
             while (x <= x_max) : (x += 1) {
                 if (abp >= 0 and bcp >= 0 and cap >= 0) {
                     const texel = self.sampleTexture(
-                        @truncate(@as(u32, @bitCast(u >> fp_bits))),
-                        @truncate(@as(u32, @bitCast(v >> fp_bits))),
+                        @truncate(self.to_native[@as(u32, @bitCast(u >> fp_bits)) & to_native_mask]),
+                        @truncate(self.to_native[@as(u32, @bitCast(v >> fp_bits)) & to_native_mask]),
                         texp_x,
                         texp_y,
                         clut_x,
@@ -1171,9 +1273,9 @@ pub const Rasterizer = struct {
                     );
                     if (!texel.isZero()) {
                         const blend_color: RGB8 = .{
-                            .r = @truncate(@as(u32, @bitCast(r >> fp_bits))),
-                            .g = @truncate(@as(u32, @bitCast(g >> fp_bits))),
-                            .b = @truncate(@as(u32, @bitCast(b >> fp_bits))),
+                            .r = @truncate(self.to_native[@as(u32, @bitCast(r >> fp_bits)) & to_native_mask]),
+                            .g = @truncate(self.to_native[@as(u32, @bitCast(g >> fp_bits)) & to_native_mask]),
+                            .b = @truncate(self.to_native[@as(u32, @bitCast(b >> fp_bits)) & to_native_mask]),
                         };
                         self.setPixelTextured(x, y, texel, blend_color, .{
                             .semi_trans = semi_trans,
@@ -1216,13 +1318,13 @@ pub const Rasterizer = struct {
         c: RGB8,
         comptime semi_trans: bool,
     ) void {
-        const x = x_orig + self.draw_offset[0];
-        const y = y_orig + self.draw_offset[1];
+        const x = (x_orig + self.draw_offset[0]) * self.upscale;
+        const y = (y_orig + self.draw_offset[1]) * self.upscale;
 
-        const x_min = @max(x, self.draw_area_start[0], 0);
-        const y_min = @max(y, self.draw_area_start[1], 0);
-        const x_max = @min(x + w - 1, self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(y + h - 1, self.draw_area_end[1], vram_res_y - 1);
+        const x_min = @max(x, self.draw_area_start[0] * self.upscale, 0);
+        const y_min = @max(y, self.draw_area_start[1] * self.upscale, 0);
+        const x_max = @min(x + w * self.upscale - 1, (self.draw_area_end[0] + 1) * self.upscale - 1, self.hires_w - 1);
+        const y_max = @min(y + h * self.upscale - 1, (self.draw_area_end[1] + 1) * self.upscale - 1, self.hires_h - 1);
 
         var yy = y_min;
         while (yy <= y_max) : (yy += 1) {
@@ -1250,28 +1352,22 @@ pub const Rasterizer = struct {
         comptime semi_trans: bool,
         comptime tex_bleld: bool,
     ) void {
-        const x = x_orig + self.draw_offset[0];
-        const y = y_orig + self.draw_offset[1];
+        const x = (x_orig + self.draw_offset[0]) * self.upscale;
+        const y = (y_orig + self.draw_offset[1]) * self.upscale;
 
-        const x_min = @max(x, self.draw_area_start[0], 0);
-        const y_min = @max(y, self.draw_area_start[1], 0);
-        const x_max = @min(x + w - 1, self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(y + h - 1, self.draw_area_end[1], vram_res_y - 1);
+        const x_min = @max(x, self.draw_area_start[0] * self.upscale, 0);
+        const y_min = @max(y, self.draw_area_start[1] * self.upscale, 0);
+        const x_max = @min(x + w * self.upscale - 1, (self.draw_area_end[0] + 1) * self.upscale - 1, self.hires_w - 1);
+        const y_max = @min(y + h * self.upscale - 1, (self.draw_area_end[1] + 1) * self.upscale - 1, self.hires_h - 1);
 
-        const u_offset: u16 = @intCast(x_min - x);
-        const v_offset: u16 = @intCast(y_min - y);
-
-        const u_start = u +% u_offset;
-        const v_start = v +% v_offset;
-
-        var v_curr = v_start;
         var py = y_min;
 
         while (py <= y_max) : (py += 1) {
-            var u_curr = u_start;
+            const v_curr = v +% self.to_native[@intCast(py - y)];
             var px = x_min;
 
             while (px <= x_max) : (px += 1) {
+                const u_curr = u +% self.to_native[@intCast(px - x)];
                 const texel = self.sampleTexture(u_curr, v_curr, texp_x, texp_y, clut_x, clut_y, depth);
 
                 if (!texel.isZero()) {
@@ -1280,11 +1376,7 @@ pub const Rasterizer = struct {
                         .blend = tex_bleld,
                     });
                 }
-
-                u_curr +%= 1;
             }
-
-            v_curr +%= 1;
         }
     }
 
@@ -1307,7 +1399,7 @@ pub const Rasterizer = struct {
         while (yy <= y_max) : (yy += 1) {
             var xx = x_min;
             while (xx <= x_max) : (xx += 1) {
-                self.vram[toVramAddr(xx, yy)] = color;
+                self.writeNativePixel(xx, yy, color);
             }
         }
     }
@@ -1321,12 +1413,30 @@ pub const Rasterizer = struct {
         w: i32,
         h: i32,
     ) void {
+        const force: u16 = if (self.force_mask_bit) 1 << 15 else 0;
+        const s: usize = @intCast(self.upscale);
+        const hw: usize = @intCast(self.hires_w);
+
         var yy: i32 = 0;
         while (yy < h) : (yy += 1) {
             var xx: i32 = 0;
             while (xx < w) : (xx += 1) {
-                const pixel = self.vram[toVramAddr(src_x + xx, src_y + yy)];
-                self.setPixelRaw(dest_x + xx, dest_y + yy, pixel);
+                const src = toVramAddr(src_x + xx, src_y + yy);
+                const dst = toVramAddr(dest_x + xx, dest_y + yy);
+                if (self.check_mask_bit and self.vram[dst] & (1 << 15) != 0) continue; // write-protected
+
+                self.vram[dst] = self.vram[src] | force;
+                if (self.upscale != 1) {
+                    var src_row = (src / vram_res_x) * s * hw + (src % vram_res_x) * s;
+                    var dst_row = (dst / vram_res_x) * s * hw + (dst % vram_res_x) * s;
+                    for (0..s) |_| {
+                        for (0..s) |i| {
+                            self.hires[dst_row + i] = self.hires[src_row + i] | force;
+                        }
+                        src_row += hw;
+                        dst_row += hw;
+                    }
+                }
             }
         }
     }
@@ -1383,7 +1493,7 @@ pub const Rasterizer = struct {
                 const x = x_fp >> fp_bits;
                 const y = y_fp >> fp_bits;
 
-                self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true });
+                self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true, .native = true });
 
                 x_fp += x_dx;
                 y_fp += y_dx;
@@ -1394,7 +1504,7 @@ pub const Rasterizer = struct {
                 const y = y_fp >> fp_bits;
 
                 if (x >= x_min and x <= x_max and y >= y_min and y <= y_max) {
-                    self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true });
+                    self.setPixelFlat(x, y, color, .{ .semi_trans = semi_trans, .dither = true, .native = true });
                 }
 
                 x_fp += x_dx;
@@ -1475,6 +1585,7 @@ pub const Rasterizer = struct {
                 self.setPixelFlat(x, y, color, .{
                     .semi_trans = semi_trans,
                     .dither = true,
+                    .native = true,
                 });
 
                 x_fp += x_dx;
@@ -1498,6 +1609,7 @@ pub const Rasterizer = struct {
                     self.setPixelFlat(x, y, color, .{
                         .semi_trans = semi_trans,
                         .dither = true,
+                        .native = true,
                     });
                 }
 
@@ -1527,12 +1639,16 @@ pub const ThreadedRasterizer = struct {
     pending: Queue = .empty,
     active: Queue = .empty,
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, vram: *align(16) [1024 * 512]u16) @This() {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, vram: *align(16) [1024 * 512]u16, upscale: u32) @This() {
         return .{
             .io = io,
             .allocator = allocator,
-            .rasterizer = Rasterizer.init(vram),
+            .rasterizer = Rasterizer.init(allocator, vram, upscale),
         };
+    }
+
+    pub fn framebuffer(self: *@This()) Framebuffer {
+        return self.rasterizer.framebuffer();
     }
 
     pub fn start(self: *@This()) void {
@@ -1551,6 +1667,7 @@ pub const ThreadedRasterizer = struct {
 
         self.pending.deinit(self.allocator);
         self.active.deinit(self.allocator);
+        self.rasterizer.deinit();
     }
 
     pub fn flush(self: *@This()) void {

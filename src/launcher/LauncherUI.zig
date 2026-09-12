@@ -15,7 +15,7 @@ const default_font = assets.firacode_ttf;
 const default_font_size = 18.0;
 const window_title = "nuPSX";
 const window_width = 600;
-const window_height = 620;
+const window_height = 680;
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
@@ -25,6 +25,8 @@ const browse_button_width = 80;
 const browse_button_spacing = 10;
 
 const bios_size = 512 * 1024;
+const max_upscale = 4;
+const upscale_combo_width = 80;
 
 const header_height = 90.0;
 const header_title_prefix = "nu";
@@ -49,6 +51,7 @@ memcard: PathInput = .{},
 
 shader_enabled: bool = true,
 debug: bool = false,
+upscale: u32 = 1,
 
 error_message: ?[:0]const u8 = null,
 
@@ -149,6 +152,7 @@ pub fn run(self: *@This()) ?Args {
                 .memcard_path = self.dupePath(self.memcard.path()),
                 .no_shader = !self.shader_enabled,
                 .debug = self.debug,
+                .upscale = self.upscale,
             };
         }
     }
@@ -167,6 +171,10 @@ fn loadConfig(self: *@This()) void {
     if (self.config.get("current_dir")) |path| self.browser.setCurrentDir(path);
     if (self.config.getBool("shader_enabled")) |enabled| self.shader_enabled = enabled;
     if (self.config.getBool("debug")) |enabled| self.debug = enabled;
+    if (self.config.get("upscale")) |value| {
+        const scale = std.fmt.parseUnsigned(u32, value, 10) catch 1;
+        if (scale >= 1 and scale <= max_upscale) self.upscale = scale;
+    }
 }
 
 fn saveConfig(self: *@This()) void {
@@ -176,6 +184,8 @@ fn saveConfig(self: *@This()) void {
     self.config.set("current_dir", self.browser.currentDir());
     self.config.setBool("shader_enabled", self.shader_enabled);
     self.config.setBool("debug", self.debug);
+    var buf: [8]u8 = undefined;
+    self.config.set("upscale", std.fmt.bufPrint(&buf, "{d}", .{self.upscale}) catch unreachable);
     self.config.saveConfig();
 }
 
@@ -306,7 +316,18 @@ fn update(self: *@This()) bool {
 
         // other options
         {
-            zgui.text("Options:", .{});
+            zgui.alignTextToFramePadding();
+            zgui.text("Internal Resolution:", .{});
+            zgui.sameLine(.{ .spacing = 10 });
+            var upscale_idx: i32 = @intCast(self.upscale - 1);
+            zgui.pushItemWidth(upscale_combo_width);
+            if (zgui.combo("##upscale", .{
+                .current_item = &upscale_idx,
+                .items_separated_by_zeros = "1x\x002x\x003x\x004x\x00",
+            })) self.upscale = @intCast(upscale_idx + 1);
+            zgui.popItemWidth();
+            drawHint("Higher rendering quality at the cost of performance");
+
             _ = zgui.checkbox("Enable NTSC Shader Filter", .{ .v = &self.shader_enabled });
             drawHint("Simulates composite video artifacts");
             _ = zgui.checkbox("Launch with Debugger", .{ .v = &self.debug });

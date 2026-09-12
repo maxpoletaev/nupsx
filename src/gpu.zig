@@ -29,10 +29,10 @@ const gpu_vram_size = 1024 * 512;
 const gpu_threaded_rasterizer = options.threaded_rasterizer and !builtin.target.cpu.arch.isWasm();
 const Rasterizer = if (gpu_threaded_rasterizer) rasterizer.ThreadedRasterizer else rasterizer.Rasterizer;
 
-fn initRasterizer(gpa: std.mem.Allocator, io: ?std.Io, vram: *align(16) [gpu_vram_size]u16) Rasterizer {
+fn initRasterizer(gpa: std.mem.Allocator, io: ?std.Io, vram: *align(16) [gpu_vram_size]u16, upscale: u32) Rasterizer {
     return switch (comptime Rasterizer) {
-        rasterizer.ThreadedRasterizer => Rasterizer.init(gpa, io.?, vram),
-        rasterizer.Rasterizer => Rasterizer.init(vram),
+        rasterizer.ThreadedRasterizer => Rasterizer.init(gpa, io.?, vram, upscale),
+        rasterizer.Rasterizer => Rasterizer.init(gpa, vram, upscale),
         else => @compileError("unreachable"),
     };
 }
@@ -222,7 +222,7 @@ pub const GPU = struct {
     frame_ready: bool = false,
     debug_pause: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, io: ?std.Io, bus: *mem.Bus) *@This() {
+    pub fn init(allocator: std.mem.Allocator, io: ?std.Io, bus: *mem.Bus, upscale: u32) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
 
         const vram_mem = allocator.alignedAlloc(u16, .@"16", gpu_vram_size) catch @panic("OOM");
@@ -230,7 +230,7 @@ pub const GPU = struct {
 
         self.* = std.mem.zeroInit(@This(), .{
             .allocator = allocator,
-            .rasterizer = initRasterizer(allocator, io, vram),
+            .rasterizer = initRasterizer(allocator, io, vram, upscale),
             .gp0_state = .recv_command,
             .gp1_dma_direction = .off,
             .vram = vram,
@@ -301,13 +301,12 @@ pub const GPU = struct {
         gpustat.ready_send_vram_to_cpu = true;
         gpustat.ready_receive_dma_block = true;
         gpustat.ready_receive_cmd = true;
+        gpustat.interlace_odd_line = !self.in_vblank and (self.scanline & 1) != 0;
 
         // The following fields should be taken from self.gp1_display_mode, but setting
         // them to anything other than the hardcoded values seems to break everything.
         gpustat.vres = .@"240";
         gpustat.vertical_interlace = false;
-
-        gpustat.interlace_odd_line = !self.in_vblank and (self.scanline & 1) != 0;
 
         return @as(u32, @bitCast(gpustat));
     }
@@ -536,12 +535,6 @@ pub const GPU = struct {
         const xx = @as(u32, x) & 0x3ff; // 0..1023
         const yy = @as(u32, y) & 0x1ff; // 0..511
         return self.vram[yy * 1024 + xx];
-    }
-
-    inline fn writeVram(self: *@This(), x: u16, y: u16, v: u16) void {
-        const xx = @as(u32, x) & 0x3ff; // 0..1023
-        const yy = @as(u32, y) & 0x1ff; // 0..511
-        self.vram[yy * 1024 + xx] = v;
     }
 
     fn fillVram(self: *@This(), v: u32) void {

@@ -102,6 +102,7 @@ Options:
   --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
   --uncapped           Run the emulator without frame rate limiting
   --no-shader          Disable the CRT/NTSC shader
+  --upscale <n>        Internal resolution scale, 1-4 (default: 1)
   -h, --help           Show this help message
 ```
 
