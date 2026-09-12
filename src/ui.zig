@@ -19,8 +19,8 @@ const window_height = 240 * scale;
 const ntsc_width = 960;
 const ntsc_height = 720;
 
-const vertex_shader_source = @embedFile("shaders/vertex.glsl");
-const fragment_shader_source = @embedFile("shaders/fragment.glsl");
+const vertex_shader_source = @embedFile("shaders/display_vertex.glsl");
+const fragment_shader_source = @embedFile("shaders/display_fragment.glsl");
 const ntsc_encoder_source = @embedFile("shaders/ntsc_encoder.glsl");
 const ntsc_decoder_source = @embedFile("shaders/ntsc_decoder.glsl");
 
@@ -108,7 +108,7 @@ const DisplayPass = struct {
         var start_y: f32 = @floatFromInt(gpu.gp1_display_area_start.y);
 
         const res_scale: f32 = switch (color_depth) {
-            .bit15 => @floatFromInt(gpu.rasterizer.framebuffer().upscale),
+            .bit15 => @floatFromInt(gpu.renderer.framebuffer().upscale),
             .bit24 => 1.0, // always native since this is mostly mdec
         };
         const offset_x: f32 = switch (color_depth) {
@@ -280,7 +280,7 @@ pub const UI = struct {
     is_running: bool = true,
     next_frame_time: f64 = 0,
     uncapped: bool = false,
-    filename: ?[]const u8 = null,
+    game_name: ?[]const u8 = null,
     mute_toggle_callback: ?Callback = null,
     hotkey_down: std.enums.EnumArray(HotkeyAction, bool) = .initFill(false),
 
@@ -310,6 +310,7 @@ pub const UI = struct {
         glfw.swapInterval(0);
 
         zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]) catch @panic("OpenGL");
+        gpu.renderer.initBackend();
 
         // VAO and VBO for fullscreen quad
         var vao: gl.Uint = undefined;
@@ -403,7 +404,7 @@ pub const UI = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.filename) |f| self.allocator.free(f);
+        if (self.game_name) |f| self.allocator.free(f);
         gl.deleteTextures(1, &self.vram_tex);
         gl.deleteTextures(1, &self.rgb_tex);
         gl.deleteFramebuffers(1, &self.rgb_fbo);
@@ -423,10 +424,16 @@ pub const UI = struct {
         allocator.destroy(self);
     }
 
-    pub fn setFilename(self: *@This(), path: []const u8) void {
-        if (self.filename) |old| self.allocator.free(old);
+    pub fn setGameNameFromPath(self: *@This(), path: []const u8) void {
         const basename = std.fs.path.basename(path);
-        self.filename = self.allocator.dupe(u8, basename) catch @panic("OOM");
+
+        var game_name = basename;
+        if (std.mem.lastIndexOfScalar(u8, basename, '.')) |dot| {
+            if (dot > 0) game_name = basename[0..dot];
+        }
+
+        if (self.game_name) |old| self.allocator.free(old);
+        self.game_name = self.allocator.dupe(u8, game_name) catch @panic("OOM");
     }
 
     pub fn setUncapped(self: *@This(), uncapped: bool) void {
@@ -513,7 +520,7 @@ pub const UI = struct {
         const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
         var title_buf: [256]u8 = undefined;
 
-        if (self.filename) |filename| {
+        if (self.game_name) |filename| {
             const title = std.fmt.bufPrintZ(
                 &title_buf,
                 "{s} - {s} - {d:.1} FPS",
@@ -533,8 +540,17 @@ pub const UI = struct {
         self.frame_count = 0;
     }
 
+    fn vramTexture(self: *@This()) gl.Uint {
+        if (self.gpu.renderer.texture()) |tex| {
+            if (self.gpu.getColorDepth() == .bit15) return tex;
+            self.gpu.renderer.downloadVram(0, 0, 1024, 512);
+        }
+        self.uploadVram();
+        return self.vram_tex;
+    }
+
     fn uploadVram(self: *@This()) void {
-        const fb = self.gpu.rasterizer.framebuffer();
+        const fb = self.gpu.renderer.framebuffer();
         gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
         switch (self.gpu.getColorDepth()) {
@@ -559,11 +575,11 @@ pub const UI = struct {
         const win_w: gl.Sizei = @intCast(fb_size[0]);
         const win_h: gl.Sizei = @intCast(fb_size[1]);
 
-        self.uploadVram();
+        const vram_tex = self.vramTexture();
         gl.bindVertexArray(self.vao);
 
         if (self.ntsc_shader_enabled) {
-            self.display.draw(self.rgb_fbo, self.vram_tex, window_width, window_height, self.gpu);
+            self.display.draw(self.rgb_fbo, vram_tex, window_width, window_height, self.gpu);
             self.encoder.draw(self.composite_fbo, self.rgb_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.decoder.draw(self.output_fbo, self.composite_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.ntsc_frame +%= 1;
@@ -573,7 +589,7 @@ pub const UI = struct {
             gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, 0);
             gl.blitFramebuffer(0, 0, ntsc_width, ntsc_height, 0, 0, win_w, win_h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
         } else {
-            self.display.draw(0, self.vram_tex, win_w, win_h, self.gpu);
+            self.display.draw(0, vram_tex, win_w, win_h, self.gpu);
         }
 
         self.window.swapBuffers();

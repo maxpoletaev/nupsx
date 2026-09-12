@@ -5,17 +5,20 @@ const zopengl = @import("zopengl");
 
 const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
-const Args = @import("../args.zig").Args;
+const args_mod = @import("../args.zig");
 const Config = @import("../config.zig").Config;
 const host_paths = @import("../host_paths.zig");
 const FileBrowser = @import("FileBrowser.zig");
 const PathInput = FileBrowser.PathInput;
 
+const Args = args_mod.Args;
+const RendererBackend = args_mod.RendererBackend;
+
 const default_font = assets.firacode_ttf;
 const default_font_size = 18.0;
 const window_title = "nuPSX";
 const window_width = 600;
-const window_height = 680;
+const window_height = 760;
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
@@ -27,6 +30,7 @@ const browse_button_spacing = 10;
 const bios_size = 512 * 1024;
 const max_upscale = 4;
 const upscale_combo_width = 80;
+const renderer_combo_width = 120;
 
 const header_height = 90.0;
 const header_title_prefix = "nu";
@@ -52,6 +56,7 @@ memcard: PathInput = .{},
 shader_enabled: bool = true,
 debug: bool = false,
 upscale: u32 = 1,
+renderer: RendererBackend = .threaded,
 
 error_message: ?[:0]const u8 = null,
 
@@ -153,6 +158,7 @@ pub fn run(self: *@This()) ?Args {
                 .no_shader = !self.shader_enabled,
                 .debug = self.debug,
                 .upscale = self.upscale,
+                .renderer = self.renderer,
             };
         }
     }
@@ -175,6 +181,9 @@ fn loadConfig(self: *@This()) void {
         const scale = std.fmt.parseUnsigned(u32, value, 10) catch 1;
         if (scale >= 1 and scale <= max_upscale) self.upscale = scale;
     }
+    if (self.config.get("renderer")) |value| {
+        if (std.meta.stringToEnum(RendererBackend, value)) |backend| self.renderer = backend;
+    }
 }
 
 fn saveConfig(self: *@This()) void {
@@ -186,6 +195,7 @@ fn saveConfig(self: *@This()) void {
     self.config.setBool("debug", self.debug);
     var buf: [8]u8 = undefined;
     self.config.set("upscale", std.fmt.bufPrint(&buf, "{d}", .{self.upscale}) catch unreachable);
+    self.config.set("renderer", @tagName(self.renderer));
     self.config.saveConfig();
 }
 
@@ -314,7 +324,7 @@ fn update(self: *@This()) bool {
         zgui.separator();
         zgui.dummy(.{ .w = 0, .h = 10 });
 
-        // other options
+        // internal resolution
         {
             zgui.alignTextToFramePadding();
             zgui.text("Internal Resolution:", .{});
@@ -327,9 +337,35 @@ fn update(self: *@This()) bool {
             })) self.upscale = @intCast(upscale_idx + 1);
             zgui.popItemWidth();
             drawHint("Higher rendering quality at the cost of performance");
+            zgui.dummy(.{ .w = 0, .h = 4 });
+        }
 
+        // renderer backend
+        {
+            zgui.alignTextToFramePadding();
+            zgui.text("Renderer Backend:", .{});
+            zgui.sameLine(.{ .spacing = 10 });
+            var renderer_idx: i32 = @intFromEnum(self.renderer);
+            zgui.pushItemWidth(renderer_combo_width);
+            if (zgui.combo("##renderer", .{
+                .current_item = &renderer_idx,
+                .items_separated_by_zeros = "Software\x00Threaded\x00OpenGL\x00",
+            })) self.renderer = @enumFromInt(renderer_idx);
+            zgui.popItemWidth();
+            drawHint("Threaded runs the software rasterizer on a separate thread");
+            drawHint("OpenGL should be faster for upscaled res, but incomplete");
+            zgui.dummy(.{ .w = 0, .h = 4 });
+        }
+
+        zgui.separator();
+        zgui.dummy(.{ .w = 0, .h = 10 });
+
+        // other options
+        {
             _ = zgui.checkbox("Enable NTSC Shader Filter", .{ .v = &self.shader_enabled });
             drawHint("Simulates composite video artifacts");
+            zgui.dummy(.{ .w = 0, .h = 4 });
+
             _ = zgui.checkbox("Launch with Debugger", .{ .v = &self.debug });
             drawHint("Opens the disassembly, CPU, VRAM, and register inspector views");
             zgui.dummy(.{ .w = 0, .h = 20 });
@@ -399,7 +435,7 @@ fn drawHeader(win_w: f32) void {
         .col = rgba(header_bg_color, 1.0),
     });
 
-    zgui.pushFont(null, 46.0);
+    zgui.pushFont(null, 48.0);
     const prefix_dim = zgui.calcTextSize(header_title_prefix, .{});
     const title_x = x0 + content_padding;
     const title_y = y0 + 18.0;

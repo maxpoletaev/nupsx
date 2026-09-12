@@ -2,6 +2,7 @@ const std = @import("std");
 const zaudio = @import("zaudio");
 
 const args_mod = @import("args.zig");
+const consts = @import("consts.zig");
 const mem_mod = @import("mem.zig");
 const timer_mod = @import("timer.zig");
 const disasm_mod = @import("disasm.zig");
@@ -21,6 +22,10 @@ const UI = @import("ui.zig").UI;
 const exe = @import("exe.zig");
 const LauncherUI = @import("launcher/LauncherUI.zig");
 const host_paths = @import("host_paths.zig");
+const renderer_mod = @import("renderer.zig");
+const SoftwareRenderer = @import("renderer_sw.zig").SoftwareRenderer;
+const ThreadedRenderer = @import("renderer_sw.zig").ThreadedRenderer;
+const GLRenderer = @import("renderer_gl.zig").GLRenderer;
 
 const Bus = mem_mod.Bus;
 const BIOS = mem_mod.BIOS;
@@ -172,6 +177,14 @@ const Audio = struct {
     }
 };
 
+fn createRenderer(allocator: std.mem.Allocator, io: std.Io, args: Args, vram: *align(16) [consts.vram_size]u16) renderer_mod.Renderer {
+    return switch (args.renderer) {
+        .software => SoftwareRenderer.init(allocator, vram, args.upscale).renderer(),
+        .threaded => ThreadedRenderer.init(allocator, io, vram, args.upscale).renderer(),
+        .opengl => GLRenderer.init(allocator, vram, args.upscale).renderer(),
+    };
+}
+
 fn getArgs(allocator: std.mem.Allocator, io: std.Io, proc_args: std.process.Args) Args {
     if (Args.hasExplicitArgs(allocator, proc_args)) {
         return Args.parse(allocator, io, proc_args) catch {
@@ -214,7 +227,13 @@ pub fn main(init: std.process.Init) !void {
     const scratchpad = Scratchpad.init(allocator);
     defer scratchpad.deinit();
 
-    const gpu = GPU.init(allocator, io, bus, args.upscale);
+    const vram = allocator.alignedAlloc(u16, .@"16", consts.vram_size) catch @panic("OOM");
+    defer allocator.free(vram);
+
+    const renderer = createRenderer(allocator, io, args, vram[0..consts.vram_size]);
+    defer renderer.deinit();
+
+    const gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer);
     defer gpu.deinit();
 
     const cpu = CPU.init(allocator, bus);
@@ -327,9 +346,9 @@ pub fn main(init: std.process.Init) !void {
         if (args.uncapped) ui.setUncapped(true);
 
         if (args.cd_image_path.len != 0) {
-            ui.setFilename(args.cd_image_path);
+            ui.setGameNameFromPath(args.cd_image_path);
         } else if (args.exe_path.len != 0) {
-            ui.setFilename(args.exe_path);
+            ui.setGameNameFromPath(args.exe_path);
         }
 
         var buf: [1024]u8 = undefined;
