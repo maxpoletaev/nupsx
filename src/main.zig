@@ -327,9 +327,9 @@ pub fn main(init: std.process.Init) !void {
         if (args.uncapped) ui.setUncapped(true);
 
         if (args.cd_image_path.len != 0) {
-            ui.setFilename(args.cd_image_path);
+            ui.setGameNameFromPath(args.cd_image_path);
         } else if (args.exe_path.len != 0) {
-            ui.setFilename(args.exe_path);
+            ui.setGameNameFromPath(args.exe_path);
         }
 
         var buf: [1024]u8 = undefined;

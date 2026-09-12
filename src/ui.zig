@@ -280,7 +280,7 @@ pub const UI = struct {
     is_running: bool = true,
     next_frame_time: f64 = 0,
     uncapped: bool = false,
-    filename: ?[]const u8 = null,
+    game_name: ?[]const u8 = null,
     mute_toggle_callback: ?Callback = null,
     hotkey_down: std.enums.EnumArray(HotkeyAction, bool) = .initFill(false),
 
@@ -403,7 +403,7 @@ pub const UI = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.filename) |f| self.allocator.free(f);
+        if (self.game_name) |f| self.allocator.free(f);
         gl.deleteTextures(1, &self.vram_tex);
         gl.deleteTextures(1, &self.rgb_tex);
         gl.deleteFramebuffers(1, &self.rgb_fbo);
@@ -423,10 +423,16 @@ pub const UI = struct {
         allocator.destroy(self);
     }
 
-    pub fn setFilename(self: *@This(), path: []const u8) void {
-        if (self.filename) |old| self.allocator.free(old);
+    pub fn setGameNameFromPath(self: *@This(), path: []const u8) void {
         const basename = std.fs.path.basename(path);
-        self.filename = self.allocator.dupe(u8, basename) catch @panic("OOM");
+
+        var game_name = basename;
+        if (std.mem.lastIndexOfScalar(u8, basename, '.')) |dot| {
+            if (dot > 0) game_name = basename[0..dot];
+        }
+
+        if (self.game_name) |old| self.allocator.free(old);
+        self.game_name = self.allocator.dupe(u8, game_name) catch @panic("OOM");
     }
 
     pub fn setUncapped(self: *@This(), uncapped: bool) void {
@@ -513,7 +519,7 @@ pub const UI = struct {
         const fps = @as(f64, @floatFromInt(self.frame_count)) / fps_elapsed;
         var title_buf: [256]u8 = undefined;
 
-        if (self.filename) |filename| {
+        if (self.game_name) |filename| {
             const title = std.fmt.bufPrintZ(
                 &title_buf,
                 "{s} - {s} - {d:.1} FPS",
