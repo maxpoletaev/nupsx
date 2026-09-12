@@ -1,9 +1,9 @@
 const std = @import("std");
 const mem = @import("mem.zig");
+const consts = @import("consts.zig");
 const renderer = @import("renderer.zig");
 const bits = @import("bits.zig");
 const fifo = @import("fifo.zig");
-const consts = @import("consts.zig");
 
 const log = std.log.scoped(.gpu);
 
@@ -21,8 +21,6 @@ const VideoMode = enum(u1) { ntsc = 0, pal = 1 };
 const TexpageColorMode = enum(u2) { bit4 = 0, bit8 = 1, bit15 = 2 };
 const DmaDirection = enum(u2) { off = 0, fifo = 1, cpu_to_gp0 = 2, gpuread_to_cpu = 3 };
 pub const ColorDepth = enum(u1) { bit15 = 0, bit24 = 1 };
-
-pub const vram_size = 1024 * 512;
 
 const DisplayMode = packed struct(u32) {
     hres: Hres1, // 0-1
@@ -175,7 +173,7 @@ pub const GPU = struct {
     allocator: std.mem.Allocator,
     renderer: renderer.Renderer,
 
-    vram: *align(16) [vram_size]u16,
+    vram: *align(16) [consts.vram_size]u16,
     gpuread: u32,
 
     gp0_state: CmdState,
@@ -209,7 +207,7 @@ pub const GPU = struct {
     frame_ready: bool = false,
     debug_pause: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus, vram: *align(16) [vram_size]u16, backend: renderer.Renderer) *@This() {
+    pub fn init(allocator: std.mem.Allocator, bus: *mem.Bus, vram: *align(16) [consts.vram_size]u16, backend: renderer.Renderer) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
 
         self.* = std.mem.zeroInit(@This(), .{

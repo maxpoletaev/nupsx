@@ -10,9 +10,9 @@ const RasterCommand = renderer.RasterCommand;
 const Framebuffer = renderer.Framebuffer;
 const TransparencyMode = renderer.TransparencyMode;
 const Renderer = renderer.Renderer;
-const Vram = [consts.vram_res_x * consts.vram_res_y]u16;
+const Vram = [consts.vram_size]u16;
 
-pub const OpenGlRenderer = struct {
+pub const GLRenderer = struct {
     allocator: std.mem.Allocator,
     vram: *align(16) Vram,
     upscale: i32,

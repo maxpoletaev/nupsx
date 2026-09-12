@@ -1,4 +1,5 @@
 const std = @import("std");
+const consts = @import("consts.zig");
 const fifo = @import("fifo.zig");
 const renderer = @import("renderer.zig");
 
@@ -14,6 +15,7 @@ const Vertex = renderer.Vertex;
 const Framebuffer = renderer.Framebuffer;
 const RasterCommand = renderer.RasterCommand;
 const Renderer = renderer.Renderer;
+const Vram = [consts.vram_size]u16;
 
 const fp_bits = 12;
 const fp_one: i32 = 1 << fp_bits;
@@ -27,13 +29,12 @@ inline fn vec4Init(base: i32, dx: i32) Vec4i {
 pub const SoftwareRenderer = struct {
     pub const max_upscale = 4;
 
-    const to_native_mask = vram_res_x * max_upscale - 1;
-    const vram_res_x = 1024;
-    const vram_res_y = 512;
+    const to_native_size = consts.vram_res_x * max_upscale;
+    const to_native_mask = consts.vram_res_x * max_upscale - 1;
 
     allocator: std.mem.Allocator,
 
-    vram: *align(16) [vram_res_x * vram_res_y]u16,
+    vram: *align(16) Vram,
     transparency_mode: TransparencyMode,
     draw_area_start: [2]i32,
     draw_area_end: [2]i32,
@@ -48,15 +49,15 @@ pub const SoftwareRenderer = struct {
     hires_w: i32,
     hires_h: i32,
     upscale: i32,
-    to_native: [vram_res_x * max_upscale]u16 = undefined, // x/scale
-    to_native_aligned: [vram_res_x * max_upscale]i16 = undefined, // x/scale if x%scale == 0, else -1
+    to_native: [to_native_size]u16 = undefined, // x/scale
+    to_native_aligned: [to_native_size]i16 = undefined, // x/scale if x%scale == 0, else -1
 
-    pub fn init(allocator: std.mem.Allocator, vram: *align(16) [vram_res_x * vram_res_y]u16, upscale: u32) *@This() {
+    pub fn init(allocator: std.mem.Allocator, vram: *align(16) Vram, upscale: u32) *@This() {
         std.debug.assert(upscale >= 1 and upscale <= max_upscale);
 
         const hires = if (upscale == 1) vram else blk: {
-            const scaled_x = vram_res_x * upscale;
-            const scaled_y = vram_res_y * upscale;
+            const scaled_x = consts.vram_res_x * upscale;
+            const scaled_y = consts.vram_res_y * upscale;
             log.info("internal resolution is set to x={d} y={d}", .{ scaled_x, scaled_y });
             break :blk allocator.alloc(u16, scaled_x * scaled_y) catch @panic("OOM");
         };
@@ -66,17 +67,20 @@ pub const SoftwareRenderer = struct {
             .allocator = allocator,
             .vram = vram,
             .hires = hires,
-            .hires_w = @intCast(vram_res_x * upscale),
-            .hires_h = @intCast(vram_res_y * upscale),
+            .hires_w = @intCast(consts.vram_res_x * upscale),
+            .hires_h = @intCast(consts.vram_res_y * upscale),
             .upscale = @intCast(upscale),
             .texwin_mask = .{ 0, 0 },
             .texwin_offset = .{ 0, 0 },
             .draw_offset = .{ 0, 0 },
             .draw_area_start = .{ 0, 0 },
             .transparency_mode = .@"B+F",
-            .draw_area_end = .{ vram_res_x - 1, vram_res_y - 1 },
+            .draw_area_end = .{
+                consts.vram_res_x - 1,
+                consts.vram_res_y - 1,
+            },
         };
-        for (0..vram_res_x * upscale) |i| {
+        for (0..consts.vram_res_x * upscale) |i| {
             self.to_native[i] = @intCast(i / upscale);
             self.to_native_aligned[i] = if (i % upscale == 0) @intCast(i / upscale) else -1;
         }
@@ -249,7 +253,7 @@ pub const SoftwareRenderer = struct {
     inline fn toVramAddr(x: i32, y: i32) usize {
         const xx = @as(u32, @bitCast(x)) & 0x3ff; // 0..1023
         const yy = @as(u32, @bitCast(y)) & 0x1ff; // 0..511
-        return xx + yy * vram_res_x;
+        return xx + yy * consts.vram_res_x;
     }
 
     inline fn toHiresAddr(self: *@This(), x: i32, y: i32) usize {
@@ -259,7 +263,7 @@ pub const SoftwareRenderer = struct {
     inline fn writeNativePixel(self: *@This(), x: i32, y: i32, color: u16) void {
         const xx: i32 = x & 0x3ff;
         const yy: i32 = y & 0x1ff;
-        self.vram[@intCast(xx + yy * vram_res_x)] = color;
+        self.vram[@intCast(xx + yy * consts.vram_res_x)] = color;
         if (self.upscale != 1) {
             const s: usize = @intCast(self.upscale);
             const w: usize = @intCast(self.hires_w);
@@ -277,7 +281,7 @@ pub const SoftwareRenderer = struct {
             const nx = self.to_native_aligned[@intCast(x)];
             const ny = self.to_native_aligned[@intCast(y)];
             if (nx >= 0 and ny >= 0) {
-                self.vram[@as(usize, @intCast(nx)) + @as(usize, @intCast(ny)) * vram_res_x] = color;
+                self.vram[@as(usize, @intCast(nx)) + @as(usize, @intCast(ny)) * consts.vram_res_x] = color;
             }
         }
     }
@@ -1169,8 +1173,8 @@ pub const SoftwareRenderer = struct {
 
         const x_min = @max(x, self.draw_area_start[0], 0);
         const y_min = @max(y, self.draw_area_start[1], 0);
-        const x_max = @min(x + w - 1, self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(y + h - 1, self.draw_area_end[1], vram_res_y - 1);
+        const x_max = @min(x + w - 1, self.draw_area_end[0], consts.vram_res_x - 1);
+        const y_max = @min(y + h - 1, self.draw_area_end[1], consts.vram_res_y - 1);
 
         var yy = y_min;
         while (yy <= y_max) : (yy += 1) {
@@ -1204,8 +1208,8 @@ pub const SoftwareRenderer = struct {
 
                 self.vram[dst] = self.vram[src] | force;
                 if (self.upscale != 1) {
-                    var src_row = (src / vram_res_x) * s * hw + (src % vram_res_x) * s;
-                    var dst_row = (dst / vram_res_x) * s * hw + (dst % vram_res_x) * s;
+                    var src_row = (src / consts.vram_res_x) * s * hw + (src % consts.vram_res_x) * s;
+                    var dst_row = (dst / consts.vram_res_x) * s * hw + (dst % consts.vram_res_x) * s;
                     for (0..s) |_| {
                         for (0..s) |i| {
                             self.hires[dst_row + i] = self.hires[src_row + i] | force;
@@ -1238,8 +1242,8 @@ pub const SoftwareRenderer = struct {
 
         const x_min = @max(self.draw_area_start[0], 0);
         const y_min = @max(self.draw_area_start[1], 0);
-        const x_max = @min(self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(self.draw_area_end[1], vram_res_y - 1);
+        const x_max = @min(self.draw_area_end[0], consts.vram_res_x - 1);
+        const y_max = @min(self.draw_area_end[1], consts.vram_res_y - 1);
 
         if (x_min > x_max or y_min > y_max) return;
 
@@ -1307,8 +1311,8 @@ pub const SoftwareRenderer = struct {
 
         const x_min = @max(self.draw_area_start[0], 0);
         const y_min = @max(self.draw_area_start[1], 0);
-        const x_max = @min(self.draw_area_end[0], vram_res_x - 1);
-        const y_max = @min(self.draw_area_end[1], vram_res_y - 1);
+        const x_max = @min(self.draw_area_end[0], consts.vram_res_x - 1);
+        const y_max = @min(self.draw_area_end[1], consts.vram_res_y - 1);
 
         if (x_min > x_max or y_min > y_max) return;
 

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const mem_mod = @import("mem.zig");
+const consts = @import("consts.zig");
 const timer_mod = @import("timer.zig");
 const gpu_mod = @import("gpu.zig");
 const cdrom_mod = @import("cdrom.zig");
@@ -99,9 +100,9 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     bus = Bus.init(allocator);
     ram = RAM.init(allocator);
     scratchpad = Scratchpad.init(allocator);
-    const vram = allocator.alignedAlloc(u16, .@"16", gpu_mod.vram_size) catch @panic("OOM");
-    const renderer = SoftwareRenderer.init(allocator, vram[0..gpu_mod.vram_size], 1).renderer();
-    gpu = GPU.init(allocator, bus, vram[0..gpu_mod.vram_size], renderer);
+    const vram = allocator.alignedAlloc(u16, .@"16", consts.vram_size) catch @panic("OOM");
+    const renderer = SoftwareRenderer.init(allocator, vram[0..consts.vram_size], 1).renderer();
+    gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer);
     cpu = CPU.init(allocator, bus);
     dma = DMA.init(allocator, bus);
     mdec = MDEC.init(allocator);

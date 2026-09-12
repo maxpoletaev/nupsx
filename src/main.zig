@@ -2,6 +2,7 @@ const std = @import("std");
 const zaudio = @import("zaudio");
 
 const args_mod = @import("args.zig");
+const consts = @import("consts.zig");
 const mem_mod = @import("mem.zig");
 const timer_mod = @import("timer.zig");
 const disasm_mod = @import("disasm.zig");
@@ -24,7 +25,7 @@ const host_paths = @import("host_paths.zig");
 const renderer_mod = @import("renderer.zig");
 const SoftwareRenderer = @import("renderer_sw.zig").SoftwareRenderer;
 const ThreadedRenderer = @import("renderer_sw.zig").ThreadedRenderer;
-const OpenGlRenderer = @import("renderer_gl.zig").OpenGlRenderer;
+const GLRenderer = @import("renderer_gl.zig").GLRenderer;
 
 const Bus = mem_mod.Bus;
 const BIOS = mem_mod.BIOS;
@@ -176,11 +177,11 @@ const Audio = struct {
     }
 };
 
-fn createRenderer(allocator: std.mem.Allocator, io: std.Io, args: Args, vram: *align(16) [gpu_mod.vram_size]u16) renderer_mod.Renderer {
+fn createRenderer(allocator: std.mem.Allocator, io: std.Io, args: Args, vram: *align(16) [consts.vram_size]u16) renderer_mod.Renderer {
     return switch (args.renderer) {
         .software => SoftwareRenderer.init(allocator, vram, args.upscale).renderer(),
         .threaded => ThreadedRenderer.init(allocator, io, vram, args.upscale).renderer(),
-        .opengl => OpenGlRenderer.init(allocator, vram, args.upscale).renderer(),
+        .opengl => GLRenderer.init(allocator, vram, args.upscale).renderer(),
     };
 }
 
@@ -226,13 +227,13 @@ pub fn main(init: std.process.Init) !void {
     const scratchpad = Scratchpad.init(allocator);
     defer scratchpad.deinit();
 
-    const vram = allocator.alignedAlloc(u16, .@"16", gpu_mod.vram_size) catch @panic("OOM");
+    const vram = allocator.alignedAlloc(u16, .@"16", consts.vram_size) catch @panic("OOM");
     defer allocator.free(vram);
 
-    const renderer = createRenderer(allocator, io, args, vram[0..gpu_mod.vram_size]);
+    const renderer = createRenderer(allocator, io, args, vram[0..consts.vram_size]);
     defer renderer.deinit();
 
-    const gpu = GPU.init(allocator, bus, vram[0..gpu_mod.vram_size], renderer);
+    const gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer);
     defer gpu.deinit();
 
     const cpu = CPU.init(allocator, bus);

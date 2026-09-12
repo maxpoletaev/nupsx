@@ -18,7 +18,7 @@ const default_font = assets.firacode_ttf;
 const default_font_size = 18.0;
 const window_title = "nuPSX";
 const window_width = 600;
-const window_height = 740;
+const window_height = 760;
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
@@ -324,7 +324,7 @@ fn update(self: *@This()) bool {
         zgui.separator();
         zgui.dummy(.{ .w = 0, .h = 10 });
 
-        // other options
+        // internal resolution
         {
             zgui.alignTextToFramePadding();
             zgui.text("Internal Resolution:", .{});
@@ -338,9 +338,12 @@ fn update(self: *@This()) bool {
             zgui.popItemWidth();
             drawHint("Higher rendering quality at the cost of performance");
             zgui.dummy(.{ .w = 0, .h = 4 });
+        }
 
+        // renderer backend
+        {
             zgui.alignTextToFramePadding();
-            zgui.text("Renderer:", .{});
+            zgui.text("Renderer Backend:", .{});
             zgui.sameLine(.{ .spacing = 10 });
             var renderer_idx: i32 = @intFromEnum(self.renderer);
             zgui.pushItemWidth(renderer_combo_width);
@@ -350,9 +353,15 @@ fn update(self: *@This()) bool {
             })) self.renderer = @enumFromInt(renderer_idx);
             zgui.popItemWidth();
             drawHint("Threaded runs the software rasterizer on a separate thread");
-            drawHint("OpenGL is incomplete");
+            drawHint("OpenGL should be faster for upscaled res, but incomplete");
             zgui.dummy(.{ .w = 0, .h = 4 });
+        }
 
+        zgui.separator();
+        zgui.dummy(.{ .w = 0, .h = 10 });
+
+        // other options
+        {
             _ = zgui.checkbox("Enable NTSC Shader Filter", .{ .v = &self.shader_enabled });
             drawHint("Simulates composite video artifacts");
             zgui.dummy(.{ .w = 0, .h = 4 });
@@ -426,7 +435,7 @@ fn drawHeader(win_w: f32) void {
         .col = rgba(header_bg_color, 1.0),
     });
 
-    zgui.pushFont(null, 46.0);
+    zgui.pushFont(null, 48.0);
     const prefix_dim = zgui.calcTextSize(header_title_prefix, .{});
     const title_x = x0 + content_padding;
     const title_y = y0 + 18.0;
