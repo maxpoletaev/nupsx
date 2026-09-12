@@ -65,6 +65,7 @@ pub fn init(allocator: std.mem.Allocator, cpu: *CPU, bus: *Bus) *@This() {
     glfw.swapInterval(1); // vsync
 
     zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]) catch @panic("OpenGL");
+    bus.dev.gpu.renderer.initBackend();
 
     zgui.init(allocator);
     zgui.backend.init(window);

@@ -19,8 +19,8 @@ const window_height = 240 * scale;
 const ntsc_width = 960;
 const ntsc_height = 720;
 
-const vertex_shader_source = @embedFile("shaders/vertex.glsl");
-const fragment_shader_source = @embedFile("shaders/fragment.glsl");
+const vertex_shader_source = @embedFile("shaders/display_vertex.glsl");
+const fragment_shader_source = @embedFile("shaders/display_fragment.glsl");
 const ntsc_encoder_source = @embedFile("shaders/ntsc_encoder.glsl");
 const ntsc_decoder_source = @embedFile("shaders/ntsc_decoder.glsl");
 
@@ -310,6 +310,7 @@ pub const UI = struct {
         glfw.swapInterval(0);
 
         zopengl.loadCoreProfile(glfw.getProcAddress, gl_version[0], gl_version[1]) catch @panic("OpenGL");
+        gpu.renderer.initBackend();
 
         // VAO and VBO for fullscreen quad
         var vao: gl.Uint = undefined;
@@ -539,6 +540,15 @@ pub const UI = struct {
         self.frame_count = 0;
     }
 
+    fn vramTexture(self: *@This()) gl.Uint {
+        if (self.gpu.renderer.texture()) |tex| {
+            if (self.gpu.getColorDepth() == .bit15) return tex;
+            self.gpu.renderer.downloadVram(0, 0, 1024, 512);
+        }
+        self.uploadVram();
+        return self.vram_tex;
+    }
+
     fn uploadVram(self: *@This()) void {
         const fb = self.gpu.renderer.framebuffer();
         gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
@@ -565,11 +575,11 @@ pub const UI = struct {
         const win_w: gl.Sizei = @intCast(fb_size[0]);
         const win_h: gl.Sizei = @intCast(fb_size[1]);
 
-        self.uploadVram();
+        const vram_tex = self.vramTexture();
         gl.bindVertexArray(self.vao);
 
         if (self.ntsc_shader_enabled) {
-            self.display.draw(self.rgb_fbo, self.vram_tex, window_width, window_height, self.gpu);
+            self.display.draw(self.rgb_fbo, vram_tex, window_width, window_height, self.gpu);
             self.encoder.draw(self.composite_fbo, self.rgb_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.decoder.draw(self.output_fbo, self.composite_tex, ntsc_width, ntsc_height, self.ntsc_frame);
             self.ntsc_frame +%= 1;
@@ -579,7 +589,7 @@ pub const UI = struct {
             gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, 0);
             gl.blitFramebuffer(0, 0, ntsc_width, ntsc_height, 0, 0, win_w, win_h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
         } else {
-            self.display.draw(0, self.vram_tex, win_w, win_h, self.gpu);
+            self.display.draw(0, vram_tex, win_w, win_h, self.gpu);
         }
 
         self.window.swapBuffers();

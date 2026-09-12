@@ -55,6 +55,7 @@ pub fn update(self: *@This()) void {
             .bit24 => zgui.text("24-bit", .{}),
         };
 
+        self.gpu.renderer.downloadVram(0, 0, 1024, 512);
         gl.bindTexture(gl.TEXTURE_2D, self.texture_id);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);

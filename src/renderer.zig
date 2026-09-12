@@ -79,15 +79,22 @@ pub const Renderer = struct {
 
     pub const VTable = struct {
         start: *const fn (ptr: *anyopaque) void,
+        initBackend: *const fn (ptr: *anyopaque) void,
         deinit: *const fn (ptr: *anyopaque) void,
         execute: *const fn (ptr: *anyopaque, cmd: RasterCommand) void,
         setPixelRaw: *const fn (ptr: *anyopaque, x: i32, y: i32, color: u16) void,
         framebuffer: *const fn (ptr: *anyopaque) Framebuffer,
         flush: *const fn (ptr: *anyopaque) void,
+        texture: *const fn (ptr: *anyopaque) ?u32,
+        downloadVram: *const fn (ptr: *anyopaque, x: i32, y: i32, w: i32, h: i32) void,
     };
 
     pub inline fn start(self: Renderer) void {
         self.vtable.start(self.ptr);
+    }
+
+    pub inline fn initBackend(self: Renderer) void {
+        self.vtable.initBackend(self.ptr);
     }
 
     pub inline fn deinit(self: Renderer) void {
@@ -110,10 +117,21 @@ pub const Renderer = struct {
         return self.vtable.framebuffer(self.ptr);
     }
 
+    pub inline fn texture(self: Renderer) ?u32 {
+        return self.vtable.texture(self.ptr);
+    }
+
+    pub inline fn downloadVram(self: Renderer, x: i32, y: i32, w: i32, h: i32) void {
+        self.vtable.downloadVram(self.ptr, x, y, w, h);
+    }
+
     pub fn from(comptime T: type, impl: *T) Renderer {
         const gen = struct {
             fn startImpl(ptr: *anyopaque) void {
                 T.start(@ptrCast(@alignCast(ptr)));
+            }
+            fn initBackendImpl(ptr: *anyopaque) void {
+                T.initBackend(@ptrCast(@alignCast(ptr)));
             }
             fn deinitImpl(ptr: *anyopaque) void {
                 T.deinit(@ptrCast(@alignCast(ptr)));
@@ -130,13 +148,22 @@ pub const Renderer = struct {
             fn flushImpl(ptr: *anyopaque) void {
                 T.flush(@ptrCast(@alignCast(ptr)));
             }
+            fn textureImpl(ptr: *anyopaque) ?u32 {
+                return T.texture(@ptrCast(@alignCast(ptr)));
+            }
+            fn downloadVramImpl(ptr: *anyopaque, x: i32, y: i32, w: i32, h: i32) void {
+                T.downloadVram(@ptrCast(@alignCast(ptr)), x, y, w, h);
+            }
             const vtable: VTable = .{
                 .start = startImpl,
+                .initBackend = initBackendImpl,
                 .deinit = deinitImpl,
                 .execute = executeImpl,
                 .setPixelRaw = setPixelRawImpl,
                 .framebuffer = framebufferImpl,
                 .flush = flushImpl,
+                .texture = textureImpl,
+                .downloadVram = downloadVramImpl,
             };
         };
         return .{ .ptr = impl, .vtable = &gen.vtable };

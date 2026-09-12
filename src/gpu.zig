@@ -628,7 +628,11 @@ pub const GPU = struct {
             .recv_args => {
                 self.gp0_fifo.push(v);
                 if (self.gp0_fifo.len == 3) {
-                    self.renderer.flush();
+                    const pos = argVertexU(self.gp0_fifo.buf[1]);
+                    const size = argVertexU(self.gp0_fifo.buf[2]);
+                    const size_x: u16 = if (size.x == 0) 1024 else size.x;
+                    const size_y: u16 = if (size.y == 0) 512 else size.y;
+                    self.renderer.downloadVram(pos.x, pos.y, size_x, size_y);
                     self.gp0_state = .send_data;
                     self.gp0_blit_y = 0;
                     self.gp0_blit_x = 0;

@@ -97,7 +97,14 @@ pub const SoftwareRenderer = struct {
     }
 
     pub fn start(_: *@This()) void {}
+    pub fn initBackend(_: *@This()) void {}
     pub fn flush(_: *@This()) void {}
+
+    pub fn texture(_: *@This()) ?u32 {
+        return null;
+    }
+
+    pub fn downloadVram(_: *@This(), _: i32, _: i32, _: i32, _: i32) void {}
 
     pub fn framebuffer(self: *@This()) Framebuffer {
         return .{ .pixels = self.hires, .width = self.hires_w, .height = self.hires_h, .upscale = self.upscale };
@@ -1441,6 +1448,14 @@ pub const ThreadedRenderer = struct {
     pub fn start(self: *@This()) void {
         self.worker = std.Thread.spawn(.{}, workerMain, .{self}) catch @panic("spawn rasterizer worker");
     }
+
+    pub fn initBackend(_: *@This()) void {}
+
+    pub fn texture(_: *@This()) ?u32 {
+        return null;
+    }
+
+    pub fn downloadVram(_: *@This(), _: i32, _: i32, _: i32, _: i32) void {}
 
     pub fn deinit(self: *@This()) void {
         if (self.worker) |worker| {
