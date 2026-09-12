@@ -26,14 +26,24 @@ pub const ColorDepth = enum(u1) { bit15 = 0, bit24 = 1 };
 
 const gpu_vram_size = 1024 * 512;
 
-const gpu_threaded_rasterizer = options.threaded_rasterizer and !builtin.target.cpu.arch.isWasm();
-const Rasterizer = if (gpu_threaded_rasterizer) rasterizer.ThreadedRasterizer else rasterizer.Rasterizer;
+fn rasterizerType() type {
+    if (builtin.target.cpu.arch.isWasm()) {
+        return rasterizer.Rasterizer;
+    }
+    return switch (options.renderer) {
+        .opengl => @import("rasterizer_gl.zig").GlRasterizer,
+        .threaded => rasterizer.ThreadedRasterizer,
+        .software => rasterizer.Rasterizer,
+    };
+}
 
-fn initRasterizer(gpa: std.mem.Allocator, io: ?std.Io, vram: *align(16) [gpu_vram_size]u16, upscale: u32) Rasterizer {
-    return switch (comptime Rasterizer) {
-        rasterizer.ThreadedRasterizer => Rasterizer.init(gpa, io.?, vram, upscale),
-        rasterizer.Rasterizer => Rasterizer.init(gpa, vram, upscale),
-        else => @compileError("unreachable"),
+const RasterizerType = rasterizerType();
+
+fn initRasterizer(gpa: std.mem.Allocator, io: ?std.Io, vram: *align(16) [gpu_vram_size]u16, upscale: u32) RasterizerType {
+    return switch (comptime options.renderer) {
+        .threaded => RasterizerType.init(gpa, io.?, vram, upscale),
+        .software => RasterizerType.init(gpa, vram, upscale),
+        .opengl => RasterizerType.init(gpa, vram, upscale),
     };
 }
 
@@ -186,7 +196,7 @@ pub const GPU = struct {
     pub const addr_end: u32 = 0x1f801817;
 
     allocator: std.mem.Allocator,
-    rasterizer: Rasterizer,
+    rasterizer: RasterizerType,
 
     vram: *align(16) [gpu_vram_size]u16,
     gpuread: u32,

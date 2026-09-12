@@ -1,3 +1,6 @@
+pub const vram_res_x = 1024;
+pub const vram_res_y = 512;
+
 pub const cpu_clock_hz: f64 = 33_868_800.0;
 
 pub const gpu_cycles_hblank_start_ntsc: u32 = 2560;
