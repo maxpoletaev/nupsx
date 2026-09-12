@@ -1,17 +1,18 @@
 const std = @import("std");
 const zopengl = @import("zopengl");
-const rasterizer = @import("rasterizer.zig");
+const renderer = @import("renderer.zig");
 const consts = @import("consts.zig");
 
 const gl = zopengl.bindings;
-const log = std.log.scoped(.rasterizer_gl);
+const log = std.log.scoped(.renderer_gl);
 
-const RasterCommand = rasterizer.RasterCommand;
-const Framebuffer = rasterizer.Framebuffer;
-const TransparencyMode = rasterizer.TransparencyMode;
+const RasterCommand = renderer.RasterCommand;
+const Framebuffer = renderer.Framebuffer;
+const TransparencyMode = renderer.TransparencyMode;
+const Renderer = renderer.Renderer;
 const Vram = [consts.vram_res_x * consts.vram_res_y]u16;
 
-pub const GlRasterizer = struct {
+pub const OpenGlRenderer = struct {
     allocator: std.mem.Allocator,
     vram: *align(16) Vram,
     upscale: i32,
@@ -29,23 +30,31 @@ pub const GlRasterizer = struct {
     check_mask_bit: bool = false,
     enable_dithering: bool = false,
 
-    pub fn init(allocator: std.mem.Allocator, vram: *align(16) Vram, upscale: u32) @This() {
+    pub fn init(allocator: std.mem.Allocator, vram: *align(16) Vram, upscale: u32) *@This() {
         std.debug.assert(upscale >= 1);
-        return .{
+        const self = allocator.create(@This()) catch @panic("OOM");
+        self.* = .{
             .allocator = allocator,
             .upscale = @intCast(upscale),
             .vram = vram,
         };
+        return self;
     }
 
-    pub fn deinit(_: *@This()) void {}
+    pub fn deinit(self: *@This()) void {
+        self.allocator.destroy(self);
+    }
+
+    pub fn renderer(self: *@This()) Renderer {
+        return .from(@This(), self);
+    }
 
     pub fn framebuffer(self: *@This()) Framebuffer {
         return .{
             .pixels = self.vram,
-            .width = consts.vram_res_x * self.upscale,
-            .height = consts.vram_res_y * self.upscale,
-            .upscale = self.upscale,
+            .width = consts.vram_res_x,
+            .height = consts.vram_res_y,
+            .upscale = 1,
         };
     }
 

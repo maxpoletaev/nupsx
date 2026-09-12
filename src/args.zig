@@ -18,11 +18,18 @@ const help_text = (
     \\  --uncapped           Run the emulator without frame rate limiting
     \\  --no-shader          Disable the CRT/NTSC shader
     \\  --upscale <n>        Internal resolution scale, 1-4 (default: 1)
+    \\  --renderer <name>    Rendering backend: software, threaded, opengl (default: threaded)
     \\  -h, --help           Show this help message
 );
 
 pub const Error = error{
     InvalidArgument,
+};
+
+pub const RendererBackend = enum {
+    software,
+    threaded,
+    opengl,
 };
 
 pub const Args = struct {
@@ -40,6 +47,7 @@ pub const Args = struct {
 
     no_shader: bool = false,
     upscale: u32 = 1,
+    renderer: RendererBackend = .threaded,
 
     pub fn printHelp(io: std.Io) void {
         std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
@@ -69,6 +77,7 @@ pub const Args = struct {
             .uncapped = false,
             .no_shader = false,
             .upscale = 1,
+            .renderer = .threaded,
         };
 
         while (args_iter.next()) |arg| {
@@ -146,6 +155,17 @@ pub const Args = struct {
                     log.err("invalid --upscale value: {s} (expected 1-4)", .{scale_str});
                     return Error.InvalidArgument;
                 }
+            }
+
+            if (std.mem.eql(u8, arg, "--renderer")) {
+                const name = args_iter.next() orelse {
+                    log.err("missing value after --renderer", .{});
+                    return Error.InvalidArgument;
+                };
+                args.renderer = std.meta.stringToEnum(RendererBackend, name) orelse {
+                    log.err("invalid --renderer value: {s} (expected software, threaded or opengl)", .{name});
+                    return Error.InvalidArgument;
+                };
             }
         }
 

@@ -108,7 +108,7 @@ const DisplayPass = struct {
         var start_y: f32 = @floatFromInt(gpu.gp1_display_area_start.y);
 
         const res_scale: f32 = switch (color_depth) {
-            .bit15 => @floatFromInt(gpu.rasterizer.framebuffer().upscale),
+            .bit15 => @floatFromInt(gpu.renderer.framebuffer().upscale),
             .bit24 => 1.0, // always native since this is mostly mdec
         };
         const offset_x: f32 = switch (color_depth) {
@@ -540,7 +540,7 @@ pub const UI = struct {
     }
 
     fn uploadVram(self: *@This()) void {
-        const fb = self.gpu.rasterizer.framebuffer();
+        const fb = self.gpu.renderer.framebuffer();
         gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
         switch (self.gpu.getColorDepth()) {

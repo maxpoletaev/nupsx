@@ -22,6 +22,7 @@ const CDROM = cdrom_mod.CDROM;
 const SPU = spu_mod.SPU;
 const SIO0 = sio0_mod.SIO0;
 const SIO1 = sio1_mod.SIO1;
+const SoftwareRenderer = @import("renderer_sw.zig").SoftwareRenderer;
 
 var bus: *Bus = undefined;
 var cpu: *CPU = undefined;
@@ -98,7 +99,9 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     bus = Bus.init(allocator);
     ram = RAM.init(allocator);
     scratchpad = Scratchpad.init(allocator);
-    gpu = GPU.init(allocator, null, bus, 1);
+    const vram = allocator.alignedAlloc(u16, .@"16", gpu_mod.vram_size) catch @panic("OOM");
+    const renderer = SoftwareRenderer.init(allocator, vram[0..gpu_mod.vram_size], 1).renderer();
+    gpu = GPU.init(allocator, bus, vram[0..gpu_mod.vram_size], renderer);
     cpu = CPU.init(allocator, bus);
     dma = DMA.init(allocator, bus);
     mdec = MDEC.init(allocator);
