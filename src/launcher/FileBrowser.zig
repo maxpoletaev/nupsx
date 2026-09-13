@@ -106,7 +106,10 @@ pub fn update(self: *@This(), parent_w: f32, parent_h: f32) bool {
 
     var picked = false;
 
-    if (zgui.beginPopupModal("Select File", .{ .popen = &self.is_open })) {
+    if (zgui.beginPopupModal("Select File", .{
+        .popen = &self.is_open,
+        .flags = .{ .no_resize = true },
+    })) {
         zgui.textColored(title_color, "{s}", .{self.kind.prompt()});
         zgui.separator();
 
