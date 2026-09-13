@@ -459,10 +459,10 @@ pub const GPU = struct {
 
     fn setTextureWindow(self: *@This(), v: u32) void {
         self.gp0_textwin = @bitCast(v);
-        const mask_x = self.gp0_textwin.mask_x *% 8;
-        const mask_y = self.gp0_textwin.mask_y *% 8;
-        const offset_x = self.gp0_textwin.offset_x *% 8;
-        const offset_y = self.gp0_textwin.offset_y *% 8;
+        const mask_x = @as(u16, self.gp0_textwin.mask_x) * 8;
+        const mask_y = @as(u16, self.gp0_textwin.mask_y) * 8;
+        const offset_x = @as(u16, self.gp0_textwin.offset_x) * 8;
+        const offset_y = @as(u16, self.gp0_textwin.offset_y) * 8;
         self.rasterizer.execute(.setTextureWindow(mask_x, mask_y, offset_x, offset_y));
     }
 

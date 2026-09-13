@@ -27,11 +27,11 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Crash Bash|🟩 Playable||
 |Crash Team Racing|🟩 Playable||
 |Castlevania Symphony of the Night|🟨 InGame|Broken shading|
-|Doom|🟨 InGame|Broken textures|
+|Doom|🟩 Playable|Broken textures|
 |Dino Crisis|🟨 InGame|Sound glitches|
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
-|Final Fantasy VII|🟨 InGame|Broken textures in menus/overlays|
+|Final Fantasy VII|🟩 Playable|Broken textures in menus/overlays|
 |Frogger|🟩 Playable||
 |Gran Turismo|🟩 Playable||
 |Gran Turismo 2|🟩 Playable||
@@ -48,14 +48,14 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Silent Hill|🟩 Playable||
 |Spyro the Dragon|🟩 Playable|No background music|
 |Spyro - Year of the Dragon|🟩 Playable||
-|Spider Man 2|🟨 InGame|Badly broken geometry|
+|Spider Man 2||🟩 Playable||
 |Star Ocean - The Second Story|🟩 Playable||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
 |Tomb Raider|🟨 InGame|No background sounds|
 |Tomb Raider III|🟨 InGame|Incorrect shading|
-|Tony Hawk's Pro Skater 2|🟨 InGame|Broken geometry|
-|Vagrant Story|🟨 InGame|Textures in menus/overlays, sound effects pitch|
+|Tony Hawk's Pro Skater 2|🟩 Playable|Broken geometry|
+|Vagrant Story|🟨 InGame|Sound effects pitch|
 |Wipeout|🟩 Playable||
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
