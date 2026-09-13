@@ -7,6 +7,7 @@ const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
 const args_mod = @import("../args.zig");
 const Config = @import("../config.zig").Config;
+const consts = @import("../consts.zig");
 const host_paths = @import("../host_paths.zig");
 const FileBrowser = @import("FileBrowser.zig");
 const PathInput = FileBrowser.PathInput;
@@ -28,8 +29,7 @@ const browse_button_width = 80;
 const browse_button_spacing = 10;
 
 const bios_size = 512 * 1024;
-const max_upscale = 4;
-const upscale_combo_width = 80;
+const upscale_combo_width = 140;
 const renderer_combo_width = 120;
 
 const header_height = 90.0;
@@ -179,7 +179,7 @@ fn loadConfig(self: *@This()) void {
     if (self.config.getBool("debug")) |enabled| self.debug = enabled;
     if (self.config.get("upscale")) |value| {
         const scale = std.fmt.parseUnsigned(u32, value, 10) catch 1;
-        if (scale >= 1 and scale <= max_upscale) self.upscale = scale;
+        if (scale >= 1 and scale <= consts.max_upscale) self.upscale = scale;
     }
     if (self.config.get("renderer")) |value| {
         if (std.meta.stringToEnum(RendererBackend, value)) |backend| self.renderer = backend;
@@ -333,7 +333,14 @@ fn update(self: *@This()) bool {
             zgui.pushItemWidth(upscale_combo_width);
             if (zgui.combo("##upscale", .{
                 .current_item = &upscale_idx,
-                .items_separated_by_zeros = "1x\x002x\x003x\x004x\x00",
+                .items_separated_by_zeros = "1x (~240p)\x00" ++
+                    "2x (~480p)\x00" ++
+                    "3x (~720p)\x00" ++
+                    "4x (~960p)\x00" ++
+                    "5x (~1080p)\x00" ++
+                    "6x (~1440p)\x00" ++
+                    "7x (~1680p)\x00" ++
+                    "8x (~4K)\x00",
             })) self.upscale = @intCast(upscale_idx + 1);
             zgui.popItemWidth();
             drawHint("Higher rendering quality at the cost of performance");
@@ -353,7 +360,7 @@ fn update(self: *@This()) bool {
             })) self.renderer = @enumFromInt(renderer_idx);
             zgui.popItemWidth();
             drawHint("Threaded runs the software rasterizer on a separate thread");
-            drawHint("OpenGL should be faster for upscaled res, but incomplete");
+            drawHint("OpenGL is faster (epsecially for upscaled res), but incomplete");
             zgui.dummy(.{ .w = 0, .h = 4 });
         }
 

@@ -76,7 +76,7 @@ pub const GLRenderer = struct {
     tex: gl.Uint = 0,
 
     pub fn init(allocator: std.mem.Allocator, vram: *align(16) Vram, upscale: u32) *@This() {
-        std.debug.assert(upscale >= 1);
+        std.debug.assert(upscale >= 1 and upscale <= consts.max_upscale);
         const self = allocator.create(@This()) catch @panic("OOM");
         self.* = .{
             .allocator = allocator,

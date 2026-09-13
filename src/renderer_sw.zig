@@ -27,10 +27,8 @@ inline fn vec4Init(base: i32, dx: i32) Vec4i {
 }
 
 pub const SoftwareRenderer = struct {
-    pub const max_upscale = 4;
-
-    const to_native_size = consts.vram_res_x * max_upscale;
-    const to_native_mask = consts.vram_res_x * max_upscale - 1;
+    const to_native_size = consts.vram_res_x * consts.max_upscale;
+    const to_native_mask = consts.vram_res_x * consts.max_upscale - 1;
 
     allocator: std.mem.Allocator,
 
@@ -53,7 +51,7 @@ pub const SoftwareRenderer = struct {
     to_native_aligned: [to_native_size]i16 = undefined, // x/scale if x%scale == 0, else -1
 
     pub fn init(allocator: std.mem.Allocator, vram: *align(16) Vram, upscale: u32) *@This() {
-        std.debug.assert(upscale >= 1 and upscale <= max_upscale);
+        std.debug.assert(upscale >= 1 and upscale <= consts.max_upscale);
 
         const hires = if (upscale == 1) vram else blk: {
             const scaled_x = consts.vram_res_x * upscale;
@@ -107,7 +105,12 @@ pub const SoftwareRenderer = struct {
     pub fn downloadVram(_: *@This(), _: i32, _: i32, _: i32, _: i32) void {}
 
     pub fn framebuffer(self: *@This()) Framebuffer {
-        return .{ .pixels = self.hires, .width = self.hires_w, .height = self.hires_h, .upscale = self.upscale };
+        return .{
+            .pixels = self.hires,
+            .width = self.hires_w,
+            .height = self.hires_h,
+            .upscale = self.upscale,
+        };
     }
 
     // =========================================================================
