@@ -103,6 +103,18 @@ inline fn argVertex(v: u32) struct { x: i16, y: i16 } {
     return .{ .x = x, .y = y };
 }
 
+inline fn validTriangle(v0: Vertex, v1: Vertex, v2: Vertex) bool {
+    const min_x = @min(v0.x, @min(v1.x, v2.x));
+    const max_x = @max(v0.x, @max(v1.x, v2.x));
+    const min_y = @min(v0.y, @min(v1.y, v2.y));
+    const max_y = @max(v0.y, @max(v1.y, v2.y));
+    return (max_x - min_x) < 1024 and (max_y - min_y) < 512;
+}
+
+inline fn validLine(x0: i32, y0: i32, x1: i32, y1: i32) bool {
+    return @abs(x1 - x0) < 1024 and @abs(y1 - y0) < 512;
+}
+
 inline fn argVertexU(v: u32) struct { x: u16, y: u16 } {
     const x = bits.field(v, 0, u16) & 0x3ff;
     const y = bits.field(v, 16, u16) & 0x1ff;
@@ -694,7 +706,10 @@ pub const GPU = struct {
                     const pos0 = argVertex(self.gp0_fifo.buf[1]);
                     const pos1 = argVertex(self.gp0_fifo.buf[2]);
 
-                    self.renderer.execute(.drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color, semi_trans));
+                    if (validLine(pos0.x, pos0.y, pos1.x, pos1.y)) self.renderer.execute(
+                        .drawLineFlat(pos0.x, pos0.y, pos1.x, pos1.y, color, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -725,12 +740,17 @@ pub const GPU = struct {
 
                 while (!self.gp0_fifo.isEmpty()) {
                     const v1 = argVertex(self.gp0_fifo.pop().?);
-                    self.renderer.execute(.drawLineFlat(v0.x, v0.y, v1.x, v1.y, color, semi_trans));
+
+                    if (validLine(v0.x, v0.y, v1.x, v1.y)) self.renderer.execute(
+                        .drawLineFlat(v0.x, v0.y, v1.x, v1.y, color, semi_trans),
+                    );
+
                     v0 = v1;
                     seg_count += 1;
                 }
 
                 self.gp0_state = .recv_command;
+
                 log.debug("polyLineFlat: color={x} segments={} semi_trans={}", .{ @as(u24, @bitCast(color)), seg_count, semi_trans });
             },
             else => unreachable,
@@ -751,7 +771,10 @@ pub const GPU = struct {
                     const color1 = argColor(self.gp0_fifo.buf[2]);
                     const pos1 = argVertex(self.gp0_fifo.buf[3]);
 
-                    self.renderer.execute(.drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1, semi_trans));
+                    if (validLine(pos0.x, pos0.y, pos1.x, pos1.y)) self.renderer.execute(
+                        .drawLineShaded(pos0.x, pos0.y, color0, pos1.x, pos1.y, color1, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -783,13 +806,16 @@ pub const GPU = struct {
                 while (!self.gp0_fifo.isEmpty()) {
                     const c1 = argColor(self.gp0_fifo.pop().?);
                     const v1 = argVertex(self.gp0_fifo.pop().?);
-                    self.renderer.execute(.drawLineShaded(v0.x, v0.y, c0, v1.x, v1.y, c1, semi_trans));
+                    if (validLine(v0.x, v0.y, v1.x, v1.y)) self.renderer.execute(
+                        .drawLineShaded(v0.x, v0.y, c0, v1.x, v1.y, c1, semi_trans),
+                    );
                     c0 = c1;
                     v0 = v1;
                     seg_count += 1;
                 }
 
                 self.gp0_state = .recv_command;
+
                 log.debug("polyLineShaded: segments={} semi_trans={}", .{ seg_count, semi_trans });
             },
             else => unreachable,
@@ -811,7 +837,10 @@ pub const GPU = struct {
                     const pos = argVertex(self.gp0_fifo.buf[1]);
                     const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[2]);
 
-                    self.renderer.execute(.drawRectFlat(pos.x, pos.y, size.x, size.y, color, semi_trans));
+                    self.renderer.execute(
+                        .drawRectFlat(pos.x, pos.y, size.x, size.y, color, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -842,7 +871,10 @@ pub const GPU = struct {
                     const uv = argTexcoord(self.gp0_fifo.buf[2]);
                     const size = if (fix_size) |wh| .{ .x = wh, .y = wh } else argVertex(self.gp0_fifo.buf[3]);
 
-                    self.renderer.execute(.drawRectTextured(pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend));
+                    self.renderer.execute(
+                        .drawRectTextured(pos.x, pos.y, size.x, size.y, uv.x, uv.y, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -873,7 +905,10 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y };
 
-                    self.renderer.execute(.drawTriangleFlat(v0, v1, v2, color, semi_trans));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleFlat(v0, v1, v2, color, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -906,7 +941,10 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .color = color1 };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
 
-                    self.renderer.execute(.drawTriangleShaded(v0, v1, v2, semi_trans));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleShaded(v0, v1, v2, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -939,8 +977,13 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y };
 
-                    self.renderer.execute(.drawTriangleFlat(v0, v1, v2, color, semi_trans));
-                    self.renderer.execute(.drawTriangleFlat(v1, v3, v2, color, semi_trans));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleFlat(v0, v1, v2, color, semi_trans),
+                    );
+                    if (validTriangle(v1, v3, v2)) self.renderer.execute(
+                        .drawTriangleFlat(v1, v3, v2, color, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -976,8 +1019,13 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .color = color2 };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .color = color3 };
 
-                    self.renderer.execute(.drawTriangleShaded(v0, v1, v2, semi_trans));
-                    self.renderer.execute(.drawTriangleShaded(v1, v3, v2, semi_trans));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleShaded(v0, v1, v2, semi_trans),
+                    );
+                    if (validTriangle(v1, v3, v2)) self.renderer.execute(
+                        .drawTriangleShaded(v1, v3, v2, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -1015,7 +1063,10 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
 
-                    self.renderer.execute(.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -1056,8 +1107,13 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y };
 
-                    self.renderer.execute(.drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend));
-                    self.renderer.execute(.drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend),
+                    );
+                    if (validTriangle(v1, v3, v2)) self.renderer.execute(
+                        .drawTriangleTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, color, semi_trans, tex_blend),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -1097,7 +1153,10 @@ pub const GPU = struct {
                     const v1 = Vertex{ .x = pos1.x, .y = pos1.y, .u = uv1.x, .v = uv1.y, .color = color1 };
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y, .color = color2 };
 
-                    self.renderer.execute(.drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(
@@ -1141,8 +1200,13 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y, .color = color2 };
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y, .color = color3 };
 
-                    self.renderer.execute(.drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans));
-                    self.renderer.execute(.drawTriangleShadedTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans));
+                    if (validTriangle(v0, v1, v2)) self.renderer.execute(
+                        .drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans),
+                    );
+                    if (validTriangle(v1, v3, v2)) self.renderer.execute(
+                        .drawTriangleShadedTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans),
+                    );
+
                     self.gp0_state = .recv_command;
 
                     log.debug(

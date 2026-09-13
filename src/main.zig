@@ -178,11 +178,13 @@ const Audio = struct {
 };
 
 fn createRenderer(allocator: std.mem.Allocator, io: std.Io, args: Args, vram: *align(16) [consts.vram_size]u16) renderer_mod.Renderer {
-    return switch (args.renderer) {
+    const r = switch (args.renderer) {
         .software => SoftwareRenderer.init(allocator, vram, args.upscale).renderer(),
         .threaded => ThreadedRenderer.init(allocator, io, vram, args.upscale).renderer(),
         .opengl => GLRenderer.init(allocator, vram, args.upscale).renderer(),
     };
+    std.log.info("using renderer: {s} (upscale={})", .{ @tagName(args.renderer), args.upscale });
+    return r;
 }
 
 fn getArgs(allocator: std.mem.Allocator, io: std.Io, proc_args: std.process.Args) Args {
