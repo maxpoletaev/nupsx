@@ -35,6 +35,20 @@ trap 'rm -rf "$STAGING_DIR"' EXIT
 cp -R "$APP_DIR" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
 
+cat > "$STAGING_DIR/README.txt" <<'EOF'
+nuPSX is a hobby project distributed without an Apple Developer
+certificate ($99/year). macOS may therefore mark it as quarantined
+and prevent it from opening.
+
+If that happens, after moving nuPSX.app to Applications,
+run the following command in Terminal:
+
+  xattr -dr com.apple.quarantine /Applications/nuPSX.app
+
+Or after getting the warning popup, go to `System Preferences -> Security & Privacy`
+and click "Open Anyway" for nuPSX.app at the bottom of the window.
+EOF
+
 hdiutil create \
     -volname "nuPSX" \
     -srcfolder "$STAGING_DIR" \
