@@ -15,27 +15,34 @@ pub const Error = error{
 };
 
 pub const MemoryCard = struct {
-    allocator: std.mem.Allocator,
     io: std.Io,
+    allocator: std.mem.Allocator,
     path: ?[]const u8 = null,
+    tmp_path: ?[]const u8 = null,
     data: [image_size]u8,
     flag: u8 = 0x08,
     dirty: bool = false,
 
     pub fn initBlank(allocator: std.mem.Allocator, io: std.Io, path: ?[]const u8) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
+
+        const memcard_path = if (path) |p| allocator.dupe(u8, p) catch @panic("OOM") else null;
+        const tmp_path = if (path) |p| std.mem.concat(allocator, u8, &.{ p, ".tmp" }) catch @panic("OOM") else null;
+
         self.* = .{
-            .allocator = allocator,
             .io = io,
-            .path = if (path) |p| allocator.dupe(u8, p) catch @panic("OOM") else null,
+            .allocator = allocator,
+            .path = memcard_path,
+            .tmp_path = tmp_path,
+            .dirty = path != null,
             .data = undefined,
         };
+
         self.format();
-        self.dirty = path != null;
         return self;
     }
 
-    pub fn loadOrCreate(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !*@This() {
+    pub fn initFromFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !*@This() {
         if (comptime !has_filesystem) @panic("unsupported target");
 
         const self = initBlank(allocator, io, path);
@@ -63,11 +70,13 @@ pub const MemoryCard = struct {
 
     pub fn deinit(self: *@This()) void {
         if (self.path) |path| self.allocator.free(path);
+        if (self.tmp_path) |tmp_path| self.allocator.free(tmp_path);
         self.allocator.destroy(self);
     }
 
     pub fn save(self: *@This()) !void {
         if (!self.dirty) return; // nothing has changed
+
         const path = self.path orelse return Error.MissingPath;
         if (comptime !has_filesystem) @panic("unsupported target");
 
@@ -75,14 +84,21 @@ pub const MemoryCard = struct {
             try std.Io.Dir.createDirPath(.cwd(), self.io, dir);
         }
 
-        const file = try std.Io.Dir.createFile(.cwd(), self.io, path, .{ .truncate = true });
-        defer file.close(self.io);
+        const tmp_path = self.tmp_path.?;
+        {
+            const file = try std.Io.Dir.createFile(.cwd(), self.io, tmp_path, .{ .truncate = true });
+            defer file.close(self.io);
 
-        var write_buf: [4096]u8 = undefined;
-        var writer = file.writer(self.io, &write_buf);
-        try writer.interface.writeAll(&self.data);
-        try writer.interface.flush();
+            var write_buf: [4096]u8 = undefined;
+            var writer = file.writer(self.io, &write_buf);
+            try writer.interface.writeAll(&self.data);
+            try writer.interface.flush();
+        }
+
+        try std.Io.Dir.rename(.cwd(), tmp_path, .cwd(), path, self.io);
         self.dirty = false;
+
+        log.info("memcard written: {s}", .{path});
     }
 
     pub fn readSector(self: *@This(), sector: u16) *const [sector_size]u8 {

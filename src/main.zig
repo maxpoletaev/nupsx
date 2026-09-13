@@ -233,7 +233,7 @@ pub fn main(init: std.process.Init) !void {
     defer spu.deinit();
 
     const memcard_path = if (args.memcard_path.len != 0) args.memcard_path else host_paths.default_memcard_path;
-    const memcard = MemoryCard.loadOrCreate(allocator, io, memcard_path) catch |err| {
+    const memcard = MemoryCard.initFromFile(allocator, io, memcard_path) catch |err| {
         std.log.err("failed to load or create memory card: {}", .{err});
         return err;
     };
