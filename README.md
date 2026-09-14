@@ -18,7 +18,9 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 
 |Game|Status|Issues|
 |-|-|-|
+|Ape Escape|🟨 InGame|Requires analog controller|
 |Battle Arena Toshinden|🟩 Playable||
+|Castlevania Symphony of the Night|🟨 InGame|Broken shading|
 |Colin McRae Rally|🟩 Playable||
 |Colin McRae Rally 2.0|🟩 Playable||
 |Crash Bandicoot|🟩 Playable||
@@ -26,9 +28,8 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Crash Bandicoot 3|🟩 Playable||
 |Crash Bash|🟩 Playable||
 |Crash Team Racing|🟩 Playable||
-|Castlevania Symphony of the Night|🟨 InGame|Broken shading|
-|Doom|🟩 Playable||
 |Dino Crisis|🟨 InGame|Sound glitches|
+|Doom|🟩 Playable||
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
 |Final Fantasy VII|🟩 Playable||
@@ -36,19 +37,21 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Gran Turismo|🟩 Playable||
 |Gran Turismo 2|🟩 Playable||
 |Grand Theft Auto|🟩 Playable||
+|Legacy of Kain: Soul Reaver|🟨 InGame|Sound issues|
+|Medal of Honor|🟩 Playable||
+|MediEvil|🟩 Playable||
 |Metal Gear Solid|🟩 Playable||
 |Mortal Kombat 2|🟩 Playable||
 |Mortal Kombat 4|🟩 Playable||
-|Legacy of Kain: Soul Reaver|🟨 InGame|Sound issues|
 |Quake II|🟩 Playable||
 |Rayman|🟧 Intro|Stuck at Ubisoft logo screen|
 |Rayman 2|🟩 Playable||
 |Resident Evil 2|🟩 Playable||
 |Ridge Racer|🟩 Playable||
 |Silent Hill|🟩 Playable||
+|Spider Man 2|🟩 Playable||
 |Spyro the Dragon|🟩 Playable|No background music|
 |Spyro - Year of the Dragon|🟩 Playable||
-|Spider Man 2|🟩 Playable||
 |Star Ocean - The Second Story|🟩 Playable||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
@@ -57,6 +60,9 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Tony Hawk's Pro Skater 2|🟩 Playable|Broken geometry|
 |Vagrant Story|🟨 InGame|Sound effects pitch|
 |Wipeout|🟩 Playable||
+|Wipeout 3|🟩 Playable||
+|Xenogears|🟨 InGame|No FMVs (just sound), graphical glitches|
+
 
 🟥 Nothing - Doesn't boot or crashes the emulator <br>
 🟧 Intro - Boots into the title screen or main menu but doesn't get past it<br>
