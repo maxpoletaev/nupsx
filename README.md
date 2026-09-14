@@ -27,11 +27,11 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Crash Bash|🟩 Playable||
 |Crash Team Racing|🟩 Playable||
 |Castlevania Symphony of the Night|🟨 InGame|Broken shading|
-|Doom|🟩 Playable|Broken textures|
+|Doom|🟩 Playable||
 |Dino Crisis|🟨 InGame|Sound glitches|
 |Driver|🟩 Playable||
 |Earthworm Jim 2|🟩 Playable||
-|Final Fantasy VII|🟩 Playable|Broken textures in menus/overlays|
+|Final Fantasy VII|🟩 Playable||
 |Frogger|🟩 Playable||
 |Gran Turismo|🟩 Playable||
 |Gran Turismo 2|🟩 Playable||
@@ -41,14 +41,14 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Mortal Kombat 4|🟩 Playable||
 |Legacy of Kain: Soul Reaver|🟨 InGame|Sound issues|
 |Quake II|🟩 Playable||
-|Rayman|🟧 Intro||
+|Rayman|🟧 Intro|Stuck at Ubisoft logo screen|
 |Rayman 2|🟩 Playable||
 |Resident Evil 2|🟩 Playable||
 |Ridge Racer|🟩 Playable||
 |Silent Hill|🟩 Playable||
 |Spyro the Dragon|🟩 Playable|No background music|
 |Spyro - Year of the Dragon|🟩 Playable||
-|Spider Man 2||🟩 Playable||
+|Spider Man 2|🟩 Playable||
 |Star Ocean - The Second Story|🟩 Playable||
 |Tekken 3|🟨 InGame|Freezes after first round|
 |Tom and Jerry in House Trap|🟩 Playable||
