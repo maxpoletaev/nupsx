@@ -18,14 +18,14 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 echo "Building aarch64 executable..."
 (cd "$ROOT_DIR" && zig build \
     -Dtarget=aarch64-macos \
-    --release=safe \
+    -Doptimize=ReleaseFast \
     --prefix "$WORK_DIR/aarch64" \
     --prefix-exe-dir .)
 
 echo "Building Intel executable..."
 (cd "$ROOT_DIR" && zig build \
     -Dtarget=x86_64-macos \
-    --release=safe \
+    -Doptimize=ReleaseFast \
     --prefix "$WORK_DIR/x86_64" \
     --prefix-exe-dir .)
 
