@@ -11,7 +11,6 @@ pub fn build(b: *std.Build) void {
 
     const options = b.addOptions();
     options.addOption(bool, "uncapped", b.option(bool, "uncapped", "Run uncapped (no audio/video sync)") orelse false);
-    options.addOption(bool, "threaded_rasterizer", b.option(bool, "threaded-rasterizer", "") orelse true);
     options.addOption(bool, "tty", b.option(bool, "tty", "Enable TTY output") orelse false);
 
     const nupsx_mod = b.createModule(.{

@@ -55,6 +55,25 @@ pub const Config = struct {
         self.set(key, if (value) "true" else "false");
     }
 
+    pub fn getInt(self: *const @This(), comptime T: type, key: []const u8) ?T {
+        const value = self.get(key) orelse return null;
+        return std.fmt.parseInt(T, value, 10) catch null;
+    }
+
+    pub fn setInt(self: *@This(), key: []const u8, value: anytype) void {
+        var buf: [24]u8 = undefined;
+        self.set(key, std.fmt.bufPrint(&buf, "{d}", .{value}) catch unreachable);
+    }
+
+    pub fn getEnum(self: *const @This(), comptime T: type, key: []const u8) ?T {
+        const value = self.get(key) orelse return null;
+        return std.meta.stringToEnum(T, value);
+    }
+
+    pub fn setEnum(self: *@This(), key: []const u8, value: anytype) void {
+        self.set(key, @tagName(value));
+    }
+
     pub fn set(self: *@This(), key: []const u8, value: []const u8) void {
         for (self.entries.items) |*entry| {
             if (std.mem.eql(u8, entry.key, key)) {

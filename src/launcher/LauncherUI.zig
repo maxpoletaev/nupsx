@@ -5,28 +5,31 @@ const zopengl = @import("zopengl");
 
 const imgui_fix = @import("../imgui_fix.zig");
 const assets = @import("../assets/embed.zig");
-const Args = @import("../args.zig").Args;
+const args_mod = @import("../args.zig");
 const Config = @import("../config.zig").Config;
 const host_paths = @import("../host_paths.zig");
 const FileBrowser = @import("FileBrowser.zig");
+const Settings = @import("Settings.zig");
+const widgets = @import("widgets.zig");
+const hint = widgets.hint;
 const PathInput = FileBrowser.PathInput;
+
+const Args = args_mod.Args;
 
 const default_font = assets.firacode_ttf;
 const default_font_size = 18.0;
 const window_title = "nuPSX";
 const window_width = 600;
-const window_height = 680;
+const window_height = 600;
 const gl_version = .{ 4, 1 };
 const gl = zopengl.bindings;
 
 const content_padding = 24.0;
-const hint_font_size = 14.0;
 const browse_button_width = 80;
 const browse_button_spacing = 10;
 
 const bios_size = 512 * 1024;
-const max_upscale = 4;
-const upscale_combo_width = 80;
+const settings_button_width = 120;
 
 const header_height = 90.0;
 const header_title_prefix = "nu";
@@ -49,9 +52,8 @@ bios: PathInput = .{},
 game: PathInput = .{},
 memcard: PathInput = .{},
 
-shader_enabled: bool = true,
+settings: Settings,
 debug: bool = false,
-upscale: u32 = 1,
 
 error_message: ?[:0]const u8 = null,
 
@@ -94,6 +96,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io) *@This() {
         .window = window,
         .browser = browser,
         .config = config,
+        .settings = .{ .config = config },
     };
 
     self.memcard.set(host_paths.default_memcard_path);
@@ -126,7 +129,10 @@ pub fn run(self: *@This()) ?Args {
     while (!self.window.shouldClose()) {
         glfw.pollEvents();
 
-        if (!self.browser.is_open and glfw.getKey(self.window, glfw.Key.escape) == .press) {
+        if (!self.browser.is_open and
+            !self.settings.is_open and
+            glfw.getKey(self.window, glfw.Key.escape) == .press)
+        {
             glfw.setWindowShouldClose(self.window, true);
         }
 
@@ -150,9 +156,10 @@ pub fn run(self: *@This()) ?Args {
                 .exe_path = self.dupePath(if (is_exe) game else ""),
                 .cd_image_path = self.dupePath(if (is_exe) "" else game),
                 .memcard_path = self.dupePath(self.memcard.path()),
-                .no_shader = !self.shader_enabled,
+                .no_shader = !self.settings.values.shader_enabled,
                 .debug = self.debug,
-                .upscale = self.upscale,
+                .upscale = self.settings.values.upscale,
+                .renderer = self.settings.values.renderer,
             };
         }
     }
@@ -169,12 +176,7 @@ fn loadConfig(self: *@This()) void {
     if (self.config.get("game")) |path| self.game.set(path);
     if (self.config.get("memcard")) |path| self.memcard.set(path);
     if (self.config.get("current_dir")) |path| self.browser.setCurrentDir(path);
-    if (self.config.getBool("shader_enabled")) |enabled| self.shader_enabled = enabled;
-    if (self.config.getBool("debug")) |enabled| self.debug = enabled;
-    if (self.config.get("upscale")) |value| {
-        const scale = std.fmt.parseUnsigned(u32, value, 10) catch 1;
-        if (scale >= 1 and scale <= max_upscale) self.upscale = scale;
-    }
+    self.settings.load();
 }
 
 fn saveConfig(self: *@This()) void {
@@ -182,10 +184,7 @@ fn saveConfig(self: *@This()) void {
     self.config.set("game", self.game.path());
     self.config.set("memcard", self.memcard.path());
     self.config.set("current_dir", self.browser.currentDir());
-    self.config.setBool("shader_enabled", self.shader_enabled);
-    self.config.setBool("debug", self.debug);
-    var buf: [8]u8 = undefined;
-    self.config.set("upscale", std.fmt.bufPrint(&buf, "{d}", .{self.upscale}) catch unreachable);
+    self.settings.apply();
     self.config.saveConfig();
 }
 
@@ -263,7 +262,7 @@ fn update(self: *@This()) bool {
 
         drawHeader(win_w);
 
-        drawHint("You can drag-and-drop ROMs directly onto this window");
+        hint("You can drag-and-drop ROMs directly onto this window");
         zgui.dummy(.{ .w = 0, .h = 4 });
 
         zgui.separator();
@@ -279,7 +278,7 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##bios", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.bios, &self.bios);
             }
-            drawHint("Select a 512 KB PS1 BIOS dump (e.g. SCPH1001.bin)");
+            hint("Select a 512 KB PS1 BIOS dump (e.g. SCPH1001.bin)");
             zgui.dummy(.{ .w = 0, .h = 12 });
         }
 
@@ -293,7 +292,7 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##game", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.game, &self.game);
             }
-            drawHint("Accepts .cue, .bin, or .exe (leave empty to boot into BIOS menu)");
+            hint("Accepts .cue, .bin, or .exe (leave empty to boot into BIOS menu)");
             zgui.dummy(.{ .w = 0, .h = 12 });
         }
 
@@ -307,33 +306,17 @@ fn update(self: *@This()) bool {
             if (zgui.button("Browse##memcard", .{ .w = browse_button_width, .h = 0 })) {
                 self.browser.open(.memcard, &self.memcard);
             }
-            drawHint("Auto-created if not found");
+            hint("Auto-created if not found");
             zgui.dummy(.{ .w = 0, .h = 15 });
         }
 
         zgui.separator();
         zgui.dummy(.{ .w = 0, .h = 10 });
 
-        // other options
-        {
-            zgui.alignTextToFramePadding();
-            zgui.text("Internal Resolution:", .{});
-            zgui.sameLine(.{ .spacing = 10 });
-            var upscale_idx: i32 = @intCast(self.upscale - 1);
-            zgui.pushItemWidth(upscale_combo_width);
-            if (zgui.combo("##upscale", .{
-                .current_item = &upscale_idx,
-                .items_separated_by_zeros = "1x\x002x\x003x\x004x\x00",
-            })) self.upscale = @intCast(upscale_idx + 1);
-            zgui.popItemWidth();
-            drawHint("Higher rendering quality at the cost of performance");
-
-            _ = zgui.checkbox("Enable NTSC Shader Filter", .{ .v = &self.shader_enabled });
-            drawHint("Simulates composite video artifacts");
-            _ = zgui.checkbox("Launch with Debugger", .{ .v = &self.debug });
-            drawHint("Opens the disassembly, CPU, VRAM, and register inspector views");
-            zgui.dummy(.{ .w = 0, .h = 20 });
-        }
+        // debugger
+        _ = zgui.checkbox("Launch with Debugger", .{ .v = &self.debug });
+        hint("Opens the disassembly, CPU, VRAM, and register inspector views");
+        zgui.dummy(.{ .w = 0, .h = 20 });
 
         // error display
         if (self.error_message) |msg| {
@@ -341,15 +324,22 @@ fn update(self: *@This()) bool {
             zgui.dummy(.{ .w = 0, .h = 5 });
         }
 
-        // launch button
-        if (zgui.button("Start Emulator", .{ .w = content_w, .h = 42 })) {
+        // launch + settings buttons
+        const start_w = content_w - settings_button_width - browse_button_spacing;
+        if (zgui.button("Start Emulator", .{ .w = start_w, .h = 42 })) {
             start_pressed = self.validate();
+        }
+        zgui.sameLine(.{ .spacing = browse_button_spacing });
+        if (widgets.greyButton("Settings", settings_button_width, 42)) {
+            self.settings.open();
         }
 
         // file browser modal (if open)
         if (self.browser.update(win_w, win_h)) {
             self.error_message = null;
         }
+
+        self.settings.update(win_w, win_h);
     }
     zgui.end();
 
@@ -399,7 +389,7 @@ fn drawHeader(win_w: f32) void {
         .col = rgba(header_bg_color, 1.0),
     });
 
-    zgui.pushFont(null, 46.0);
+    zgui.pushFont(null, 48.0);
     const prefix_dim = zgui.calcTextSize(header_title_prefix, .{});
     const title_x = x0 + content_padding;
     const title_y = y0 + 18.0;
@@ -415,10 +405,4 @@ fn drawHeader(win_w: f32) void {
     );
     zgui.popFont();
     zgui.setCursorPosY(header_height + 14.0);
-}
-
-fn drawHint(comptime txt: []const u8) void {
-    zgui.pushFont(null, hint_font_size);
-    zgui.textDisabled(txt, .{});
-    zgui.popFont();
 }

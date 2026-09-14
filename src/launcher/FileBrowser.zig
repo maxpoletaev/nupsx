@@ -1,9 +1,11 @@
 const std = @import("std");
 const zgui = @import("zgui");
+const BIOS = @import("../mem.zig").BIOS;
 
 pub const max_path_len = 1024;
 
 const title_color: [4]f32 = .{ 0.3, 0.7, 1.0, 1.0 };
+const preferred_color: [4]f32 = .{ 0.4, 0.9, 0.4, 1.0 };
 
 pub const FileKind = enum {
     bios,
@@ -24,6 +26,17 @@ pub const FileKind = enum {
             .game => "Select Game Image (.cue, .bin, .exe)",
             .memcard => "Select Memory Card (.mcd)",
         };
+    }
+
+    fn isPreferred(self: FileKind, dir: std.Io.Dir, io: std.Io, name: []const u8) bool {
+        switch (self) {
+            .bios => {
+                const st = dir.statFile(io, name, .{}) catch return false;
+                return st.size == BIOS.bios_rom_size;
+            },
+            .game => return std.ascii.endsWithIgnoreCase(name, ".cue"),
+            .memcard => return false,
+        }
     }
 
     pub fn matches(self: FileKind, name: []const u8) bool {
@@ -52,6 +65,7 @@ pub const PathInput = struct {
 const Entry = struct {
     name: [:0]u8,
     is_dir: bool,
+    preferred: bool,
 
     fn lessThan(_: void, a: Entry, b: Entry) bool {
         if (a.is_dir != b.is_dir) return a.is_dir;
@@ -68,6 +82,9 @@ target: *PathInput = undefined,
 
 current_dir: std.ArrayList(u8) = .empty,
 entries: std.ArrayList(Entry) = .empty,
+filtered: std.ArrayList(usize) = .empty,
+search: [256:0]u8 = @splat(0),
+search_need_focus: bool = false,
 
 pub fn init(allocator: std.mem.Allocator, io: std.Io, start_dir: []const u8) *@This() {
     const self = allocator.create(@This()) catch @panic("OOM");
@@ -79,6 +96,7 @@ pub fn init(allocator: std.mem.Allocator, io: std.Io, start_dir: []const u8) *@T
 pub fn deinit(self: *@This()) void {
     self.clearEntries();
     self.entries.deinit(self.allocator);
+    self.filtered.deinit(self.allocator);
     self.current_dir.deinit(self.allocator);
     self.allocator.destroy(self);
 }
@@ -87,6 +105,7 @@ pub fn open(self: *@This(), kind: FileKind, target: *PathInput) void {
     self.kind = kind;
     self.target = target;
     self.is_open = true;
+    self.resetSearch();
     self.refreshEntries();
 }
 
@@ -106,24 +125,41 @@ pub fn update(self: *@This(), parent_w: f32, parent_h: f32) bool {
 
     var picked = false;
 
-    if (zgui.beginPopupModal("Select File", .{ .popen = &self.is_open })) {
+    if (zgui.beginPopupModal("Select File", .{
+        .popen = &self.is_open,
+        .flags = .{ .no_resize = true },
+    })) {
         zgui.textColored(title_color, "{s}", .{self.kind.prompt()});
         zgui.separator();
 
-        // navigation bar: up button + current path
+        // up button + current path
         if (zgui.button("Up [..]", .{ .w = 70, .h = 0 })) {
             self.navigateUp();
         }
         zgui.sameLine(.{ .spacing = 10 });
         zgui.textWrapped("{s}", .{self.current_dir.items});
+
+        // search field
+        if (self.search_need_focus) {
+            zgui.setKeyboardFocusHere(0);
+            self.search_need_focus = false;
+        }
+        zgui.setNextItemWidth(-1);
+        if (zgui.inputTextWithHint("##search", .{ .hint = "Search...", .buf = &self.search })) {
+            self.applyFilter();
+        }
         zgui.separator();
 
         // file and directory list
-        if (zgui.beginChild("FileList", .{ .w = 0, .h = modal_h - 130 })) {
-            for (self.entries.items) |entry| {
+        if (zgui.beginChild("FileList", .{ .w = 0, .h = modal_h - 160 })) {
+            for (self.filtered.items) |idx| {
+                const entry = self.entries.items[idx];
                 var label_buf: [max_path_len + 16:0]u8 = undefined;
                 const prefix = if (entry.is_dir) "[DIR] " else "      ";
                 const label = std.fmt.bufPrintZ(&label_buf, "{s}{s}", .{ prefix, entry.name }) catch continue;
+
+                if (entry.preferred) zgui.pushStyleColor4f(.{ .idx = .text, .c = preferred_color });
+                defer if (entry.preferred) zgui.popStyleColor(.{});
 
                 if (zgui.selectable(label, .{})) {
                     if (entry.is_dir) {
@@ -182,11 +218,27 @@ fn refreshEntries(self: *@This()) void {
 
         self.entries.append(self.allocator, .{
             .name = self.allocator.dupeZ(u8, entry.name) catch @panic("OOM"),
+            .preferred = !is_dir and self.kind.isPreferred(dir, self.io, entry.name),
             .is_dir = is_dir,
         }) catch @panic("OOM");
     }
 
     std.mem.sort(Entry, self.entries.items, {}, Entry.lessThan);
+    self.applyFilter();
+}
+
+fn resetSearch(self: *@This()) void {
+    self.search[0] = 0;
+    self.search_need_focus = true;
+}
+
+fn applyFilter(self: *@This()) void {
+    const query = std.mem.sliceTo(&self.search, 0);
+    self.filtered.clearRetainingCapacity();
+    for (self.entries.items, 0..) |entry, i| {
+        if (query.len > 0 and std.ascii.findIgnoreCase(entry.name, query) == null) continue;
+        self.filtered.append(self.allocator, i) catch @panic("OOM");
+    }
 }
 
 pub fn setCurrentDir(self: *@This(), path: []const u8) void {
@@ -200,12 +252,14 @@ fn navigateUp(self: *@This()) void {
     if (parent.len == 0) return;
 
     self.current_dir.shrinkRetainingCapacity(parent.len);
+    self.resetSearch();
     self.refreshEntries();
 }
 
 fn navigateInto(self: *@This(), sub_dir: []const u8) void {
     const new_path = std.fs.path.join(self.allocator, &.{ self.current_dir.items, sub_dir }) catch @panic("OOM");
     defer self.allocator.free(new_path);
+    self.resetSearch();
     self.setCurrentDir(new_path);
 }
 

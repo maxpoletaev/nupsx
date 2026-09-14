@@ -1,4 +1,5 @@
 const std = @import("std");
+const consts = @import("consts.zig");
 
 const log = std.log.scoped(.args);
 
@@ -17,12 +18,19 @@ const help_text = (
     \\  --breakpoint <addr>  Set a breakpoint at the specified address (hexadecimal)
     \\  --uncapped           Run the emulator without frame rate limiting
     \\  --no-shader          Disable the CRT/NTSC shader
-    \\  --upscale <n>        Internal resolution scale, 1-4 (default: 1)
+    \\  --upscale <n>        Internal resolution scale, 1-8 (default: 1)
+    \\  --renderer <name>    Rendering backend: software, threaded, opengl (default: threaded)
     \\  -h, --help           Show this help message
 );
 
 pub const Error = error{
     InvalidArgument,
+};
+
+pub const RendererBackend = enum {
+    software,
+    threaded,
+    opengl,
 };
 
 pub const Args = struct {
@@ -40,6 +48,7 @@ pub const Args = struct {
 
     no_shader: bool = false,
     upscale: u32 = 1,
+    renderer: RendererBackend = .threaded,
 
     pub fn printHelp(io: std.Io) void {
         std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
@@ -69,6 +78,7 @@ pub const Args = struct {
             .uncapped = false,
             .no_shader = false,
             .upscale = 1,
+            .renderer = .threaded,
         };
 
         while (args_iter.next()) |arg| {
@@ -142,10 +152,21 @@ pub const Args = struct {
                     return Error.InvalidArgument;
                 };
                 args.upscale = std.fmt.parseUnsigned(u32, scale_str, 10) catch 0;
-                if (args.upscale < 1 or args.upscale > 4) {
-                    log.err("invalid --upscale value: {s} (expected 1-4)", .{scale_str});
+                if (args.upscale < 1 or args.upscale > consts.max_upscale) {
+                    log.err("invalid --upscale value: {s} (expected 1-{d})", .{ scale_str, consts.max_upscale });
                     return Error.InvalidArgument;
                 }
+            }
+
+            if (std.mem.eql(u8, arg, "--renderer")) {
+                const name = args_iter.next() orelse {
+                    log.err("missing value after --renderer", .{});
+                    return Error.InvalidArgument;
+                };
+                args.renderer = std.meta.stringToEnum(RendererBackend, name) orelse {
+                    log.err("invalid --renderer value: {s} (expected software, threaded or opengl)", .{name});
+                    return Error.InvalidArgument;
+                };
             }
         }
 
