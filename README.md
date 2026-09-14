@@ -23,6 +23,7 @@ Can boot and play lots of commercial games (notably Crash Bandicoot and MGS) and
 |Castlevania Symphony of the Night|🟨 InGame|Broken shading|
 |Colin McRae Rally|🟩 Playable||
 |Colin McRae Rally 2.0|🟩 Playable||
+|Colony Wars|🟩 Playable||
 |Crash Bandicoot|🟩 Playable||
 |Crash Bandicoot 2|🟩 Playable||
 |Crash Bandicoot 3|🟩 Playable||
