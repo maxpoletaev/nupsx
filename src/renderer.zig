@@ -188,7 +188,7 @@ pub const RasterCommand = union(enum) {
     draw_triangle_flat: struct { v0: Vertex, v1: Vertex, v2: Vertex, color: RGB8, semi_trans: bool },
     draw_triangle_shaded: struct { v0: Vertex, v1: Vertex, v2: Vertex, semi_trans: bool },
     draw_triangle_textured: struct { v0: Vertex, v1: Vertex, v2: Vertex, clut_x: u16, clut_y: u16, texp_x: u16, texp_y: u16, depth: ColorDepth, blend_color: RGB8, semi_trans: bool, tex_blend: bool },
-    draw_triangle_shaded_textured: struct { v0: Vertex, v1: Vertex, v2: Vertex, clut_x: u16, clut_y: u16, texp_x: u16, texp_y: u16, depth: ColorDepth, semi_trans: bool },
+    draw_triangle_shaded_textured: struct { v0: Vertex, v1: Vertex, v2: Vertex, clut_x: u16, clut_y: u16, texp_x: u16, texp_y: u16, depth: ColorDepth, semi_trans: bool, tex_blend: bool },
 
     pub fn fill(c: RGB8) RasterCommand {
         return .{ .fill_cmd = c };
@@ -322,6 +322,7 @@ pub const RasterCommand = union(enum) {
         texp_y: u16,
         depth: ColorDepth,
         semi_trans: bool,
+        tex_blend: bool,
     ) RasterCommand {
         return .{ .draw_triangle_shaded_textured = .{
             .v0 = v0,
@@ -333,6 +334,7 @@ pub const RasterCommand = union(enum) {
             .texp_y = texp_y,
             .depth = depth,
             .semi_trans = semi_trans,
+            .tex_blend = tex_blend,
         } };
     }
 };

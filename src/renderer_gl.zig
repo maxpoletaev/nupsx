@@ -501,7 +501,7 @@ pub const GLRenderer = struct {
             .texp = .{ args.texp_x, args.texp_y },
             .clut = .{ args.clut_x, args.clut_y },
             .depth = args.depth,
-            .tex_blend = true,
+            .tex_blend = args.tex_blend,
         });
         self.pushTriangleTex(args.v0, args.v1, args.v2, null, tex);
     }
@@ -611,7 +611,7 @@ pub const GLRenderer = struct {
     }
 
     fn pushTriangleTex(self: *@This(), v0: Vertex, v1: Vertex, v2: Vertex, flat: ?RGB8, tex: ?TexInfo) void {
-        const dither = flat == null and self.enable_dithering; // gouraud only
+        const dither = self.enable_dithering and if (tex) |t| t.tex_blend else flat == null;
         inline for (.{ v0, v1, v2 }) |v| {
             self.pushVertex(v.x, v.y, @floatFromInt(v.u), @floatFromInt(v.v), flat orelse v.color, tex, dither);
         }

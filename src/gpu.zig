@@ -381,10 +381,14 @@ pub const GPU = struct {
             0x2e => self.drawPoly4Textured(v, SemiTrans, Blend),
             0x2f => self.drawPoly4Textured(v, SemiTrans, Raw),
 
-            0x34, 0x35 => self.drawPoly3ShadedTextured(v, Opaque),
-            0x36, 0x37 => self.drawPoly3ShadedTextured(v, SemiTrans),
-            0x3c, 0x3d => self.drawPoly4ShadedTextured(v, Opaque),
-            0x3e, 0x3f => self.drawPoly4ShadedTextured(v, SemiTrans),
+            0x34 => self.drawPoly3ShadedTextured(v, Opaque, Blend),
+            0x35 => self.drawPoly3ShadedTextured(v, Opaque, Raw),
+            0x36 => self.drawPoly3ShadedTextured(v, SemiTrans, Blend),
+            0x37 => self.drawPoly3ShadedTextured(v, SemiTrans, Raw),
+            0x3c => self.drawPoly4ShadedTextured(v, Opaque, Blend),
+            0x3d => self.drawPoly4ShadedTextured(v, Opaque, Raw),
+            0x3e => self.drawPoly4ShadedTextured(v, SemiTrans, Blend),
+            0x3f => self.drawPoly4ShadedTextured(v, SemiTrans, Raw),
 
             0x30, 0x31 => self.drawPoly3Shaded(v, Opaque),
             0x32, 0x33 => self.drawPoly3Shaded(v, SemiTrans),
@@ -1126,7 +1130,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly3ShadedTextured(self: *@This(), v: u32, semi_trans: bool) void {
+    fn drawPoly3ShadedTextured(self: *@This(), v: u32, semi_trans: bool, tex_blend: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -1154,14 +1158,14 @@ pub const GPU = struct {
                     const v2 = Vertex{ .x = pos2.x, .y = pos2.y, .u = uv2.x, .v = uv2.y, .color = color2 };
 
                     if (validTriangle(v0, v1, v2)) self.renderer.execute(
-                        .drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans),
+                        .drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans, tex_blend),
                     );
 
                     self.gp0_state = .recv_command;
 
                     log.debug(
-                        "poly3ShadedTextured: color0={x} pos0=({},{}) uv0=({},{}) color1={x} pos1=({},{}) uv1=({},{}) color2={x} pos2=({},{}) uv2=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={}",
-                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, uv0.x, uv0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, uv1.x, uv1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, uv2.x, uv2.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans },
+                        "poly3ShadedTextured: color0={x} pos0=({},{}) uv0=({},{}) color1={x} pos1=({},{}) uv1=({},{}) color2={x} pos2=({},{}) uv2=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={} blend={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, uv0.x, uv0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, uv1.x, uv1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, uv2.x, uv2.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans, tex_blend },
                     );
                 }
             },
@@ -1169,7 +1173,7 @@ pub const GPU = struct {
         }
     }
 
-    fn drawPoly4ShadedTextured(self: *@This(), v: u32, semi_trans: bool) void {
+    fn drawPoly4ShadedTextured(self: *@This(), v: u32, semi_trans: bool, tex_blend: bool) void {
         switch (self.gp0_state) {
             .recv_command => {
                 self.gp0_fifo.push(v);
@@ -1201,17 +1205,17 @@ pub const GPU = struct {
                     const v3 = Vertex{ .x = pos3.x, .y = pos3.y, .u = uv3.x, .v = uv3.y, .color = color3 };
 
                     if (validTriangle(v0, v1, v2)) self.renderer.execute(
-                        .drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans),
+                        .drawTriangleShadedTextured(v0, v1, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans, tex_blend),
                     );
                     if (validTriangle(v1, v3, v2)) self.renderer.execute(
-                        .drawTriangleShadedTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans),
+                        .drawTriangleShadedTextured(v1, v3, v2, clut.x, clut.y, texp.x, texp.y, texp.depth, semi_trans, tex_blend),
                     );
 
                     self.gp0_state = .recv_command;
 
                     log.debug(
-                        "poly4ShadedTextured: color0={x} pos0=({},{}) uv0=({},{}) color1={x} pos1=({},{}) uv1=({},{}) color2={x} pos2=({},{}) uv2=({},{}) color3={x} pos3=({},{}) uv3=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={}",
-                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, uv0.x, uv0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, uv1.x, uv1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, uv2.x, uv2.y, @as(u24, @bitCast(color3)), pos3.x, pos3.y, uv3.x, uv3.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans },
+                        "poly4ShadedTextured: color0={x} pos0=({},{}) uv0=({},{}) color1={x} pos1=({},{}) uv1=({},{}) color2={x} pos2=({},{}) uv2=({},{}) color3={x} pos3=({},{}) uv3=({},{}) clut=({},{}) texpage=({},{},{s}) semi_trans={} blend={}",
+                        .{ @as(u24, @bitCast(color0)), pos0.x, pos0.y, uv0.x, uv0.y, @as(u24, @bitCast(color1)), pos1.x, pos1.y, uv1.x, uv1.y, @as(u24, @bitCast(color2)), pos2.x, pos2.y, uv2.x, uv2.y, @as(u24, @bitCast(color3)), pos3.x, pos3.y, uv3.x, uv3.y, clut.x, clut.y, texp.x, texp.y, @tagName(texp.depth), semi_trans, tex_blend },
                     );
                 }
             },

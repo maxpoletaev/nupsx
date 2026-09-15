@@ -233,10 +233,11 @@ pub const SoftwareRenderer = struct {
     }
 
     inline fn execDrawTriangleShadedTextured(self: *@This(), args: @FieldType(RasterCommand, "draw_triangle_shaded_textured")) void {
-        if (args.semi_trans) {
-            self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, true);
-        } else {
-            self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, false);
+        switch (@as(u2, @intFromBool(args.semi_trans)) << 1 | @intFromBool(args.tex_blend)) {
+            0 => self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, false, false),
+            1 => self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, false, true),
+            2 => self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, true, false),
+            3 => self.drawTriangleShadedTextured(args.v0, args.v1, args.v2, args.clut_x, args.clut_y, args.texp_x, args.texp_y, args.depth, true, true),
         }
     }
 
@@ -839,6 +840,7 @@ pub const SoftwareRenderer = struct {
                             if (!texel.isZero()) {
                                 self.setPixelTextured(x + @as(i32, @intCast(lane)), y, texel, blend_color, .{
                                     .semi_trans = semi_trans,
+                                    .dither = tex_blend,
                                     .blend = tex_blend,
                                 });
                             }
@@ -873,6 +875,7 @@ pub const SoftwareRenderer = struct {
                     if (!texel.isZero()) {
                         self.setPixelTextured(x, y, texel, blend_color, .{
                             .semi_trans = semi_trans,
+                            .dither = tex_blend,
                             .blend = tex_blend,
                         });
                     }
@@ -903,6 +906,7 @@ pub const SoftwareRenderer = struct {
         texp_y: u16,
         depth: ColorDepth,
         comptime semi_trans: bool,
+        comptime tex_blend: bool,
     ) void {
         const v0 = self.applyOffset(v0_orig);
         var v1 = self.applyOffset(v1_orig);
@@ -1024,8 +1028,8 @@ pub const SoftwareRenderer = struct {
                                 };
                                 self.setPixelTextured(x + @as(i32, @intCast(lane)), y, texel, blend_color, .{
                                     .semi_trans = semi_trans,
-                                    .dither = true,
-                                    .blend = true,
+                                    .dither = tex_blend,
+                                    .blend = tex_blend,
                                 });
                             }
                         }
@@ -1070,8 +1074,8 @@ pub const SoftwareRenderer = struct {
                         };
                         self.setPixelTextured(x, y, texel, blend_color, .{
                             .semi_trans = semi_trans,
-                            .dither = true,
-                            .blend = true,
+                            .dither = tex_blend,
+                            .blend = tex_blend,
                         });
                     }
                 }
