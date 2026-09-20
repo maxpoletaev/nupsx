@@ -262,6 +262,8 @@ pub const UI = struct {
     gpu: *GPU,
     joy: *SIO0,
     vram_tex: gl.Uint,
+    vram_tex_depth: ?gpu_mod.ColorDepth = null,
+    vram_tex_size: [2]gl.Sizei = .{ 0, 0 },
     vao: gl.Uint,
     vbo: gl.Uint,
     display: DisplayPass,
@@ -549,14 +551,60 @@ pub const UI = struct {
         return self.vram_tex;
     }
 
-    fn uploadVram(self: *@This()) void {
-        const fb = self.gpu.renderer.framebuffer();
+    fn ensureVramTexture(self: *@This(), depth: gpu_mod.ColorDepth, w: gl.Sizei, h: gl.Sizei) void {
         gl.bindTexture(gl.TEXTURE_2D, self.vram_tex);
-        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-        switch (self.gpu.getColorDepth()) {
-            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, fb.width, fb.height, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, fb.pixels.ptr),
-            .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, 682, 512, 0, gl.RGB, gl.UNSIGNED_BYTE, self.gpu.vram),
+        if (self.vram_tex_depth == depth and
+            self.vram_tex_size[0] == w and
+            self.vram_tex_size[1] == h) return;
+
+        switch (depth) {
+            .bit15 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB5, w, h, 0, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, null),
+            .bit24 => gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB8, w, h, 0, gl.RGB, gl.UNSIGNED_BYTE, null),
         }
+        self.vram_tex_depth = depth;
+        self.vram_tex_size = .{ w, h };
+    }
+
+    fn uploadVram(self: *@This()) void {
+        const depth = self.gpu.getColorDepth();
+        const res = self.gpu.getDisplayRes();
+        const start_x: i32 = self.gpu.gp1_display_area_start.x;
+        const start_y: i32 = self.gpu.gp1_display_area_start.y;
+
+        switch (depth) {
+            .bit15 => {
+                const fb = self.gpu.renderer.framebuffer();
+                self.ensureVramTexture(depth, fb.width, fb.height);
+
+                const s = fb.upscale;
+                const x = start_x * s;
+                const y = start_y * s;
+                const w = @min(@as(i32, res[0]) * s, fb.width - x);
+                const h = @min(@as(i32, res[1]) * s, fb.height - y);
+                if (w <= 0 or h <= 0) return;
+
+                const offset: usize = @intCast(y * fb.width + x);
+                gl.pixelStorei(gl.UNPACK_ROW_LENGTH, fb.width);
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_SHORT_1_5_5_5_REV, fb.pixels[offset..].ptr);
+            },
+            .bit24 => {
+                const tex_w: i32 = 682;
+                const tex_h: i32 = 512;
+                self.ensureVramTexture(depth, tex_w, tex_h);
+
+                const x = @divFloor(start_x * 2, 3);
+                const y = start_y;
+                const w = @min(@as(i32, res[0]), tex_w - x);
+                const h = @min(@as(i32, res[1]), tex_h - y);
+                if (w <= 0 or h <= 0) return;
+
+                const vram: [*]const u8 = @ptrCast(self.gpu.vram);
+                const offset: usize = @intCast(y * 2048 + x * 3);
+                gl.pixelStorei(gl.UNPACK_ROW_LENGTH, tex_w);
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGB, gl.UNSIGNED_BYTE, vram + offset);
+            },
+        }
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     }
 
     fn updateInternal(self: *@This(), now: f64) void {
