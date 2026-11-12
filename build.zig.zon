@@ -2,26 +2,26 @@
     .name = .nupsx,
     .version = "0.2.0",
     .fingerprint = 0xb2fcd5f4f801ce80,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zgui = .{
-            .url = "git+https://github.com/zig-gamedev/zgui#0b468ccdc30d85f7fe72308791f2583344b62103",
-            .hash = "zgui-0.6.0-dev--L6sZCtHbgC6H4Y4LaZUaRYqouHWdeOpHmLhm4OHYiKz",
+            .url = "git+https://github.com/CodeCin523/zgui.git#ba28b9595b3dec9198579f2d121494457101b092",
+            .hash = "zgui-0.6.0-dev--L6sZI5HbgCfC6cTf2APUCVy7Jnebi5LYNTywl-8rl4-",
         },
         .zglfw = .{
-            .url = "git+https://github.com/zig-gamedev/zglfw#f04fdbfc5b6d8c9a12025013992ac1d48653931e",
-            .hash = "zglfw-0.10.0-dev-zgVDNNu5IQAk-UK7gIg0LWMmMzxj4sK9xCSTisLhjgI1",
+            .url = "git+https://github.com/zig-gamedev/zglfw#2450fe3c4140091287c79cb41e4a8020af73d896",
+            .hash = "zglfw-0.10.0-dev-zgVDNHC7IQAbvGj5whD2Cp5TMmo5G2C9gNYaF-y-EDZ3",
         },
         .zopengl = .{
-            .url = "git+https://github.com/zig-gamedev/zopengl#eda87248c6fa190fbb5fe78fc84c5e28d6b2032e",
+            .url = "git+https://github.com/zig-gamedev/zopengl.git#447f69e5c93bd94285e860b9e77d09aa01a82bda",
             .hash = "zopengl-0.6.0-dev-5-tnz8mnDgCHR72YtUpLBYW_u4JgZ0Ub-UFX-M0zRSG1",
         },
         .zaudio = .{
-            .url = "git+https://github.com/zig-gamedev/zaudio#fed501100b029213898861b60c6b54f8121dff03",
-            .hash = "zaudio-0.11.0-dev-_M-91iAzQQCTA0NTL2NJsB1qm6kMRrMWRQApIuyX-1Im",
+            .url = "git+https://github.com/zig-gamedev/zaudio.git#2823eee6d1081703a282e43d1a9439dd1b1ef2d0",
+            .hash = "zaudio-0.11.0-dev-_M-91hV9QQDDAxcE4rPrEU90b3yiP25XYL1215u9M4sj",
         },
         .system_sdk = .{
-            .url = "git+https://github.com/zig-gamedev/system_sdk#777e76828f05d5d223df47a4c0de95ae4efde884",
+            .url = "git+https://github.com/zig-gamedev/system_sdk.git#777e76828f05d5d223df47a4c0de95ae4efde884",
             .hash = "system_sdk-0.3.0-dev-alwUNqAaaALJ5VoZImZo3n6prezBnQnrpziun3ZeZwcp",
         },
     },
