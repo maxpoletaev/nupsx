@@ -1438,13 +1438,6 @@ const commands = opaque {
                 self.cmd_state = .resp1;
             },
             .resp1 => {
-                if (self.read_state != .reading) {
-                    log.warn("GETLOCL called while not reading", .{});
-                    self.pushError(.cannot_respond);
-                    self.setInterrupt(2);
-                    self.finishCommand();
-                    return;
-                }
                 log.debug("getLocL", .{});
                 self.pushResultSlice(&self.last_sector_header);
                 self.setInterrupt(3);
