@@ -228,20 +228,20 @@ const key_mappings = [_]KeyMapping{
 
 const GamepadMapping = struct { u8, sio0_mod.Button };
 const gamepad_mappings = [_]GamepadMapping{
-    .{ @intFromEnum(glfw.Gamepad.Button.dpad_up), .up },
-    .{ @intFromEnum(glfw.Gamepad.Button.dpad_down), .down },
-    .{ @intFromEnum(glfw.Gamepad.Button.dpad_left), .left },
-    .{ @intFromEnum(glfw.Gamepad.Button.dpad_right), .right },
-    .{ @intFromEnum(glfw.Gamepad.Button.cross), .cross },
-    .{ @intFromEnum(glfw.Gamepad.Button.circle), .circle },
-    .{ @intFromEnum(glfw.Gamepad.Button.square), .square },
-    .{ @intFromEnum(glfw.Gamepad.Button.triangle), .triangle },
-    .{ @intFromEnum(glfw.Gamepad.Button.left_bumper), .l1 },
-    .{ @intFromEnum(glfw.Gamepad.Button.left_thumb), .l2 },
-    .{ @intFromEnum(glfw.Gamepad.Button.right_bumper), .r1 },
-    .{ @intFromEnum(glfw.Gamepad.Button.right_thumb), .r2 },
-    .{ @intFromEnum(glfw.Gamepad.Button.start), .start },
-    .{ @intFromEnum(glfw.Gamepad.Button.back), .select },
+    .{ @backingInt(glfw.Gamepad.Button.dpad_up), .up },
+    .{ @backingInt(glfw.Gamepad.Button.dpad_down), .down },
+    .{ @backingInt(glfw.Gamepad.Button.dpad_left), .left },
+    .{ @backingInt(glfw.Gamepad.Button.dpad_right), .right },
+    .{ @backingInt(glfw.Gamepad.Button.cross), .cross },
+    .{ @backingInt(glfw.Gamepad.Button.circle), .circle },
+    .{ @backingInt(glfw.Gamepad.Button.square), .square },
+    .{ @backingInt(glfw.Gamepad.Button.triangle), .triangle },
+    .{ @backingInt(glfw.Gamepad.Button.left_bumper), .l1 },
+    .{ @backingInt(glfw.Gamepad.Button.left_thumb), .l2 },
+    .{ @backingInt(glfw.Gamepad.Button.right_bumper), .r1 },
+    .{ @backingInt(glfw.Gamepad.Button.right_thumb), .r2 },
+    .{ @backingInt(glfw.Gamepad.Button.start), .start },
+    .{ @backingInt(glfw.Gamepad.Button.back), .select },
 };
 
 const HotkeyAction = enum {
@@ -502,8 +502,8 @@ pub const UI = struct {
         }
 
         const gamepad_id = 0;
-        if (glfw.joystickIsGamepad(@enumFromInt(gamepad_id))) {
-            const gp_state = glfw.Gamepad.getState(@enumFromInt(gamepad_id)) catch |err| {
+        if (glfw.joystickIsGamepad(@fromBackingInt(@intCast(gamepad_id)))) {
+            const gp_state = glfw.Gamepad.getState(@fromBackingInt(@intCast(gamepad_id))) catch |err| {
                 log.err("failed to get gamepad state: {}", .{err});
                 return;
             };
@@ -523,17 +523,19 @@ pub const UI = struct {
         var title_buf: [256]u8 = undefined;
 
         if (self.game_name) |filename| {
-            const title = std.fmt.bufPrintZ(
+            const title = std.mem.printSentinel(
                 &title_buf,
                 "{s} - {s} - {d:.1} FPS",
                 .{ window_title, filename, fps },
+                0,
             ) catch unreachable;
             self.window.setTitle(title);
         } else {
-            const title = std.fmt.bufPrintZ(
+            const title = std.mem.printSentinel(
                 &title_buf,
                 "{s} - NO DISK - {d:.1} FPS",
                 .{ window_title, fps },
+                0,
             ) catch unreachable;
             self.window.setTitle(title);
         }

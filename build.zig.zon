@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zgui = .{
-            .url = "git+https://github.com/CodeCin523/zgui.git#ba28b9595b3dec9198579f2d121494457101b092",
-            .hash = "zgui-0.6.0-dev--L6sZI5HbgCfC6cTf2APUCVy7Jnebi5LYNTywl-8rl4-",
+            .url = "git+https://github.com/maxpoletaev/zgui.git#f2b340e25b05503bbdb0e5c9a734882cc4717b40",
+            .hash = "zgui-0.6.0-dev--L6sZG1IbgAJvNv8f_uWy0fwpH53MiG4CB-k2XHIN5PN",
         },
         .zglfw = .{
             .url = "git+https://github.com/zig-gamedev/zglfw#2450fe3c4140091287c79cb41e4a8020af73d896",

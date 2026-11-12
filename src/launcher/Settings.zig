@@ -100,12 +100,12 @@ pub fn update(self: *@This(), parent_w: f32, parent_h: f32) void {
         zgui.alignTextToFramePadding();
         zgui.text("Renderer Backend:", .{});
         zgui.sameLine(.{ .spacing = 10 });
-        var renderer_idx: i32 = @intFromEnum(self.draft.renderer);
+        var renderer_idx: i32 = @backingInt(self.draft.renderer);
         zgui.pushItemWidth(renderer_combo_width);
         if (zgui.combo("##renderer", .{
             .current_item = &renderer_idx,
             .items_separated_by_zeros = "Software\x00Threaded\x00OpenGL\x00",
-        })) self.draft.renderer = @enumFromInt(renderer_idx);
+        })) self.draft.renderer = @fromBackingInt(@intCast(renderer_idx));
         zgui.popItemWidth();
         widgets.hint("Threaded runs the software rasterizer on a separate thread");
         widgets.hint("OpenGL is faster (epsecially for upscaled res), but incomplete");

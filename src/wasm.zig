@@ -178,7 +178,7 @@ export fn getDisplayInfoPtr() *DisplayInfo {
         .offset_y = @intCast(gpu.gp1_display_area_start.y),
         .width = res[0],
         .height = res[1],
-        .color_depth = @intFromEnum(gpu.getColorDepth()),
+        .color_depth = @backingInt(gpu.getColorDepth()),
     };
     return &display_info;
 }

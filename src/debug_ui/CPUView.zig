@@ -51,7 +51,7 @@ fn drawCop0Tab(self: *@This()) void {
         zgui.separatorText("Exception State");
         zgui.text("In Exception: {s}", .{if (self.cpu.in_exception) "Yes" else "No"});
         zgui.text("Exception Depth: {d}", .{self.cpu.cop0.depth});
-        zgui.text("Exc Code: {s} ({d})", .{ if (exc_tag) |t| t else "unknown", @intFromEnum(exc_code) });
+        zgui.text("Exc Code: {s} ({d})", .{ if (exc_tag) |t| t else "unknown", @backingInt(exc_code) });
 
         zgui.separatorText("Interrupts");
 

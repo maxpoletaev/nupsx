@@ -75,9 +75,7 @@ pub fn build(b: *std.Build) void {
         const run_cmd = b.addRunArtifact(nupsx_exe);
         run_cmd.step.dependOn(b.getInstallStep());
 
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
+        run_cmd.addPassthruArgs();
 
         const run_step = b.step("run", "Run the app");
         run_step.dependOn(&run_cmd.step);
@@ -109,7 +107,7 @@ pub fn build(b: *std.Build) void {
         const wasm_mod = b.createModule(.{
             .root_source_file = b.path("src/wasm.zig"),
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-            .optimize = .ReleaseSmall,
+            .optimize = .small,
         });
         wasm_mod.addOptions("build_options", options);
 

@@ -413,7 +413,7 @@ pub const Bus = struct {
 pub inline fn readBuf(comptime T: type, buf: []const u8, offset: u32) T {
     const t_size = @sizeOf(T);
 
-    if (comptime builtin.mode == .Debug) {
+    if (comptime builtin.mode == .debug) {
         if (offset % t_size != 0) {
             @branchHint(.unlikely);
             log.warn("unaligned read: {x}", .{offset});
@@ -427,7 +427,7 @@ pub inline fn readBuf(comptime T: type, buf: []const u8, offset: u32) T {
 pub inline fn writeBuf(comptime T: type, buf: []u8, offset: u32, v: T) void {
     const t_size = @sizeOf(T);
 
-    if (comptime builtin.mode == .Debug) {
+    if (comptime builtin.mode == .debug) {
         if (offset % t_size != 0) {
             @branchHint(.unlikely);
             log.warn("unaligned write: {x}", .{offset});

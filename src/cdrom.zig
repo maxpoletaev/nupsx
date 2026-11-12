@@ -102,7 +102,7 @@ const DriveError = enum(u8) {
     drive_door_opened = 0x08,
 
     inline fn code(self: DriveError) u8 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 

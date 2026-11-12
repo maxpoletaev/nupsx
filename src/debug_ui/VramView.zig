@@ -82,7 +82,7 @@ pub fn update(self: *@This()) void {
         const dl = zgui.getWindowDrawList();
 
         const textureRef = zgui.TextureRef{
-            .tex_id = @enumFromInt(self.texture_id),
+            .tex_id = @fromBackingInt(@intCast(self.texture_id)),
             .tex_data = null,
         };
 

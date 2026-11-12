@@ -193,7 +193,7 @@ test "blank card layout contains boot header and empty directory" {
 }
 
 test "sector checksum includes address and payload" {
-    var payload = [_]u8{0} ** sector_size;
+    var payload: [sector_size]u8 = @splat(0);
     payload[0] = 0x12;
     payload[1] = 0x34;
 

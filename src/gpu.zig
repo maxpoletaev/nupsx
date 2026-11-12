@@ -282,7 +282,7 @@ pub const GPU = struct {
         gpustat.force_mask_bit = self.gp0_mask_bit.force_mask_bit;
         gpustat.check_mask_bit = self.gp0_mask_bit.check_mask_bit;
 
-        gpustat.display_enable = @intFromEnum(self.gp1_display_enable);
+        gpustat.display_enable = @backingInt(self.gp1_display_enable);
         gpustat.interrupt_request = self.interrupt_request;
         gpustat.dma_direction = self.gp1_dma_direction;
         gpustat.hres1 = self.gp1_display_mode.hres;
@@ -324,7 +324,7 @@ pub const GPU = struct {
     }
 
     pub inline fn getVideoMode(self: *@This()) u32 {
-        return @intFromEnum(self.gp1_display_mode.video_mode);
+        return @backingInt(self.gp1_display_mode.video_mode);
     }
 
     pub inline fn getColorDepth(self: *@This()) ColorDepth {
@@ -1245,11 +1245,11 @@ pub const GPU = struct {
             },
             0x03 => {
                 const enable: u1 = @truncate(v);
-                self.gp1_display_enable = @enumFromInt(enable);
+                self.gp1_display_enable = @fromBackingInt(@intCast(enable));
                 log.debug("gp1 set display enable: enable={d}", .{enable});
             },
             0x04 => {
-                self.gp1_dma_direction = @enumFromInt(@as(u2, @truncate(v)));
+                self.gp1_dma_direction = @fromBackingInt(@intCast(@as(u2, @truncate(v))));
                 log.debug("gp1 set dma direction: dir={s}", .{@tagName(self.gp1_dma_direction)});
             },
             0x05 => {

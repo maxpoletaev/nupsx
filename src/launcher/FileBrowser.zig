@@ -156,7 +156,7 @@ pub fn update(self: *@This(), parent_w: f32, parent_h: f32) bool {
                 const entry = self.entries.items[idx];
                 var label_buf: [max_path_len + 16:0]u8 = undefined;
                 const prefix = if (entry.is_dir) "[DIR] " else "      ";
-                const label = std.fmt.bufPrintZ(&label_buf, "{s}{s}", .{ prefix, entry.name }) catch continue;
+                const label = std.mem.printSentinel(&label_buf, "{s}{s}", .{ prefix, entry.name }, 0) catch continue;
 
                 if (entry.preferred) zgui.pushStyleColor4f(.{ .idx = .text, .c = preferred_color });
                 defer if (entry.preferred) zgui.popStyleColor(.{});
@@ -217,7 +217,7 @@ fn refreshEntries(self: *@This()) void {
         if (!is_dir and !self.kind.matches(entry.name)) continue;
 
         self.entries.append(self.allocator, .{
-            .name = self.allocator.dupeZ(u8, entry.name) catch @panic("OOM"),
+            .name = self.allocator.dupeSentinel(u8, entry.name, 0) catch @panic("OOM"),
             .preferred = !is_dir and self.kind.isPreferred(dir, self.io, entry.name),
             .is_dir = is_dir,
         }) catch @panic("OOM");

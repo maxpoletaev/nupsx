@@ -694,7 +694,7 @@ pub const GLRenderer = struct {
         gl.uniform1i(self.u.vram, 0);
         gl.uniform1i(self.u.upscale, s);
         gl.uniform1i(self.u.textured, @intFromBool(st.textured));
-        gl.uniform1i(self.u.depth, @intFromEnum(st.depth));
+        gl.uniform1i(self.u.depth, @backingInt(st.depth));
         gl.uniform2ui(self.u.texwin_mask, self.texwin_mask[0], self.texwin_mask[1]);
         gl.uniform2ui(self.u.texwin_offset, self.texwin_offset[0], self.texwin_offset[1]);
         gl.bindVertexArray(self.vao);

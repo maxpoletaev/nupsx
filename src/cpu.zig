@@ -126,7 +126,7 @@ pub const RawInstr = struct {
     raw: u32,
 
     pub inline fn opcode(self: RawInstr) Opcode {
-        return @enumFromInt(bits.field(self.raw, 26, u6));
+        return @fromBackingInt(@intCast(bits.field(self.raw, 26, u6)));
     }
 
     pub inline fn isJumpOrBranch(self: RawInstr) bool {
@@ -143,7 +143,7 @@ pub const RawInstr = struct {
     }
 
     pub inline fn copOpcode(self: RawInstr) CopOpcode {
-        return @enumFromInt(bits.field(self.raw, 21, u5));
+        return @fromBackingInt(@intCast(bits.field(self.raw, 21, u5)));
     }
 
     pub inline fn rs(self: RawInstr) u5 {
@@ -176,11 +176,11 @@ pub const RawInstr = struct {
     }
 
     pub inline fn special(self: RawInstr) SpecialOpcode {
-        return @enumFromInt(bits.field(self.raw, 0, u6));
+        return @fromBackingInt(@intCast(bits.field(self.raw, 0, u6)));
     }
 
     pub inline fn bcond(self: RawInstr) BranchCond {
-        return @enumFromInt(bits.field(self.raw, 16, u5));
+        return @fromBackingInt(@intCast(bits.field(self.raw, 16, u5)));
     }
 };
 
@@ -1008,7 +1008,7 @@ pub const CPU = struct {
     }
 
     fn jal(self: *@This(), instr: *const DecodedInstr) void {
-        const ra = @intFromEnum(Reg.ra);
+        const ra = @backingInt(Reg.ra);
         self.writeGpr(ra, self.next_pc);
         self.jump((self.pc & 0xF0000000) | (instr.addr << 2));
     }
@@ -1268,13 +1268,13 @@ pub const CPU = struct {
 
     fn bltzal(self: *@This(), instr: *const DecodedInstr) void {
         const v = self.gpr[instr.rs];
-        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
+        self.writeGpr(@backingInt(Reg.ra), self.next_pc);
         self.branchIf(@as(i32, @bitCast(v)) < 0, instr.imm_s);
     }
 
     fn bgezal(self: *@This(), instr: *const DecodedInstr) void {
         const v = self.gpr[instr.rs];
-        self.writeGpr(@intFromEnum(Reg.ra), self.next_pc);
+        self.writeGpr(@backingInt(Reg.ra), self.next_pc);
         self.branchIf(@as(i32, @bitCast(v)) >= 0, instr.imm_s);
     }
 

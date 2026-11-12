@@ -18,7 +18,7 @@ pub inline fn field(value: anytype, offset: u8, comptime ReturnType: type) Retur
 
     switch (return_info.int.signedness) {
         .signed => {
-            const UnsignedType = std.meta.Int(.unsigned, size);
+            const UnsignedType = @Int(.unsigned, size);
             return @bitCast(@as(UnsignedType, @truncate(extracted)));
         },
         .unsigned => return @truncate(extracted),
