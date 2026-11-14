@@ -5,12 +5,12 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zgui = .{
-            .url = "git+https://github.com/maxpoletaev/zgui.git#f2b340e25b05503bbdb0e5c9a734882cc4717b40",
-            .hash = "zgui-0.6.0-dev--L6sZG1IbgAJvNv8f_uWy0fwpH53MiG4CB-k2XHIN5PN",
+            .url = "git+https://github.com/maxpoletaev/zgui.git#e39a66da2da1c9c0bb1638cc83d18c67d27c92cb",
+            .hash = "zgui-0.6.0-dev--L6sZG1IbgBxX4iggiQF0O_2-7R1XCFjzZtDyuERScvK",
         },
         .zglfw = .{
-            .url = "git+https://github.com/zig-gamedev/zglfw#2450fe3c4140091287c79cb41e4a8020af73d896",
-            .hash = "zglfw-0.10.0-dev-zgVDNHC7IQAbvGj5whD2Cp5TMmo5G2C9gNYaF-y-EDZ3",
+            .url = "git+https://github.com/maxpoletaev/zglfw.git#402d83180a2282c19f87c9f0e70abe39ab1aaf34",
+            .hash = "zglfw-0.10.0-dev-zgVDNJG8IQDJtpRCFIXJRqdfzTaKVh546tTj7nqLyyVK",
         },
         .zopengl = .{
             .url = "git+https://github.com/zig-gamedev/zopengl.git#447f69e5c93bd94285e860b9e77d09aa01a82bda",
