@@ -239,7 +239,7 @@ pub fn main(init: std.process.Init) !void {
     var pgxp_cache: ?*VertexCache = null;
     defer if (pgxp_cache) |p| p.deinit();
     if (args.pgxp and args.renderer == .opengl) {
-        std.log.info("g geometry correction is enabled", .{});
+        std.log.info("pgxp geometry correction is enabled", .{});
         pgxp_cache = VertexCache.init(allocator);
     } else if (args.pgxp) {
         std.log.warn("--pgxp requires --renderer opengl, ignoring", .{});
