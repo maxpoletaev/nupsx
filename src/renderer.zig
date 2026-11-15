@@ -64,6 +64,9 @@ pub const Vertex = struct {
     u: u32 = 0,
     v: u32 = 0,
     color: RGB8 = .init(0, 0, 0),
+    // pgxp subpixel offsets
+    pgxp_dx: f32 = 0,
+    pgxp_dy: f32 = 0,
 };
 
 pub const Framebuffer = struct {

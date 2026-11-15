@@ -18,6 +18,7 @@ pub const Values = struct {
     shader_enabled: bool = true,
     upscale: u32 = 1,
     renderer: RendererBackend = .threaded,
+    pgxp: bool = false,
 };
 
 config: *Config,
@@ -40,12 +41,16 @@ pub fn load(self: *@This()) void {
     if (self.config.getEnum(RendererBackend, "renderer")) |backend| {
         self.values.renderer = backend;
     }
+    if (self.config.getBool("pgxp")) |enabled| {
+        self.values.pgxp = enabled;
+    }
 }
 
 pub fn apply(self: *const @This()) void {
     self.config.setBool("shader_enabled", self.values.shader_enabled);
     self.config.setInt("upscale", self.values.upscale);
     self.config.setEnum("renderer", self.values.renderer);
+    self.config.setBool("pgxp", self.values.pgxp);
 }
 
 fn commit(self: *@This()) void {
@@ -109,6 +114,15 @@ pub fn update(self: *@This(), parent_w: f32, parent_h: f32) void {
         zgui.popItemWidth();
         widgets.hint("Threaded runs the software rasterizer on a separate thread");
         widgets.hint("OpenGL is faster (epsecially for upscaled res), but incomplete");
+        zgui.dummy(.{ .w = 0, .h = section_spacing });
+    }
+
+    // pgxp
+    {
+        zgui.beginDisabled(.{ .disabled = self.draft.renderer != .opengl });
+        _ = zgui.checkbox("PGXP Geometry Correction", .{ .v = &self.draft.pgxp });
+        zgui.endDisabled();
+        widgets.hint("Reduces polygon jitter (OpenGL only)");
         zgui.dummy(.{ .w = 0, .h = section_spacing });
     }
 

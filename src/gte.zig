@@ -1,5 +1,6 @@
 const std = @import("std");
 const bits = @import("bits.zig");
+const VertexCache = @import("pgxp.zig").VertexCache;
 
 const log = std.log.scoped(.gte);
 
@@ -149,8 +150,12 @@ pub const GTE = struct {
     zsf4: i16, // 62
     flag: Flags, // 63
 
-    pub fn init() GTE {
-        return std.mem.zeroes(GTE);
+    pgxp_cache: ?*VertexCache = null,
+
+    pub fn init(pgxp_cache: ?*VertexCache) GTE {
+        var gte = std.mem.zeroes(GTE);
+        gte.pgxp_cache = pgxp_cache;
+        return gte;
     }
 
     // =========================================================================
@@ -414,10 +419,23 @@ pub const GTE = struct {
         const sx = self.setMAC0(quotient * self.ir[1] + self.screen_offset[0]) >> 16;
         const sy = self.setMAC0(quotient * self.ir[2] + self.screen_offset[1]) >> 16;
         self.pushSXY(sx, sy);
+        self.cachePreciseSXY();
 
         if (update_ir0) {
             const depth = self.setMAC0(quotient * self.dqa + self.dqb);
             self.ir[0] = self.saturateIR(0, depth >> 12, false);
+        }
+    }
+
+    fn cachePreciseSXY(self: *GTE) void {
+        if (self.pgxp_cache) |cache| {
+            const h: f32 = @floatFromInt(self.proj_dist);
+            const z = @max(h / 2.0, @as(f32, @floatFromInt(self.sz[3])));
+            const h_div_z = h / z;
+            // preserve float version of the RTPS projection (H/SZ3 instead of the UNR divide)
+            const x = @as(f32, @floatFromInt(self.ir[1])) * h_div_z + @as(f32, @floatFromInt(self.screen_offset[0])) / 65536.0;
+            const y = @as(f32, @floatFromInt(self.ir[2])) * h_div_z + @as(f32, @floatFromInt(self.screen_offset[1])) / 65536.0;
+            cache.store(self.sxy[2][0], self.sxy[2][1], x, y);
         }
     }
 

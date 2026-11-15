@@ -26,6 +26,7 @@ const renderer_mod = @import("renderer.zig");
 const SoftwareRenderer = @import("renderer_sw.zig").SoftwareRenderer;
 const ThreadedRenderer = @import("renderer_sw.zig").ThreadedRenderer;
 const GLRenderer = @import("renderer_gl.zig").GLRenderer;
+const VertexCache = @import("pgxp.zig").VertexCache;
 
 const Bus = mem_mod.Bus;
 const BIOS = mem_mod.BIOS;
@@ -235,10 +236,19 @@ pub fn main(init: std.process.Init) !void {
     const renderer = createRenderer(allocator, io, args, vram[0..consts.vram_size]);
     defer renderer.deinit();
 
-    const gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer);
+    var pgxp_cache: ?*VertexCache = null;
+    defer if (pgxp_cache) |p| p.deinit();
+    if (args.pgxp and args.renderer == .opengl) {
+        std.log.info("g geometry correction is enabled", .{});
+        pgxp_cache = VertexCache.init(allocator);
+    } else if (args.pgxp) {
+        std.log.warn("--pgxp requires --renderer opengl, ignoring", .{});
+    }
+
+    const gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer, pgxp_cache);
     defer gpu.deinit();
 
-    const cpu = CPU.init(allocator, bus);
+    const cpu = CPU.init(allocator, bus, pgxp_cache);
     defer cpu.deinit();
 
     const dma = DMA.init(allocator, bus);

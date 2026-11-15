@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = @import("mem.zig");
 const bits = @import("bits.zig");
 const GTE = @import("gte.zig").GTE;
+const VertexCache = @import("pgxp.zig").VertexCache;
 const options = @import("build_options");
 
 const log = std.log.scoped(.cpu);
@@ -387,7 +388,7 @@ pub const CPU = struct {
     hi: u32,
     tty: ?*std.Io.Writer = null,
 
-    pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus) *@This() {
+    pub fn init(allocator: std.mem.Allocator, memory: *mem.Bus, pgxp_cache: ?*VertexCache) *@This() {
         const self = allocator.create(@This()) catch @panic("OOM");
 
         const block_allocator = BlockAllocator.init(allocator, (1 << 27) / @sizeOf(CachedBlock)); // 128 MB worth of blocks
@@ -396,7 +397,7 @@ pub const CPU = struct {
 
         self.* = .{
             .mem = memory,
-            .gte = .init(),
+            .gte = .init(pgxp_cache),
             .allocator = allocator,
             .cached_blocks = cached_blocks,
             .block_allocator = block_allocator,

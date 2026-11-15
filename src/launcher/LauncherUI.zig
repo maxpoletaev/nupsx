@@ -160,6 +160,7 @@ pub fn run(self: *@This()) ?Args {
                 .debug = self.debug,
                 .upscale = self.settings.values.upscale,
                 .renderer = self.settings.values.renderer,
+                .pgxp = self.settings.values.pgxp,
             };
         }
     }

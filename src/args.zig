@@ -20,6 +20,7 @@ const help_text = (
     \\  --no-shader          Disable the CRT/NTSC shader
     \\  --upscale <n>        Internal resolution scale, 1-8 (default: 1)
     \\  --renderer <name>    Rendering backend: software, threaded, opengl (default: threaded)
+    \\  --pgxp               Subpixel vertex precision (opengl renderer only)
     \\  -h, --help           Show this help message
 );
 
@@ -49,6 +50,7 @@ pub const Args = struct {
     no_shader: bool = false,
     upscale: u32 = 1,
     renderer: RendererBackend = .threaded,
+    pgxp: bool = false,
 
     pub fn printHelp(io: std.Io) void {
         std.Io.File.stdout().writeStreamingAll(io, help_text) catch {};
@@ -144,6 +146,10 @@ pub const Args = struct {
 
             if (std.mem.eql(u8, arg, "--no-shader")) {
                 args.no_shader = true;
+            }
+
+            if (std.mem.eql(u8, arg, "--pgxp")) {
+                args.pgxp = true;
             }
 
             if (std.mem.eql(u8, arg, "--upscale")) {

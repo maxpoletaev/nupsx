@@ -613,7 +613,17 @@ pub const GLRenderer = struct {
     fn pushTriangleTex(self: *@This(), v0: Vertex, v1: Vertex, v2: Vertex, flat: ?RGB8, tex: ?TexInfo) void {
         const dither = self.enable_dithering and if (tex) |t| t.tex_blend else flat == null;
         inline for (.{ v0, v1, v2 }) |v| {
-            self.pushVertex(v.x, v.y, @floatFromInt(v.u), @floatFromInt(v.v), flat orelse v.color, tex, dither);
+            const x: f32 = @floatFromInt(v.x + self.draw_offset[0]);
+            const y: f32 = @floatFromInt(v.y + self.draw_offset[1]);
+            self.pushVertexF(
+                x + v.pgxp_dx,
+                y + v.pgxp_dy,
+                @floatFromInt(v.u),
+                @floatFromInt(v.v),
+                flat orelse v.color,
+                tex,
+                dither,
+            );
         }
     }
 
