@@ -102,8 +102,8 @@ export fn init(bios_ptr: [*]const u8, bios_len: usize) void {
     scratchpad = Scratchpad.init(allocator);
     const vram = allocator.alignedAlloc(u16, .@"16", consts.vram_size) catch @panic("OOM");
     const renderer = SoftwareRenderer.init(allocator, vram[0..consts.vram_size], 1).renderer();
-    gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer);
-    cpu = CPU.init(allocator, bus);
+    gpu = GPU.init(allocator, bus, vram[0..consts.vram_size], renderer, null);
+    cpu = CPU.init(allocator, bus, null);
     dma = DMA.init(allocator, bus);
     mdec = MDEC.init(allocator);
     timers = Timers.init(allocator, bus);
