@@ -23,7 +23,7 @@ const CDROMView = @import("CDROMView.zig");
 const DMAView = @import("DMAView.zig");
 const InterruptView = @import("InterruptView.zig");
 
-const default_font = assets.firacode_ttf;
+const default_font = assets.departure_mono_otf;
 const default_font_size = 16.0;
 const window_title = "nuPSX (Debug)";
 const gl_version = .{ 4, 1 };

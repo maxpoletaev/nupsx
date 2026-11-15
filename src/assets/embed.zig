@@ -1,2 +1,1 @@
-pub const freepixel_ttf = @embedFile("freepixel.ttf");
-pub const firacode_ttf = @embedFile("firacode.ttf");
+pub const departure_mono_otf = @embedFile("departure-mono.otf");

@@ -16,7 +16,7 @@ const PathInput = FileBrowser.PathInput;
 
 const Args = args_mod.Args;
 
-const default_font = assets.firacode_ttf;
+const default_font = assets.departure_mono_otf;
 const default_font_size = 18.0;
 const window_title = "nuPSX";
 const window_width = 600;
